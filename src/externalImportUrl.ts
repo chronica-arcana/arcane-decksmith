@@ -1,5 +1,3 @@
-import { getFunctions, httpsCallable } from "firebase/functions";
-import { firebaseApp } from "./firebase";
 import type { ExternalImportResult } from "./importExport";
 
 type ImportUrlResponse = ExternalImportResult & {
@@ -50,30 +48,7 @@ export async function importExternalDeckUrl(url: string): Promise<ImportUrlRespo
     return payload as ImportUrlResponse;
   }
 
-  if (!firebaseApp) {
-    throw new Error(
-      "Der URL-Import benötigt die Import-Proxy-Funktion. CSV/TXT-Import funktioniert weiterhin direkt im Browser."
-    );
-  }
-
-  const functions = getFunctions(firebaseApp, "europe-west1");
-  const call = httpsCallable<{ url: string }, ImportUrlResponse>(functions, "importExternalDeckUrl");
-  try {
-    const result = await call({ url: value });
-    return result.data;
-  } catch (error) {
-    const code = (error as { code?: string } | null)?.code ?? "";
-    if (code === "functions/unauthenticated") {
-      throw new Error("Der URL-Import ist nur mit Konto verfügbar. Im Demo-Modus bitte CSV/TXT importieren.");
-    }
-    if (code === "functions/resource-exhausted") {
-      throw new Error("Zu viele URL-Importe in kurzer Zeit. Bitte eine Minute warten.");
-    }
-    if (code === "functions/not-found" || code === "functions/internal") {
-      throw new Error(
-        "Die Import-Funktion ist nicht erreichbar (Cloud Functions/Blaze-Plan nötig). CSV/TXT-Import funktioniert weiterhin direkt im Browser."
-      );
-    }
-    throw error instanceof Error ? error : new Error("URL-Import fehlgeschlagen.");
-  }
+  throw new Error(
+    "Der URL-Import ist nicht eingerichtet (VITE_IMPORT_PROXY_URL fehlt). CSV/TXT-Import funktioniert weiterhin direkt im Browser."
+  );
 }

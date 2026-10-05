@@ -29,7 +29,7 @@ export function legacyFoilFlag(
   return counts.foil > 0 && counts.nonfoil === 0;
 }
 
-/** Ersetzt/ergänzt Karten im State und hält die Sortierung nach Name (wie Firestore). */
+/** Ersetzt/ergänzt Karten im State und hält die Sortierung nach Name (wie in der Datenbank-Abfrage). */
 export function upsertCards(
   current: CardRecord[],
   updates: CardRecord[]
@@ -40,7 +40,7 @@ export function upsertCards(
   return [...byId.values()].sort(compareByName);
 }
 
-/** Ersetzt/ergänzt ein Deck; Sortierung nach `updatedAt` absteigend (wie Firestore). */
+/** Ersetzt/ergänzt ein Deck; Sortierung nach `updatedAt` absteigend (wie in der Datenbank-Abfrage). */
 export function upsertDecks(
   current: DeckRecord[],
   deck: DeckRecord
@@ -142,7 +142,7 @@ export function cardMetadataChanged(before: CardRecord, after: CardRecord): bool
 
 /**
  * Reduziert `DeckRecord.sourceCards` auf die Felder, die Anzeige und Analyse
- * brauchen. Firestore-Dokumente sind auf 1 MiB begrenzt; vollständige
+ * brauchen. Decks sind auf 1 MiB begrenzt; vollständige
  * Legalitäten, Bild-Varianten und persönliche Notizen werden nicht kopiert.
  */
 export function compactSourceCards(

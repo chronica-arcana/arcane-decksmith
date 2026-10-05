@@ -1,4 +1,4 @@
-import { auth } from "./firebase";
+import { getSession } from "./auth";
 import { notifyOnce } from "./toast";
 import { loadCollection } from "./db";
 import type {
@@ -3204,26 +3204,22 @@ export async function generateAiDeckExplanation(
   deck: DeckRecord,
   purchaseBudget: PurchaseSuggestionBudget = {}
 ): Promise<string> {
-  const user =
-    auth?.currentUser;
+  const session =
+    await getSession();
 
-  if (!user) {
+  if (!session) {
     throw new Error(
       "Du musst angemeldet sein, um die KI-Analyse zu verwenden."
     );
   }
 
-  const [
-    idToken,
-    collection
-  ] =
-    await Promise.all([
-      user.getIdToken(),
+  const idToken =
+    session.accessToken;
 
-      loadCollection(
-        user.uid
-      )
-    ]);
+  const collection =
+    await loadCollection(
+      session.user.uid
+    );
 
   const context =
     await createAiRequestContext(

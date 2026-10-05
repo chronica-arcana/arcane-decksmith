@@ -37,7 +37,7 @@ export const MIN_DISPLAY_NAME = 2;
 export const MAX_DISPLAY_NAME = 30;
 export const MAX_OFFER_PER_FINISH = 1000;
 
-/** Nur Scryfall-Bilder werden angezeigt (auch in den Firestore-Regeln erzwungen). */
+/** Nur Scryfall-Bilder werden angezeigt (auch per Datenbank-Constraint erzwungen). */
 const SCRYFALL_IMAGE_PREFIX = "https://cards.scryfall.io/";
 
 export function marketListingId(ownerId: string, cardId: string): string {

@@ -1,7 +1,6 @@
 import { Suspense, lazy, useEffect, useMemo, useRef, useState, type Dispatch, type FormEvent, type SetStateAction } from "react";
-import type { User } from "firebase/auth";
-import { subscribeAuth, login, logout, register, resetPassword, authMessage } from "./auth";
-import { firebaseConfigured } from "./firebase";
+import { subscribeAuth, login, logout, register, resetPassword, updatePassword, authMessage, type AppUser } from "./auth";
+import { supabaseConfigured } from "./supabase";
 import {
   loadCollection,
   loadDecks,
@@ -10,7 +9,7 @@ import {
   saveCard,
   saveCardsBatch,
   saveDeck,
-  firestoreClean,
+  cleanRecord,
   PartialSaveError,
   uidFromEmail
 } from "./db";
@@ -557,11 +556,13 @@ function collectorNumberCounts(
 
 function App() {
   const [auth, setAuth] = useState<{
-    user: User | null;
+    user: AppUser | null;
     loading: boolean;
+    recovery: boolean;
   }>({
     user: null,
-    loading: true
+    loading: true,
+    recovery: false
   });
 
   const [demoEmail, setDemoEmail] = useState("");
@@ -577,6 +578,14 @@ function App() {
       <div className="splash">
         Arcane Decksmith wird geladen…
       </div>
+    );
+  }
+
+  if (auth.user && auth.recovery) {
+    return (
+      <NewPassword
+        onDone={() => setAuth(current => ({ ...current, recovery: false }))}
+      />
     );
   }
 
@@ -607,6 +616,71 @@ function App() {
 
 type AuthMode = "login" | "register" | "reset";
 
+/** Formular zum Setzen eines neuen Passworts nach dem Klick auf den Link aus der Reset-Mail. */
+function NewPassword({ onDone }: { onDone: () => void }) {
+  const [pw, setPw] = useState("");
+  const [pwRepeat, setPwRepeat] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState("");
+
+  const submit = async (event: FormEvent) => {
+    event.preventDefault();
+    if (busy) return;
+    if (pw !== pwRepeat) {
+      setMsg("Die Passwörter stimmen nicht überein.");
+      return;
+    }
+    setBusy(true);
+    setMsg("");
+    try {
+      await updatePassword(pw);
+      onDone();
+    } catch (e: unknown) {
+      setMsg(authMessage(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="auth-shell">
+      <form className="auth-card" onSubmit={submit}>
+        <h2 className="auth-title">Neues Passwort festlegen</h2>
+        <label>
+          Neues Passwort
+          <input
+            value={pw}
+            onChange={e => setPw(e.target.value)}
+            type="password"
+            autoComplete="new-password"
+            minLength={6}
+            required
+          />
+        </label>
+        <label>
+          Passwort wiederholen
+          <input
+            value={pwRepeat}
+            onChange={e => setPwRepeat(e.target.value)}
+            type="password"
+            autoComplete="new-password"
+            minLength={6}
+            required
+          />
+        </label>
+        {msg && (
+          <div className="error" role="alert">
+            {msg}
+          </div>
+        )}
+        <button type="submit" className="primary full" disabled={busy || !pw || !pwRepeat}>
+          {busy ? "…" : "Passwort speichern"}
+        </button>
+      </form>
+    </div>
+  );
+}
+
 function Auth({
   onDemo
 }: {
@@ -628,7 +702,7 @@ function Auth({
 
   const canSubmit =
     !busy &&
-    firebaseConfigured &&
+    supabaseConfigured &&
     Boolean(email) &&
     (mode === "reset" || Boolean(pw)) &&
     (mode !== "register" || Boolean(pwRepeat));
@@ -649,7 +723,12 @@ function Auth({
           setMsg("Die Passwörter stimmen nicht überein.");
           return;
         }
-        await register(email, pw);
+        const { needsConfirmation } = await register(email, pw);
+        if (needsConfirmation) {
+          setInfo(
+            "Fast geschafft: Wir haben dir eine E-Mail geschickt. Bitte bestätige deine Adresse über den Link in der Mail und melde dich danach an."
+          );
+        }
       } else {
         await resetPassword(email);
         setInfo(
@@ -657,7 +736,7 @@ function Auth({
         );
       }
     } catch (e: unknown) {
-      setMsg(authMessage((e as { code?: string } | null)?.code ?? ""));
+      setMsg(authMessage(e));
     } finally {
       setBusy(false);
     }
@@ -687,9 +766,9 @@ function Auth({
           Deine Sammlung. Deine Karten. Dein Deck.
         </p>
 
-        {!firebaseConfigured && (
+        {!supabaseConfigured && (
           <div className="notice">
-            Firebase ist noch nicht konfiguriert. Du kannst
+            Supabase ist noch nicht konfiguriert. Du kannst
             den lokalen Demo-Modus verwenden.
           </div>
         )}
@@ -755,7 +834,7 @@ function Auth({
           {busy ? "…" : title}
         </button>
 
-        {firebaseConfigured && (
+        {supabaseConfigured && (
           <div className="auth-links">
             {mode !== "login" && (
               <button type="button" className="link-button" onClick={() => switchMode("login")}>
@@ -804,7 +883,7 @@ function Main({
   demoMode,
   onExitDemo
 }: {
-  user: User | null;
+  user: AppUser | null;
   uid: string;
   demoMode: boolean;
   onExitDemo: () => void;
@@ -906,7 +985,7 @@ function Main({
           setCollection(current => upsertCards(current, saved));
         }
       } catch (error) {
-        // Die gespeicherten Daten bleiben nutzbar, falls Scryfall/Firestore gerade nicht erreichbar ist.
+        // Die gespeicherten Daten bleiben nutzbar, falls Scryfall/Supabase gerade nicht erreichbar ist.
         console.warn("Preisaktualisierung fehlgeschlagen:", error);
         if (!cancelled) {
           showToast(
@@ -1032,7 +1111,7 @@ function Main({
   const persistCard =
     async (c: CardRecord) => {
       const cleanCard =
-        firestoreClean(c);
+        cleanRecord(c);
 
       await saveCard(
         uid,
@@ -1047,14 +1126,14 @@ function Main({
     };
 
   /**
-   * Speichert viele Karten gesammelt (Firestore-Batches) und aktualisiert den
+   * Speichert viele Karten gesammelt (Upsert-Batches) und aktualisiert den
    * State lokal. Bei Teilfehlern werden die bereits gespeicherten Karten
    * übernommen und der Fehler weitergereicht.
    */
   const persistCards =
     async (cards: CardRecord[]) => {
       const cleanCards =
-        cards.map(card => firestoreClean(card));
+        cards.map(card => cleanRecord(card));
 
       setSaveProgress({ saved: 0, total: cleanCards.length });
 
@@ -1094,11 +1173,11 @@ function Main({
     async (d: DeckRecord) => {
       try {
         // Automatisch erzeugte Decks können optionale Felder mit `undefined`
-        // enthalten. Firestore akzeptiert solche Werte nicht in verschachtelten
+        // enthalten. JSON kennt keine solchen Werte in verschachtelten
         // Objekten. Durch die JSON-Rundreise werden nur serialisierbare Werte
         // gespeichert, ohne die Deckstruktur zu verändern.
         const cleanDeck =
-          firestoreClean({
+          cleanRecord({
             ...d,
             sourceCards: compactSourceCards(d.sourceCards),
             updatedAt: Date.now()
@@ -4009,7 +4088,7 @@ function Decks({
             disabled={Boolean(aiBusyDeckId) || demoMode || selectedDeck.cards.length === 0}
             title={
               demoMode
-                ? "Die generative KI benötigt eine Firebase-Anmeldung."
+                ? "Die generative KI benötigt eine Anmeldung."
                 : selectedDeck.cards.length === 0
                   ? "Für ein leeres Deck ist keine Analyse sinnvoll."
                   : undefined
@@ -4874,7 +4953,7 @@ function DeckEditor({
             }
             title={
               demoMode
-                ? "Die generative KI benötigt eine Firebase-Anmeldung."
+                ? "Die generative KI benötigt eine Anmeldung."
                 : d.cards.length ===
                     0
                   ? "Für ein leeres Deck ist keine Analyse sinnvoll."
