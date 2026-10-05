@@ -1,6 +1,6 @@
 # Arcane Decksmith – MTG Sammlung & Deckbuilder
 
-React/TypeScript-Projekt (Vite) für Vercel + Firebase Auth/Firestore + Scryfall.
+React/TypeScript-Projekt (Vite) für Vercel + Supabase (Auth/Postgres) + Cloudflare Workers + Scryfall.
 
 ## Wichtige Annahmen
 
@@ -19,7 +19,7 @@ Alles läuft über den Bereich **Marketplace**: Im Tab **Karten hinzufügen** du
 
 - Öffentlich für andere angemeldete Spieler sind nur Karte, Anzahl, Richtpreis und der selbst gewählte **Anzeigename**. E-Mail-Adressen werden nicht veröffentlicht; „@“ und Web-Adressen sind im Anzeigenamen nicht erlaubt.
 - Es gibt bewusst keinen Kontakt-Kanal in der App. Wie sich Spieler einigen, regeln sie außerhalb.
-- Angebote liegen in der Firestore-Collection `marketListings` (Dokument-ID `<uid>_<cardId>`). Die Regeln in `firestore.rules` erlauben Lesen nur für angemeldete Nutzer, Schreiben nur für den Besitzer, prüfen Felder/Größen und erlauben nur Scryfall-Bild-URLs. Nach dem Update die Regeln neu veröffentlichen.
+- Angebote liegen in der Tabelle `market_listings` (ID `<userId>_<cardId>`). Row Level Security erlaubt Lesen nur für angemeldete Nutzer und Schreiben nur für den Besitzer; CHECK-Constraints prüfen Felder/Größen und erlauben nur Scryfall-Bild-URLs (`supabase/migrations/`).
 - Sinkt der Bestand einer Karte oder wird sie gelöscht, wird das Angebot automatisch angepasst bzw. entfernt. Änderungen über den Massen-Import werden nicht automatisch abgeglichen.
 - Im lokalen Demo-Modus gibt es den Marketplace nicht (Angebote müssen für andere sichtbar sein).
 - Preise sind Richtwerte vom Zeitpunkt des Angebots (Scryfall, EUR).
@@ -28,13 +28,13 @@ Alles läuft über den Bereich **Marketplace**: Im Tab **Karten hinzufügen** du
 
 Die KI-Erklärungen und Zusatzdaten (Turnier-, Combo- und Community-Signale) laufen über einen **Cloudflare Worker** (nicht im Browser). Die Standard-URL ist `https://arcane-decksmith-ai.arcane-decksmith-api.workers.dev`; sie lässt sich über `VITE_AI_WORKER_URL` bzw. `VITE_DECK_INTELLIGENCE_URL` überschreiben.
 
-Der Quellcode des Workers liegt **nicht** in diesem Repository. Der Client sendet das Firebase-ID-Token als `Authorization: Bearer …`; Tokenprüfung und Rate-Limits müssen im Worker umgesetzt sein. Ist der Worker nicht erreichbar, zeigt die App einen Hinweis und arbeitet nur mit den Sammlungsdaten weiter.
+Der Quellcode des Workers liegt **nicht** in diesem Repository. Der Client sendet das Supabase-Access-Token als `Authorization: Bearer …`; Tokenprüfung und Rate-Limits müssen im Worker umgesetzt sein (Vorlage für die Token-Prüfung: `worker/supabase-auth.js`). Ist der Worker nicht erreichbar, zeigt die App einen Hinweis und arbeitet nur mit den Sammlungsdaten weiter.
 
 ## Lokal starten
 
 1. Node.js 22 installieren.
 2. `npm ci`
-3. `.env.example` nach `.env.local` kopieren und die Firebase-Konfiguration eintragen.
+3. `.env.example` nach `.env.local` kopieren und die Supabase-Werte eintragen.
 4. `npm run dev`
 5. Prüfen: `npm run check`, `npm run lint`, `npm test`, `npm run build`
 
@@ -42,27 +42,24 @@ Der Quellcode des Workers liegt **nicht** in diesem Repository. Der Client sende
 
 | Variable | Pflicht | Zweck |
 | --- | --- | --- |
-| `VITE_FIREBASE_*` (6 Werte) | ja (sonst nur Demo-Modus) | Firebase Web-Konfiguration |
-| `VITE_IMPORT_PROXY_URL` | nein | Eigener HTTP-Proxy für den URL-Import (`GET ?url=…`, liefert JSON), z. B. der Cloudflare Worker aus `worker/`. Ohne Angabe wird die Firebase Callable Function `importExternalDeckUrl` genutzt. Bei Vercel wird der Wert als Environment Variable gesetzt. |
+| `VITE_SUPABASE_URL` | ja (sonst nur Demo-Modus) | Projekt-URL, z. B. `https://abcd.supabase.co` |
+| `VITE_SUPABASE_ANON_KEY` | ja (sonst nur Demo-Modus) | Öffentlicher Schlüssel (`anon` bzw. „Publishable key“); durch Row Level Security abgesichert |
+| `VITE_IMPORT_PROXY_URL` | nein | Eigener HTTP-Proxy für den URL-Import (`GET ?url=…`, liefert JSON), z. B. der Cloudflare Worker aus `worker/`. Ohne Angabe ist der Link-Import deaktiviert (CSV/TXT geht weiterhin). Bei Vercel wird der Wert als Environment Variable gesetzt. |
 | `VITE_AI_WORKER_URL` | nein | Basis-URL des KI-Workers |
 | `VITE_DECK_INTELLIGENCE_URL` | nein | URL des Deck-Intelligence-Endpunkts |
 | `VITE_SITE_URL` | nein | Öffentliche Basis-URL der Seite; damit wird `og:image` mit absoluter URL erzeugt (bei Vercel manuell als Environment Variable setzen). |
 
-## Firebase
+## Supabase
 
-- Authentication: E-Mail/Passwort aktivieren (Registrierung und „Passwort vergessen“ sind im Anmeldeformular enthalten).
-- Firestore Database anlegen und `firestore.rules` veröffentlichen (`firebase deploy --only firestore:rules`). Die Regeln beschränken den Zugriff auf den Besitzer und prüfen Feldtypen und Größen.
-- **URL-Import (Moxfield, Archidekt, Deckstats)** benötigt die Cloud Function in `functions/` und damit den **Blaze-Plan**:
-  - `cd functions && npm install && cd .. && firebase deploy --only functions`
-  - Runtime: Node.js 22, Region `europe-west1`.
-  - Nur angemeldete Nutzer, Rate-Limit 10 Aufrufe/Minute pro Nutzer (Collection `rateLimits`, nur Admin SDK), Antwortgröße max. 5 MB, Weiterleitungen nur auf erlaubte Hosts.
-  - App Check kann mit `ENFORCE_APP_CHECK=true` in `functions/.env` erzwungen werden, sobald der Client App Check initialisiert.
-  - Moxfield blockiert automatisierte Abrufe gelegentlich; dann hilft der CSV/TXT-Export aus Moxfield.
-- Ohne Cloud Function funktionieren CSV/TXT-Import und alle anderen Funktionen weiterhin.
+Einrichtung Schritt für Schritt: [docs/MIGRATION-SUPABASE.md](docs/MIGRATION-SUPABASE.md).
 
-### URL-Import kostenlos über Cloudflare Worker (ohne Blaze-Plan)
+- Authentication: E-Mail/Passwort (Registrierung, Bestätigungs-Mail und „Passwort vergessen“ sind im Anmeldeformular enthalten).
+- Datenbank: `supabase/migrations/*.sql` im SQL Editor ausführen. Tabellen: `profiles`, `collection_cards`, `decks`, `market_listings`. Zugriff nur über Row Level Security, Eingaben werden per CHECK-Constraints geprüft (Ersatz für die früheren Firestore-Regeln).
+- **URL-Import (Moxfield, Archidekt, Deckstats)** läuft über den Cloudflare Worker (nächster Abschnitt). Moxfield blockiert automatisierte Abrufe gelegentlich; dann hilft der CSV/TXT-Export aus Moxfield.
 
-Alternativ zur Cloud Function kann der Link-Import über einen Cloudflare Worker im kostenlosen Tarif laufen (`worker/import-proxy.js`, gleiche Parser-Logik und Sicherheitsregeln: nur Moxfield/Archidekt/Deckstats, HTTPS, Host-Prüfung nach Weiterleitungen, 5-MB-Limit).
+### URL-Import über Cloudflare Worker
+
+Der Link-Import läuft über einen Cloudflare Worker im kostenlosen Tarif (`worker/import-proxy.js`; Sicherheitsregeln: nur Moxfield/Archidekt/Deckstats, HTTPS, Host-Prüfung nach Weiterleitungen, 5-MB-Limit).
 
 1. Cloudflare Dashboard → **Workers & Pages → Create → Create Worker**, Namen vergeben (z. B. `arcane-decksmith-import`) und **Deploy** klicken.
 2. **Edit code**: Inhalt von `worker/import-proxy.js` einfügen und **Deploy** klicken.
@@ -76,16 +73,16 @@ Test im Browser: `https://<worker>.workers.dev/?url=https://archidekt.com/decks/
 Die Seite wird über Vercel veröffentlicht; der GitHub-Workflow `ci.yml` führt nur Typecheck, Lint und Tests aus.
 
 1. Vercel → **Add New → Project** → Repository `chronica-arcana/arcane-decksmith` importieren (Framework: Vite, Einstellungen kommen aus `vercel.json`).
-2. **Settings → Environment Variables**: die sechs `VITE_FIREBASE_*`-Werte sowie optional `VITE_IMPORT_PROXY_URL`, `VITE_AI_WORKER_URL`, `VITE_DECK_INTELLIGENCE_URL` und `VITE_SITE_URL` (die Vercel-Adresse, z. B. `https://arcane-decksmith.vercel.app/`) eintragen und neu deployen.
-3. Firebase → Authentication → Einstellungen → **Autorisierte Domains**: die Vercel-Domain hinzufügen.
+2. **Settings → Environment Variables**: `VITE_SUPABASE_URL` und `VITE_SUPABASE_ANON_KEY` sowie optional `VITE_IMPORT_PROXY_URL`, `VITE_AI_WORKER_URL`, `VITE_DECK_INTELLIGENCE_URL` und `VITE_SITE_URL` (die Vercel-Adresse, z. B. `https://arcane-decksmith.vercel.app/`) eintragen und neu deployen.
+3. Supabase → Authentication → URL Configuration: **Site URL** und **Redirect URLs** auf die Vercel-Domain setzen.
 4. Cloudflare-Worker: `ALLOWED_ORIGINS` um die Vercel-Domain ergänzen (ohne Pfad, mehrere Adressen mit Komma).
 
 `base: "./"` bleibt gesetzt; die Navigation nutzt Hash-Routing, daher sind keine Rewrite-Regeln nötig.
 
-## Firebase-Konfiguration und GitHub
+## Schlüssel und Sicherheit
 
-Die Firebase Web-Konfiguration ist kein Secret im klassischen Sinn; die eigentliche Absicherung erfolgt durch Firebase Authentication und Firestore Security Rules.
+`VITE_SUPABASE_URL` und `VITE_SUPABASE_ANON_KEY` sind öffentlich (stecken im ausgelieferten JavaScript); die Absicherung erfolgt durch Supabase Auth und Row Level Security. Der **service_role-/Secret-Key** gehört nie in den Browser, nie mit `VITE_`-Präfix und nie ins Repository.
 
 ## Datenschutz
 
-Kartensuche und Bilder gehen direkt an Scryfall, Precon-Listen an MTGJSON. Die Texterkennung des Scanners (Tesseract) läuft im Browser; WASM-Kern und Sprachdaten werden beim ersten Scannen geladen. Sammlung und Decks liegen bei angemeldeten Nutzern in Firestore. Der Demo-Modus speichert ausschließlich im Browser-LocalStorage.
+Kartensuche und Bilder gehen direkt an Scryfall, Precon-Listen an MTGJSON. Die Texterkennung des Scanners (Tesseract) läuft im Browser; WASM-Kern und Sprachdaten werden beim ersten Scannen geladen. Sammlung und Decks liegen bei angemeldeten Nutzern in Supabase (Postgres). Der Demo-Modus speichert ausschließlich im Browser-LocalStorage.

@@ -690,8 +690,8 @@ export default function MarketplacePage(props: MarketplacePageProps) {
         <div className="panel market-error" role="alert">
           <strong>Deine Marketplace-Daten konnten nicht geladen werden.</strong>
           <p className="muted">
-            {props.loadError} Wurden die Firestore-Regeln aus dem letzten Update veröffentlicht
-            (Firebase Console → Firestore Database → Regeln)?
+            {props.loadError} Wurde die Datenbank-Migration ausgeführt
+            (Supabase → SQL Editor → supabase/migrations)?
           </p>
           <button className="secondary" type="button" onClick={props.onRetryLoad}>
             Erneut versuchen

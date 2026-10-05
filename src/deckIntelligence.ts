@@ -1,4 +1,4 @@
-import { auth } from "./firebase";
+import { getSession } from "./auth";
 import { notifyOnce } from "./toast";
 import type {
   CardRecord,
@@ -412,18 +412,18 @@ async function fetchEvidence(
     return cached.value;
   }
 
-  const user =
-    auth?.currentUser;
-
-  if (!user) {
-    return emptyEvidence();
-  }
-
   let idToken: string;
 
   try {
+    const session =
+      await getSession();
+
+    if (!session) {
+      return emptyEvidence();
+    }
+
     idToken =
-      await user.getIdToken();
+      session.accessToken;
   } catch {
     return evidenceUnavailable("Anmeldung konnte nicht bestätigt werden");
   }

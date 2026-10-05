@@ -13,7 +13,7 @@
     "check": "tsc -b --pretty false"
   },
   "dependencies": {
-    "firebase": "^12.18.0",
+    "@supabase/supabase-js": "^2.117.2",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "react-markdown": "^10.1.0",

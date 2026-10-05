@@ -1,13 +1,12 @@
-import {
-  collection, deleteDoc, doc, getDocs, setDoc, query, orderBy, writeBatch
-} from "firebase/firestore";
-import { db } from "./firebase";
+import { supabase } from "./supabase";
 import type { CardRecord, DeckRecord } from "./types";
 
 const key = (uid: string, suffix: string) => `arcane-decksmith:${uid}:${suffix}`;
 
-/** Firestore erlaubt maximal 500 Operationen pro Batch; etwas Puffer lassen. */
-export const BATCH_SIZE = 450;
+/** Datensätze pro Schreibanfrage (Upsert); hält die Request-Größe für PostgREST moderat. */
+export const BATCH_SIZE = 200;
+/** Zeilen pro Leseanfrage: PostgREST liefert standardmäßig höchstens 1000 Zeilen. */
+const PAGE_SIZE = 1000;
 const BATCH_RETRIES = 3;
 
 function localGet<T>(k: string): T[] {
@@ -35,33 +34,58 @@ function localSet<T>(k: string, value: T[]) {
   }
 }
 
-/** Entfernt `undefined`-Werte (Firestore akzeptiert sie in verschachtelten Objekten nicht). */
-export function firestoreClean<T>(value: T): T {
+/** Entfernt `undefined`-Werte, damit nur gültiges JSON in die jsonb-Spalten geschrieben wird. */
+export function cleanRecord<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
 }
 
-/** Sortierung wie `orderBy("name")` in Firestore (Codepoint-Vergleich). */
+/** Wandelt einen Supabase-Fehler in einen normalen Error (Supabase wirft nicht selbst). */
+export function throwIfError(error: { message: string } | null): void {
+  if (error) throw new Error(error.message);
+}
+
+/** Liest alle Zeilen seitenweise (PostgREST begrenzt eine Antwort auf 1000 Zeilen). */
+export async function fetchAllRows<T>(
+  fetchPage: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: { message: string } | null }>
+): Promise<T[]> {
+  const rows: T[] = [];
+  for (let from = 0; ; from += PAGE_SIZE) {
+    const { data, error } = await fetchPage(from, from + PAGE_SIZE - 1);
+    throwIfError(error);
+    const page = data ?? [];
+    rows.push(...page);
+    if (page.length < PAGE_SIZE) return rows;
+  }
+}
+
+/** Sortierung nach Name (Codepoint-Vergleich), unabhängig von der Datenbank-Collation. */
 export function compareByName(a: { name: string }, b: { name: string }): number {
   return a.name < b.name ? -1 : a.name > b.name ? 1 : 0;
 }
 
 export async function loadCollection(uid: string): Promise<CardRecord[]> {
-  if (!db) return localGet<CardRecord>(key(uid, "collection")).sort(compareByName);
-  const snap = await getDocs(query(collection(db, "users", uid, "collection"), orderBy("name")));
-  return snap.docs.map((d) => d.data() as CardRecord);
+  if (!supabase) return localGet<CardRecord>(key(uid, "collection")).sort(compareByName);
+  const client = supabase;
+  const rows = await fetchAllRows<{ data: CardRecord }>((from, to) =>
+    client.from("collection_cards").select("data").eq("user_id", uid).order("card_id").range(from, to)
+  );
+  return rows.map((row) => row.data).sort(compareByName);
 }
 
 export async function saveCard(uid: string, card: CardRecord) {
-  if (!db) {
+  if (!supabase) {
     const all = localGet<CardRecord>(key(uid, "collection"));
     const i = all.findIndex((c) => c.id === card.id);
     if (i >= 0) all[i] = card; else all.push(card);
     localSet(key(uid, "collection"), all);
     return;
   }
-  // Vollständiges Überschreiben: entfernte optionale Felder (z. B. Kommentar) dürfen
-  // nicht per Merge erhalten bleiben, sonst weicht der lokale State vom Server ab.
-  await setDoc(doc(db, "users", uid, "collection", card.id), firestoreClean(card));
+  // Vollständiges Überschreiben der jsonb-Spalte: entfernte optionale Felder (z. B. Kommentar)
+  // dürfen nicht erhalten bleiben, sonst weicht der lokale State vom Server ab.
+  const { error } = await supabase
+    .from("collection_cards")
+    .upsert({ user_id: uid, card_id: card.id, data: cleanRecord(card) }, { onConflict: "user_id,card_id" });
+  throwIfError(error);
 }
 
 export type BatchProgress = (saved: number, total: number) => void;
@@ -82,7 +106,7 @@ export async function withRetry<T>(run: () => Promise<T>, retries = BATCH_RETRIE
 }
 
 /**
- * Speichert viele Karten in Firestore-Batches (max. 450 Ops) mit Retry pro Batch.
+ * Speichert viele Karten in Upsert-Batches (je `BATCH_SIZE` Karten, atomar) mit Retry pro Batch.
  * Bei einem endgültig fehlgeschlagenen Batch wird abgebrochen und ein Fehler mit der
  * Anzahl der bereits gespeicherten Karten geworfen. Liefert die gespeicherten Karten.
  */
@@ -93,7 +117,7 @@ export async function saveCardsBatch(
 ): Promise<CardRecord[]> {
   if (cards.length === 0) return [];
 
-  if (!db) {
+  if (!supabase) {
     const all = localGet<CardRecord>(key(uid, "collection"));
     const index = new Map(all.map((card, i) => [card.id, i] as const));
     for (const card of cards) {
@@ -109,7 +133,7 @@ export async function saveCardsBatch(
     return cards;
   }
 
-  const firestore = db;
+  const client = supabase;
   let saved = 0;
   onProgress?.(0, cards.length);
 
@@ -117,11 +141,9 @@ export async function saveCardsBatch(
     const chunk = cards.slice(start, start + BATCH_SIZE);
     try {
       await withRetry(async () => {
-        const batch = writeBatch(firestore);
-        for (const card of chunk) {
-          batch.set(doc(firestore, "users", uid, "collection", card.id), firestoreClean(card));
-        }
-        await batch.commit();
+        const rows = chunk.map((card) => ({ user_id: uid, card_id: card.id, data: cleanRecord(card) }));
+        const { error } = await client.from("collection_cards").upsert(rows, { onConflict: "user_id,card_id" });
+        throwIfError(error);
       });
     } catch (error) {
       const reason = error instanceof Error ? error.message : String(error);
@@ -149,20 +171,24 @@ export class PartialSaveError extends Error {
 }
 
 export async function removeCard(uid: string, id: string) {
-  if (!db) {
+  if (!supabase) {
     localSet(key(uid, "collection"), localGet<CardRecord>(key(uid, "collection")).filter((c) => c.id !== id));
     return;
   }
-  await deleteDoc(doc(db, "users", uid, "collection", id));
+  const { error } = await supabase.from("collection_cards").delete().eq("user_id", uid).eq("card_id", id);
+  throwIfError(error);
 }
 
 export async function loadDecks(uid: string): Promise<DeckRecord[]> {
-  if (!db) return localGet<DeckRecord>(key(uid, "decks"));
-  const snap = await getDocs(query(collection(db, "users", uid, "decks"), orderBy("updatedAt", "desc")));
-  return snap.docs.map((d) => d.data() as DeckRecord);
+  if (!supabase) return localGet<DeckRecord>(key(uid, "decks"));
+  const client = supabase;
+  const rows = await fetchAllRows<{ data: DeckRecord }>((from, to) =>
+    client.from("decks").select("data").eq("user_id", uid).order("deck_id").range(from, to)
+  );
+  return rows.map((row) => row.data).sort((a, b) => b.updatedAt - a.updatedAt);
 }
 
-/** Firestore-Dokumente dürfen höchstens 1 MiB groß sein; mit Puffer prüfen. */
+/** Ein Deck darf höchstens 1 MiB groß sein (auch als Datenbank-Constraint); mit Puffer prüfen. */
 const MAX_DECK_DOCUMENT_BYTES = 900 * 1024;
 
 export function deckDocumentBytes(deck: DeckRecord): number {
@@ -177,22 +203,26 @@ export async function saveDeck(uid: string, deck: DeckRecord) {
       `(Grenze ca. ${Math.round(MAX_DECK_DOCUMENT_BYTES / 1024)} KB).`
     );
   }
-  if (!db) {
+  if (!supabase) {
     const all = localGet<DeckRecord>(key(uid, "decks"));
     const i = all.findIndex((d) => d.id === deck.id);
     if (i >= 0) all[i] = deck; else all.unshift(deck);
     localSet(key(uid, "decks"), all);
     return;
   }
-  await setDoc(doc(db, "users", uid, "decks", deck.id), firestoreClean(deck));
+  const { error } = await supabase
+    .from("decks")
+    .upsert({ user_id: uid, deck_id: deck.id, data: cleanRecord(deck) }, { onConflict: "user_id,deck_id" });
+  throwIfError(error);
 }
 
 export async function removeDeck(uid: string, id: string) {
-  if (!db) {
+  if (!supabase) {
     localSet(key(uid, "decks"), localGet<DeckRecord>(key(uid, "decks")).filter((d) => d.id !== id));
     return;
   }
-  await deleteDoc(doc(db, "users", uid, "decks", id));
+  const { error } = await supabase.from("decks").delete().eq("user_id", uid).eq("deck_id", id);
+  throwIfError(error);
 }
 
 /** cyrb53-artiger 2×32-Bit-Hash, stabil und unicode-sicher. */
@@ -237,6 +267,10 @@ export function uidFromEmail(email: string) {
 }
 
 export async function ensureProfile(uid: string, email?: string) {
-  if (!db) return;
-  await setDoc(doc(db, "users", uid), { email: email ?? "", updatedAt: Date.now() }, { merge: true });
+  if (!supabase) return;
+  // Nur die übergebenen Spalten werden aktualisiert; display_name bleibt erhalten.
+  const { error } = await supabase
+    .from("profiles")
+    .upsert({ user_id: uid, email: email ?? "", updated_at: Date.now() }, { onConflict: "user_id" });
+  throwIfError(error);
 }

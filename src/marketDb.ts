@@ -1,29 +1,17 @@
-import {
-  collection,
-  deleteDoc,
-  doc,
-  getDoc,
-  getDocs,
-  limit,
-  orderBy,
-  query,
-  setDoc,
-  startAfter,
-  where,
-  writeBatch,
-  type QueryConstraint,
-  type QueryDocumentSnapshot
-} from "firebase/firestore";
-import { BATCH_SIZE, firestoreClean, withRetry } from "./db";
-import { db } from "./firebase";
+import { BATCH_SIZE, cleanRecord, fetchAllRows, throwIfError, withRetry } from "./db";
+import { supabase } from "./supabase";
 import type { MarketListing } from "./marketplace";
 
 export const MARKET_PAGE_SIZE = 48;
 
-/** Der Marketplace braucht Firestore. Im lokalen Demo-Modus gibt es ihn nicht. */
-export const marketplaceSupported = Boolean(db);
+/** Löschen filtert per URL (`id=in.(…)`); kleine Blöcke halten die URL kurz. */
+const DELETE_CHUNK = 40;
 
-export type MarketCursor = QueryDocumentSnapshot;
+/** Der Marketplace braucht die Datenbank. Im lokalen Demo-Modus gibt es ihn nicht. */
+export const marketplaceSupported = Boolean(supabase);
+
+/** Undurchsichtige Position für „Mehr laden“ (Offset in der sortierten Ergebnisliste). */
+export type MarketCursor = { offset: number };
 
 export interface MarketPage {
   listings: MarketListing[];
@@ -31,106 +19,114 @@ export interface MarketPage {
   hasMore: boolean;
 }
 
-function requireDb() {
-  if (!db) {
+type ListingRow = { id: string; data: Omit<MarketListing, "id"> };
+
+function requireClient() {
+  if (!supabase) {
     throw new Error("Der Marketplace benötigt ein Konto. Im lokalen Demo-Modus ist er nicht verfügbar.");
   }
-  return db;
+  return supabase;
 }
 
-function asListing(snapshot: QueryDocumentSnapshot): MarketListing {
-  return { ...(snapshot.data() as Omit<MarketListing, "id">), id: snapshot.id };
+function asListing(row: ListingRow): MarketListing {
+  return { ...row.data, id: row.id };
 }
 
 /** Alle eigenen Angebote. */
 export async function loadMyListings(uid: string): Promise<MarketListing[]> {
-  const firestore = requireDb();
-  const snap = await getDocs(query(collection(firestore, "marketListings"), where("ownerId", "==", uid)));
-  return snap.docs.map(asListing).sort((a, b) => a.name.localeCompare(b.name, "de"));
+  const client = requireClient();
+  const rows = await fetchAllRows<ListingRow>((from, to) =>
+    client.from("market_listings").select("id,data").eq("owner_id", uid).order("id").range(from, to)
+  );
+  return rows.map(asListing).sort((a, b) => a.name.localeCompare(b.name, "de"));
+}
+
+/** Escaped `%`, `_` und `\` für LIKE-Muster. */
+function escapeLike(value: string): string {
+  return value.replace(/[\\%_]/g, (char) => `\\${char}`);
 }
 
 /**
  * Lädt eine Seite Angebote. Ohne Suche: neueste zuerst. Mit Suche: Namensanfang
- * (Firestore kann keine Teilwortsuche; "sol" findet "Sol Ring", nicht "Mana Sol").
+ * ("sol" findet "Sol Ring", nicht "Mana Sol").
  */
 export async function loadMarketPage(options: {
   search?: string;
   cursor?: MarketCursor | null;
   pageSize?: number;
 } = {}): Promise<MarketPage> {
-  const firestore = requireDb();
+  const client = requireClient();
   const pageSize = options.pageSize ?? MARKET_PAGE_SIZE;
   const search = (options.search ?? "").trim().toLowerCase();
+  const offset = options.cursor?.offset ?? 0;
 
-  const constraints: QueryConstraint[] = search
-    ? [
-        where("nameLower", ">=", search),
-        where("nameLower", "<=", `${search}`),
-        orderBy("nameLower")
-      ]
-    : [orderBy("updatedAt", "desc")];
+  let request = client.from("market_listings").select("id,data");
+  request = search
+    ? request.like("name_lower", `${escapeLike(search)}%`).order("name_lower").order("id")
+    : request.order("updated_at_ms", { ascending: false }).order("id");
 
-  if (options.cursor) constraints.push(startAfter(options.cursor));
-  // Eine Karte mehr laden, um zu wissen, ob es weitere Seiten gibt.
-  constraints.push(limit(pageSize + 1));
+  // Eine Zeile mehr laden, um zu wissen, ob es weitere Seiten gibt.
+  const { data, error } = await request.range(offset, offset + pageSize);
+  throwIfError(error);
 
-  const snap = await getDocs(query(collection(firestore, "marketListings"), ...constraints));
-  const docs = snap.docs.slice(0, pageSize);
-
+  const rows = ((data ?? []) as ListingRow[]).slice(0, pageSize);
   return {
-    listings: docs.map(asListing),
-    cursor: docs.length > 0 ? docs[docs.length - 1] : null,
-    hasMore: snap.docs.length > pageSize
+    listings: rows.map(asListing),
+    cursor: rows.length > 0 ? { offset: offset + rows.length } : null,
+    hasMore: (data ?? []).length > pageSize
   };
 }
 
-/** Schreibt Angebote gebündelt (Batches mit Retry). */
+/** Schreibt Angebote gebündelt (Upsert-Batches mit Retry). */
 export async function saveListings(listings: MarketListing[]): Promise<void> {
   if (listings.length === 0) return;
-  const firestore = requireDb();
+  const client = requireClient();
 
   for (let start = 0; start < listings.length; start += BATCH_SIZE) {
     const chunk = listings.slice(start, start + BATCH_SIZE);
     await withRetry(async () => {
-      const batch = writeBatch(firestore);
-      for (const listing of chunk) {
-        const { id, ...data } = firestoreClean(listing);
-        batch.set(doc(firestore, "marketListings", id), data);
-      }
-      await batch.commit();
+      const rows = chunk.map((listing) => {
+        const { id, ...data } = cleanRecord(listing);
+        return { id, owner_id: listing.ownerId, data };
+      });
+      const { error } = await client.from("market_listings").upsert(rows, { onConflict: "id" });
+      throwIfError(error);
     });
   }
 }
 
 export async function removeListings(ids: string[]): Promise<void> {
   if (ids.length === 0) return;
-  const firestore = requireDb();
+  const client = requireClient();
 
-  for (let start = 0; start < ids.length; start += BATCH_SIZE) {
-    const chunk = ids.slice(start, start + BATCH_SIZE);
+  for (let start = 0; start < ids.length; start += DELETE_CHUNK) {
+    const chunk = ids.slice(start, start + DELETE_CHUNK);
     await withRetry(async () => {
-      const batch = writeBatch(firestore);
-      for (const id of chunk) batch.delete(doc(firestore, "marketListings", id));
-      await batch.commit();
+      const { error } = await client.from("market_listings").delete().in("id", chunk);
+      throwIfError(error);
     });
   }
 }
 
 export async function removeListing(id: string): Promise<void> {
-  await deleteDoc(doc(requireDb(), "marketListings", id));
+  const { error } = await requireClient().from("market_listings").delete().eq("id", id);
+  throwIfError(error);
 }
 
 /** Anzeigename aus dem eigenen Profil (nur für den Besitzer lesbar). */
 export async function loadDisplayName(uid: string): Promise<string> {
-  const snap = await getDoc(doc(requireDb(), "users", uid));
-  const value = snap.exists() ? snap.data().displayName : "";
-  return typeof value === "string" ? value : "";
+  const { data, error } = await requireClient()
+    .from("profiles")
+    .select("display_name")
+    .eq("user_id", uid)
+    .maybeSingle();
+  throwIfError(error);
+  return typeof data?.display_name === "string" ? data.display_name : "";
 }
 
 export async function saveDisplayName(uid: string, displayName: string): Promise<void> {
-  await setDoc(
-    doc(requireDb(), "users", uid),
-    { displayName, updatedAt: Date.now() },
-    { merge: true }
-  );
+  const { error } = await requireClient()
+    .from("profiles")
+    .upsert({ user_id: uid, display_name: displayName, updated_at: Date.now() }, { onConflict: "user_id" });
+  throwIfError(error);
 }
