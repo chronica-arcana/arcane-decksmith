@@ -1,6 +1,6 @@
 # Arcane Decksmith – MTG Sammlung & Deckbuilder
 
-React/TypeScript-Projekt (Vite) für GitHub Pages + Firebase Auth/Firestore + Scryfall.
+React/TypeScript-Projekt (Vite) für Vercel + Firebase Auth/Firestore + Scryfall.
 
 ## Wichtige Annahmen
 
@@ -43,10 +43,10 @@ Der Quellcode des Workers liegt **nicht** in diesem Repository. Der Client sende
 | Variable | Pflicht | Zweck |
 | --- | --- | --- |
 | `VITE_FIREBASE_*` (6 Werte) | ja (sonst nur Demo-Modus) | Firebase Web-Konfiguration |
-| `VITE_IMPORT_PROXY_URL` | nein | Eigener HTTP-Proxy für den URL-Import (`GET ?url=…`, liefert JSON), z. B. der Cloudflare Worker aus `worker/`. Ohne Angabe wird die Firebase Callable Function `importExternalDeckUrl` genutzt. Im GitHub-Workflow kommt der Wert aus der Repository-Variable `VITE_IMPORT_PROXY_URL`. |
+| `VITE_IMPORT_PROXY_URL` | nein | Eigener HTTP-Proxy für den URL-Import (`GET ?url=…`, liefert JSON), z. B. der Cloudflare Worker aus `worker/`. Ohne Angabe wird die Firebase Callable Function `importExternalDeckUrl` genutzt. Bei Vercel wird der Wert als Environment Variable gesetzt. |
 | `VITE_AI_WORKER_URL` | nein | Basis-URL des KI-Workers |
 | `VITE_DECK_INTELLIGENCE_URL` | nein | URL des Deck-Intelligence-Endpunkts |
-| `VITE_SITE_URL` | nein | Öffentliche Basis-URL der Seite; damit wird `og:image` mit absoluter URL erzeugt (im GitHub-Workflow automatisch gesetzt). |
+| `VITE_SITE_URL` | nein | Öffentliche Basis-URL der Seite; damit wird `og:image` mit absoluter URL erzeugt (bei Vercel manuell als Environment Variable setzen). |
 
 ## Firebase
 
@@ -66,17 +66,21 @@ Alternativ zur Cloud Function kann der Link-Import über einen Cloudflare Worker
 
 1. Cloudflare Dashboard → **Workers & Pages → Create → Create Worker**, Namen vergeben (z. B. `arcane-decksmith-import`) und **Deploy** klicken.
 2. **Edit code**: Inhalt von `worker/import-proxy.js` einfügen und **Deploy** klicken.
-3. Worker → **Settings → Variables and secrets → Add**: Typ *Text*, Name `ALLOWED_ORIGINS`, Wert die Adresse der Seite, z. B. `https://bembelbowl.github.io` (ohne Pfad). Mehrere Adressen mit Komma trennen.
-4. GitHub → Repository **Settings → Secrets and variables → Actions → Variables → New repository variable**: `VITE_IMPORT_PROXY_URL` = Worker-Adresse (z. B. `https://arcane-decksmith-import.<konto>.workers.dev`).
-5. **Actions → Deploy Arcane Decksmith → Run workflow**, damit die Seite mit der Adresse neu gebaut wird.
+3. Worker → **Settings → Variables and secrets → Add**: Typ *Text*, Name `ALLOWED_ORIGINS`, Wert die Adresse der Seite, z. B. `https://arcane-decksmith.vercel.app` (ohne Pfad). Mehrere Adressen mit Komma trennen.
+4. Vercel → **Settings → Environment Variables**: `VITE_IMPORT_PROXY_URL` = Worker-Adresse (z. B. `https://arcane-decksmith-import.<konto>.workers.dev`), danach neu deployen.
 
 Test im Browser: `https://<worker>.workers.dev/?url=https://archidekt.com/decks/<id>` liefert JSON mit den Karten. Moxfield blockiert Abrufe von Rechenzentren gelegentlich; dann hilft der CSV/TXT-Export.
 
-## GitHub Pages
+## Hosting (Vercel)
 
-Repository anlegen, Actions aktivieren und unter Settings → Pages → Build and deployment → Source „GitHub Actions“ wählen. Der Workflow installiert mit `npm ci`, führt Typecheck, Lint und Tests aus, baut `dist` und veröffentlicht es. Die Firebase-Werte kommen aus den Repository-Secrets `VITE_FIREBASE_*`.
+Die Seite wird über Vercel veröffentlicht; der GitHub-Workflow `ci.yml` führt nur Typecheck, Lint und Tests aus.
 
-`base: "./"` ist bewusst gesetzt, damit die Anwendung auch unter einem Unterpfad (`BENUTZER.github.io/REPO`) funktioniert.
+1. Vercel → **Add New → Project** → Repository `chronica-arcana/arcane-decksmith` importieren (Framework: Vite, Einstellungen kommen aus `vercel.json`).
+2. **Settings → Environment Variables**: die sechs `VITE_FIREBASE_*`-Werte sowie optional `VITE_IMPORT_PROXY_URL`, `VITE_AI_WORKER_URL`, `VITE_DECK_INTELLIGENCE_URL` und `VITE_SITE_URL` (die Vercel-Adresse, z. B. `https://arcane-decksmith.vercel.app/`) eintragen und neu deployen.
+3. Firebase → Authentication → Einstellungen → **Autorisierte Domains**: die Vercel-Domain hinzufügen.
+4. Cloudflare-Worker: `ALLOWED_ORIGINS` um die Vercel-Domain ergänzen (ohne Pfad, mehrere Adressen mit Komma).
+
+`base: "./"` bleibt gesetzt; die Navigation nutzt Hash-Routing, daher sind keine Rewrite-Regeln nötig.
 
 ## Firebase-Konfiguration und GitHub
 
