@@ -66,7 +66,7 @@ Alternativ zur Cloud Function kann der Link-Import über einen Cloudflare Worker
 
 1. Cloudflare Dashboard → **Workers & Pages → Create → Create Worker**, Namen vergeben (z. B. `arcane-decksmith-import`) und **Deploy** klicken.
 2. **Edit code**: Inhalt von `worker/import-proxy.js` einfügen und **Deploy** klicken.
-3. Worker → **Settings → Variables and secrets → Add**: Typ *Text*, Name `ALLOWED_ORIGINS`, Wert die Adresse der Seite, z. B. `https://bembelbowl.github.io` (ohne Pfad). Mehrere Adressen mit Komma trennen.
+3. Worker → **Settings → Variables and secrets → Add**: Typ *Text*, Name `ALLOWED_ORIGINS`, Wert die Adresse der Seite, z. B. `https://chronica-arcana.github.io` (ohne Pfad). Mehrere Adressen mit Komma trennen.
 4. GitHub → Repository **Settings → Secrets and variables → Actions → Variables → New repository variable**: `VITE_IMPORT_PROXY_URL` = Worker-Adresse (z. B. `https://arcane-decksmith-import.<konto>.workers.dev`).
 5. **Actions → Deploy Arcane Decksmith → Run workflow**, damit die Seite mit der Adresse neu gebaut wird.
 

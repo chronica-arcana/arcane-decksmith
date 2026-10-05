@@ -12,7 +12,7 @@
  *
  * Einstellungen (Cloudflare → Worker → Settings → Variables):
  *   ALLOWED_ORIGINS  Kommagetrennte Liste erlaubter Seiten, z. B.
- *                    https://bembelbowl.github.io
+ *                    https://chronica-arcana.github.io
  *                    Ohne Wert darf jede Webseite den Worker per Browser aufrufen.
  */
 
