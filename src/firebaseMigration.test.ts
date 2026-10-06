@@ -39,6 +39,8 @@ import {
   planMigration,
   readFirebase,
   resolveSupabaseUsers,
+  sumCopies,
+  sumDeckCards,
   type FirebaseSnapshot
 } from "./firebaseMigration";
 
@@ -173,6 +175,23 @@ describe("readFirebase", () => {
   });
 });
 
+describe("sumCopies / sumDeckCards", () => {
+  it("summiert Exemplare statt Einträge zu zählen", () => {
+    expect(sumCopies([{ count: 4 }, { count: 1 }, { count: 0 }])).toBe(5);
+    expect(sumCopies([{}, { count: "x" }, { count: -2 }])).toBe(3);
+    expect(sumCopies([])).toBe(0);
+  });
+
+  it("zählt Karten in Decks (Hauptdeck + Sideboard)", () => {
+    const decks = [
+      { cards: [{ count: 1 }, { count: 3 }], sideboard: [{ count: 2 }] },
+      { cards: [{ count: 1 }] },
+      {}
+    ] as never;
+    expect(sumDeckCards(decks)).toBe(7);
+  });
+});
+
 describe("planMigration / buildListingRow", () => {
   it("überspringt vorhandene und ungültige Einträge, überschreibt auf Wunsch", () => {
     const items = [{ id: "a" }, { id: "b" }, { id: "" }, {}];
@@ -194,7 +213,7 @@ const snapshot = (): FirebaseSnapshot => ({
   projectId: "p",
   authListLoaded: true,
   users: [
-    { firebaseUid: "fb1", email: "alice@x.de", displayName: "Alice", cards: [{ id: "c1", name: "Sol Ring" }, { id: "c2", name: "Mana Crypt" }] as never, decks: [{ id: "d1", name: "Deck" }] as never },
+    { firebaseUid: "fb1", email: "alice@x.de", displayName: "Alice", cards: [{ id: "c1", name: "Sol Ring", count: 4 }, { id: "c2", name: "Mana Crypt", count: 1 }] as never, decks: [{ id: "d1", name: "Deck", cards: [{ count: 2 }, { count: 1 }] }] as never },
     { firebaseUid: "fb2", email: "ghost@x.de", displayName: "", cards: [{ id: "c9", name: "X" }] as never, decks: [] }
   ],
   listings: [
@@ -211,8 +230,8 @@ describe("migrateAll", () => {
 
     const report = await migrateAll({ snapshot: resolved, overwrite: false });
     expect(report.users[0]).toMatchObject({ email: "alice@x.de", status: "ok", profileWritten: true });
-    expect(report.users[0].cards).toMatchObject({ found: 2, written: 2, skipped: 0 });
-    expect(report.users[0].decks).toMatchObject({ found: 1, written: 1 });
+    expect(report.users[0].cards).toMatchObject({ found: 2, written: 2, skipped: 0, copies: 5, copiesWritten: 5 });
+    expect(report.users[0].decks).toMatchObject({ found: 1, written: 1, copies: 3, copiesWritten: 3 });
     expect(report.users[1]).toMatchObject({ status: "no-account" });
     expect(report.listings).toMatchObject({ found: 2, written: 1, skipped: 1 });
 
@@ -243,6 +262,7 @@ describe("migrateAll", () => {
     const resolved = await resolveSupabaseUsers(snapshot());
     const report = await migrateAll({ snapshot: resolved, overwrite: false });
     expect(report.users[0].cards.written).toBe(1);
+    expect(report.users[0].cards).toMatchObject({ copies: 5, copiesWritten: 4 });
     expect(report.users[0].cards.failed).toEqual([{ id: "c2", name: "Mana Crypt", reason: "violates check constraint" }]);
   }, 20000);
 });

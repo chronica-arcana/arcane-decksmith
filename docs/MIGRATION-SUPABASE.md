@@ -145,11 +145,11 @@ Die Firestore-Regeln erlauben Nutzern nur ihre eigenen Daten. Zum Lesen **aller*
 ### 8c) Übernahme in der App (ca. 5 Min.)
 1. Öffne die App, **melde dich mit dem Admin-Konto an** und lade die Seite einmal neu (F5). Oben rechts erscheint der Button **„Firebase-Migration“**. (Erscheint er nicht: siehe 8e.)
 2. Klicke ihn an, wähle die `.json`-Datei aus (oder füge ihren Inhalt ein) und klicke **„Firebase lesen (noch nichts schreiben)“**.
-3. Du siehst eine Übersicht je Nutzer: E-Mail, Anzahl Karten und Decks, und ob ein Supabase-Konto gefunden wurde. Oben stehen die Summen inklusive Marketplace-Angeboten. Prüfe sie.
+3. Du siehst eine Übersicht je Nutzer: E-Mail, **Karten-Einträge** (jede Karte in jeder Druckversion einmal), **Exemplare** (Summe aller Mengen, entspricht „Karten gesamt“ in der App), Decks und ob ein Supabase-Konto gefunden wurde. Oben stehen die Summen inklusive Karten in Decks und Marketplace-Angeboten. Prüfe sie.
    - **„nein – wird übersprungen“** heißt: Zu dieser E-Mail gibt es noch kein Supabase-Konto. Lege es an (Registrierung oder Einladung), dann Dialog schließen und Schritt 2 wiederholen.
 4. Haken **„Bereits vorhandene Einträge in Supabase überschreiben“** nur setzen, wenn in Supabase schon Daten liegen, die durch die Firebase-Versionen ersetzt werden sollen. Standard ist: Vorhandenes bleibt unverändert.
 5. **„Alles nach Supabase übertragen“** klicken und warten (der Fortschritt läuft je Nutzer).
-6. Am Ende zeigt eine Tabelle je Nutzer „X von Y übernommen“, außerdem die Marketplace-Zahlen. Einträge, die eine Prüfregel verletzen, sind unter „konnten nicht übernommen werden“ mit Grund aufgelistet; alle anderen sind trotzdem übernommen.
+6. Am Ende zeigt eine Tabelle je Nutzer „X von Y übernommen (A von B Exemplaren)“ bzw. bei Decks „(A von B Karten)“, außerdem die Marketplace-Zahlen. Stimmen übernommene und gefundene Werte überein, ist alles angekommen. Einträge, die eine Prüfregel verletzen, sind unter „konnten nicht übernommen werden“ mit Grund aufgelistet; alle anderen sind trotzdem übernommen.
 
 Der Vorgang ist **wiederholbar** (Einträge werden per ID geschrieben, nichts wird doppelt angelegt).
 
