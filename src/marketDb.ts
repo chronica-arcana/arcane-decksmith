@@ -7,7 +7,7 @@ export const MARKET_PAGE_SIZE = 48;
 /** Löschen filtert per URL (`id=in.(…)`); kleine Blöcke halten die URL kurz. */
 const DELETE_CHUNK = 40;
 
-/** Der Marketplace braucht die Datenbank. Im lokalen Demo-Modus gibt es ihn nicht. */
+/** Der Marketplace braucht die Datenbank (Supabase). */
 export const marketplaceSupported = Boolean(supabase);
 
 /** Undurchsichtige Position für „Mehr laden“ (Offset in der sortierten Ergebnisliste). */
@@ -23,7 +23,7 @@ type ListingRow = { id: string; data: Omit<MarketListing, "id"> };
 
 function requireClient() {
   if (!supabase) {
-    throw new Error("Der Marketplace benötigt ein Konto. Im lokalen Demo-Modus ist er nicht verfügbar.");
+    throw new Error("Der Marketplace benötigt die Datenbank (Supabase ist nicht konfiguriert).");
   }
   return supabase;
 }

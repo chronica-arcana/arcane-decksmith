@@ -7,7 +7,7 @@ export const supabaseConfigured = Boolean(url && anonKey);
 
 /**
  * Supabase-Client (Auth + Postgres). Ohne Konfiguration bleibt er `null`;
- * die App läuft dann im lokalen Demo-Modus.
+ * die App zeigt dann nur einen Hinweis, dass die Anmeldung nicht eingerichtet ist.
  *
  * PKCE statt Implicit-Flow: Bestätigungs- und Reset-Links kommen als `?code=…`
  * zurück. Die App nutzt Hash-Routing (`#/…`), ein Token im Hash würde kollidieren.

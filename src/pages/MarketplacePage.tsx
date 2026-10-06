@@ -25,7 +25,6 @@ import "../marketplace.css";
 
 type MarketplacePageProps = {
   uid: string;
-  demoMode: boolean;
   collection: CardRecord[];
   myListings: MarketListing[];
   displayName: string;
@@ -653,7 +652,7 @@ export default function MarketplacePage(props: MarketplacePageProps) {
   const [tab, setTab] = useState<Tab>("browse");
   const [refreshToken, setRefreshToken] = useState(0);
 
-  if (!marketplaceSupported || props.demoMode) {
+  if (!marketplaceSupported) {
     return (
       <section>
         <div className="pagehead">
@@ -664,8 +663,7 @@ export default function MarketplacePage(props: MarketplacePageProps) {
         <div className="panel" role="status">
           <strong>Der Marketplace braucht ein Konto.</strong>
           <p className="muted">
-            Im lokalen Demo-Modus ist er nicht verfügbar, weil die Angebote für andere Spieler sichtbar sein müssen.
-            Melde dich mit einem Konto an, um Karten zum Tausch anzubieten.
+            Die Anmeldung ist nicht eingerichtet (Supabase-Zugangsdaten fehlen), deshalb ist der Marketplace nicht verfügbar.
           </p>
         </div>
       </section>

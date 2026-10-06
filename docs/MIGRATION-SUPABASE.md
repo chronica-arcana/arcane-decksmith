@@ -58,7 +58,8 @@ Was das Skript erzwingt (entspricht den alten Firestore-Regeln): jeder sieht und
 
 1. **Authentication** → **Sign In / Providers** (oder **Providers**) → **Email**: aktiviert lassen.
 2. Optionen dort:
-   - **Confirm email**: *an* (empfohlen). Neue Nutzer müssen ihre Adresse per Link bestätigen; die App zeigt dazu einen Hinweis. Für reine Tests darfst du es ausschalten.
+   - **Allow new users to sign up**: **aus**. Die App hat keine Registrierung mehr; Konten legt nur der Administrator an (siehe „Konten verwalten“ unten). Ohne diesen Schalter könnte jeder, der die Projekt-URL und den öffentlichen Schlüssel kennt, sich über die API selbst ein Konto anlegen.
+   - **Confirm email**: egal, wenn du Konten im Dashboard mit „Auto Confirm User“ anlegst.
    - **Minimum password length**: auf `8` stellen (die App verlangt clientseitig mindestens 6).
 3. **Authentication → URL Configuration**:
    - **Site URL:** deine Vercel-Adresse, z. B. `https://arcane-decksmith.vercel.app`
@@ -146,8 +147,8 @@ Außerdem sollte der **Firebase-Dienstkonto-Schlüssel** in der Google Cloud Con
 
 Auf der Vercel-Adresse (privates Fenster, damit keine alte Sitzung stört):
 
-1. **Registrieren** mit neuer Adresse → Bestätigungs-Mail → Link anklicken → Anmeldung klappt.
-2. **Passwort vergessen** → Mail → Link → „Neues Passwort festlegen“ erscheint → danach angemeldet.
+1. **Anmelden** mit einem vom Administrator angelegten Konto.
+2. Kontrolle: Auf der Startseite gibt es **keinen** Demo-Modus, **keine** Registrierung und **kein** „Passwort vergessen“.
 3. **Karte hinzufügen**, Seite neu laden → Karte noch da. In Supabase *Table Editor → collection_cards* erscheint die Zeile.
 4. **Deck anlegen/speichern** → `decks` enthält die Zeile.
 5. **Import:** große CSV importieren (Fortschritt läuft), **Deck-Link-Import** (Archidekt) testen.
@@ -159,10 +160,8 @@ Auf der Vercel-Adresse (privates Fenster, damit keine alte Sitzung stört):
 
 | Symptom | Ursache / Lösung |
 | --- | --- |
-| Seite zeigt „Supabase ist noch nicht konfiguriert“ | `VITE_SUPABASE_URL`/`VITE_SUPABASE_ANON_KEY` fehlen oder nach dem Setzen **nicht neu deployt** (Schritt 5.4). Namen müssen exakt stimmen. |
-| Reset-/Bestätigungslink öffnet die falsche Seite oder „Redirect URL not allowed“ | Schritt 4.3: Site URL und Redirect URLs prüfen (`/**` am Ende). |
-| Mails kommen nicht an | Eingebauter Versand begrenzt → eigenes SMTP (Schritt 4.4); Spam-Ordner prüfen. |
-| „E-Mail oder Passwort ist nicht korrekt“ nach Migration | Übernommene Konten haben kein bekanntes Passwort → „Passwort vergessen?“. |
+| Startseite zeigt „Die Anmeldung ist nicht eingerichtet“ | `VITE_SUPABASE_URL`/`VITE_SUPABASE_ANON_KEY` fehlen oder nach dem Setzen **nicht neu deployt** (Schritt 5.4). Namen müssen exakt stimmen. |
+| „E-Mail oder Passwort ist nicht korrekt“ | Passwort im Supabase Dashboard neu setzen (siehe „Konten verwalten“). |
 | Speichern schlägt mit `violates check constraint` fehl | Datensatz verletzt eine Prüfregel (Größe/Format). Meldung nennt `collection_cards_valid`, `decks_valid` oder `market_listings_valid`. |
 | Marketplace/Sammlung leer, obwohl Daten existieren | Migration (Schritt 3) nicht ausgeführt, oder Daten gehören zu einem anderen Konto (neue UUID). |
 | Import-Link „nicht erreichbar“ / CORS-Fehler | `ALLOWED_ORIGINS` im Import-Worker enthält die Vercel-Adresse nicht (genau: `https://…`, ohne Pfad). `VITE_IMPORT_PROXY_URL` gesetzt und neu deployt? |
@@ -171,3 +170,11 @@ Auf der Vercel-Adresse (privates Fenster, damit keine alte Sitzung stört):
 
 ## Rückfallplan
 Bis zum Löschen des Firebase-Projekts bleiben dessen Daten unverändert. Die alte Firebase-Version liegt im Git-Verlauf (Commit vor dieser Migration), falls du zurück müsstest.
+
+## Konten verwalten (Administrator)
+
+Die App hat **keine Selbstregistrierung, keinen Demo-Modus und kein „Passwort vergessen“**. Alles läuft über das Supabase Dashboard unter **Authentication → Users**:
+- **Neues Konto:** *Add user → Create new user*, E-Mail und Passwort eintragen, **Auto Confirm User** angehakt lassen. Die Daten des Nutzers entstehen beim ersten Speichern.
+- **Passwort ändern/zurücksetzen:** Beim Nutzer `⋯ → Update password` bzw. ein neues Passwort setzen und dem Nutzer sicher mitteilen.
+- **Konto sperren oder löschen:** `⋯ → Ban user` bzw. `Delete user` (löscht auch alle Daten des Nutzers).
+- **Registrierung über die API verhindern:** *Sign In / Providers → „Allow new users to sign up“* ausschalten (siehe Schritt 4).

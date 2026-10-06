@@ -21,7 +21,6 @@ Alles läuft über den Bereich **Marketplace**: Im Tab **Karten hinzufügen** du
 - Es gibt bewusst keinen Kontakt-Kanal in der App. Wie sich Spieler einigen, regeln sie außerhalb.
 - Angebote liegen in der Tabelle `market_listings` (ID `<userId>_<cardId>`). Row Level Security erlaubt Lesen nur für angemeldete Nutzer und Schreiben nur für den Besitzer; CHECK-Constraints prüfen Felder/Größen und erlauben nur Scryfall-Bild-URLs (`supabase/migrations/`).
 - Sinkt der Bestand einer Karte oder wird sie gelöscht, wird das Angebot automatisch angepasst bzw. entfernt. Änderungen über den Massen-Import werden nicht automatisch abgeglichen.
-- Im lokalen Demo-Modus gibt es den Marketplace nicht (Angebote müssen für andere sichtbar sein).
 - Preise sind Richtwerte vom Zeitpunkt des Angebots (Scryfall, EUR).
 
 ## KI-Analyse und Deck-Intelligence
@@ -42,8 +41,8 @@ Der Quellcode des Workers liegt in `worker/ai-worker.js` (eine Datei, direkt in 
 
 | Variable | Pflicht | Zweck |
 | --- | --- | --- |
-| `VITE_SUPABASE_URL` | ja (sonst nur Demo-Modus) | Projekt-URL, z. B. `https://abcd.supabase.co` |
-| `VITE_SUPABASE_ANON_KEY` | ja (sonst nur Demo-Modus) | Öffentlicher Schlüssel (`anon` bzw. „Publishable key“); durch Row Level Security abgesichert |
+| `VITE_SUPABASE_URL` | ja (ohne sie ist keine Anmeldung möglich) | Projekt-URL, z. B. `https://abcd.supabase.co` |
+| `VITE_SUPABASE_ANON_KEY` | ja (ohne ihn ist keine Anmeldung möglich) | Öffentlicher Schlüssel (`anon` bzw. „Publishable key“); durch Row Level Security abgesichert |
 | `VITE_IMPORT_PROXY_URL` | nein | Eigener HTTP-Proxy für den URL-Import (`GET ?url=…`, liefert JSON), z. B. der Cloudflare Worker aus `worker/`. Ohne Angabe ist der Link-Import deaktiviert (CSV/TXT geht weiterhin). Bei Vercel wird der Wert als Environment Variable gesetzt. |
 | `VITE_AI_WORKER_URL` | nein | Basis-URL des KI-Workers |
 | `VITE_DECK_INTELLIGENCE_URL` | nein | URL des Deck-Intelligence-Endpunkts |
@@ -53,7 +52,7 @@ Der Quellcode des Workers liegt in `worker/ai-worker.js` (eine Datei, direkt in 
 
 Einrichtung Schritt für Schritt: [docs/MIGRATION-SUPABASE.md](docs/MIGRATION-SUPABASE.md).
 
-- Authentication: E-Mail/Passwort (Registrierung, Bestätigungs-Mail und „Passwort vergessen“ sind im Anmeldeformular enthalten).
+- Authentication: E-Mail/Passwort. Die App hat **keine Selbstregistrierung und kein „Passwort vergessen“**; Konten und Passwörter verwaltet der Administrator im Supabase Dashboard (*Authentication → Users*). Zusätzlich sollte dort die Registrierung deaktiviert sein (*Sign In / Providers → „Allow new users to sign up“ aus*).
 - Datenbank: `supabase/migrations/*.sql` im SQL Editor ausführen. Tabellen: `profiles`, `collection_cards`, `decks`, `market_listings`. Zugriff nur über Row Level Security, Eingaben werden per CHECK-Constraints geprüft (Ersatz für die früheren Firestore-Regeln).
 - **URL-Import (Moxfield, Archidekt, Deckstats)** läuft über den Cloudflare Worker (nächster Abschnitt). Moxfield blockiert automatisierte Abrufe gelegentlich; dann hilft der CSV/TXT-Export aus Moxfield.
 
@@ -85,4 +84,4 @@ Die Seite wird über Vercel veröffentlicht; der GitHub-Workflow `ci.yml` führt
 
 ## Datenschutz
 
-Kartensuche und Bilder gehen direkt an Scryfall, Precon-Listen an MTGJSON. Die Texterkennung des Scanners (Tesseract) läuft im Browser; WASM-Kern und Sprachdaten werden beim ersten Scannen geladen. Sammlung und Decks liegen bei angemeldeten Nutzern in Supabase (Postgres). Der Demo-Modus speichert ausschließlich im Browser-LocalStorage.
+Kartensuche und Bilder gehen direkt an Scryfall, Precon-Listen an MTGJSON. Die Texterkennung des Scanners (Tesseract) läuft im Browser; WASM-Kern und Sprachdaten werden beim ersten Scannen geladen. Sammlung und Decks liegen bei angemeldeten Nutzern in Supabase (Postgres).

@@ -72,7 +72,7 @@ describe("loadMarketPage", () => {
 describe("authMessage", () => {
   it("übersetzt Supabase-Fehlercodes", () => {
     expect(authMessage({ code: "invalid_credentials" })).toContain("nicht korrekt");
-    expect(authMessage({ code: "email_not_confirmed" })).toContain("bestätigen");
+    expect(authMessage({ code: "email_not_confirmed" })).toContain("nicht bestätigt");
     expect(authMessage({ name: "AuthRetryableFetchError", status: 0 })).toContain("Netzwerk");
     expect(authMessage(undefined)).toContain("nicht durchgeführt");
   });
