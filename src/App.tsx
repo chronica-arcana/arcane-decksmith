@@ -1,7 +1,6 @@
 import { Suspense, lazy, useEffect, useMemo, useRef, useState, type Dispatch, type FormEvent, type SetStateAction } from "react";
 import { subscribeAuth, login, logout, register, resetPassword, updatePassword, authMessage, type AppUser } from "./auth";
 import { supabaseConfigured } from "./supabase";
-import { isMigrationAdmin } from "./firebaseMigration";
 import {
   loadCollection,
   loadDecks,
@@ -106,7 +105,6 @@ import CardDetailsModal from "./components/CardDetailsModal";
 const CardScanner = lazy(() => import("./components/CardScanner"));
 const ExternalImportDialog = lazy(() => import("./components/ExternalImportDialog"));
 const PreconImportDialog = lazy(() => import("./components/PreconImportDialog"));
-const FirebaseMigrationDialog = lazy(() => import("./components/FirebaseMigrationDialog"));
 const Markdown = lazy(() => import("./components/Markdown"));
 import { useAppNavigation } from "./navigation";
 
@@ -890,21 +888,6 @@ function Main({
   demoMode: boolean;
   onExitDemo: () => void;
 }) {
-  const [migrationOpen, setMigrationOpen] = useState(false);
-  const [canMigrate, setCanMigrate] = useState(false);
-
-  // Der Button „Firebase-Migration“ erscheint nur für den Admin, solange die Freigabe
-  // (supabase/migration-tools/01-migration-freigeben.sql) aktiv ist.
-  useEffect(() => {
-    if (demoMode) return;
-    let active = true;
-    void isMigrationAdmin().then(allowed => {
-      if (active) setCanMigrate(allowed);
-    });
-    return () => {
-      active = false;
-    };
-  }, [demoMode, uid]);
   const [collection, setCollection] =
     useState<CardRecord[]>([]);
 
@@ -1260,20 +1243,7 @@ function Main({
             ? onExitDemo
             : logout
         }
-        onMigrate={
-          canMigrate
-            ? () => setMigrationOpen(true)
-            : undefined
-        }
       />
-
-      {migrationOpen && (
-        <Suspense fallback={<div className="loading">Wird geladen…</div>}>
-          <FirebaseMigrationDialog
-            onClose={() => setMigrationOpen(false)}
-          />
-        </Suspense>
-      )}
 
       <ToastHost />
 
