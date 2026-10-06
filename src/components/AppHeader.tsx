@@ -7,11 +7,14 @@ import {
 export default function AppHeader({
   page,
   accountLabel,
-  onSignOut
+  onSignOut,
+  onMigrate
 }: {
   page: AppPage;
   accountLabel: string;
   onSignOut: () => void;
+  /** Öffnet die einmalige Datenübernahme aus Firebase (nur mit Konto, nicht im Demo-Modus). */
+  onMigrate?: () => void;
 }) {
   return (
     <header className="topbar">
@@ -50,6 +53,12 @@ export default function AppHeader({
 
       <div className="userbox">
         <span>{accountLabel}</span>
+
+        {onMigrate && (
+          <button type="button" className="secondary" onClick={onMigrate}>
+            Daten aus Firebase
+          </button>
+        )}
 
         <button onClick={onSignOut}>
           Abmelden

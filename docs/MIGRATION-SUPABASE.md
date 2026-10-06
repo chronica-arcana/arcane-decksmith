@@ -13,7 +13,7 @@ Dauer: ca. 45–60 Minuten. Reihenfolge einhalten – spätere Schritte brauchen
 | KI-Worker | prüft Firebase-ID-Token | prüft Supabase-Token (`worker/supabase-auth.js`) |
 | Hosting | GitHub Pages | Vercel |
 
-> **Wichtig:** Passwörter lassen sich aus Firebase nicht mitnehmen. Übernommene Nutzer setzen ihr Passwort einmal über „Passwort vergessen?“ neu (Schritt 8).
+> **Wichtig:** Das Supabase-Konto ist ein neues Konto (Registrierung in Schritt 8a). Die **Daten** aus Firebase übernimmst du danach mit dem Dialog „Daten aus Firebase“ (Schritt 8), ganz ohne Terminal.
 
 ---
 
@@ -43,7 +43,7 @@ Dauer: ca. 45–60 Minuten. Reihenfolge einhalten – spätere Schritte brauchen
 2. Notiere:
    - **Project URL** → z. B. `https://abcdxyz.supabase.co` → wird zu `VITE_SUPABASE_URL`
    - **Publishable key** (beginnt mit `sb_publishable_…`) **oder** der ältere **anon public**-Key (beginnt mit `eyJ…`) → wird zu `VITE_SUPABASE_ANON_KEY`. Beide funktionieren.
-3. **Nicht in die App** gehören der **Secret key / service_role key**. Er umgeht alle Zugriffsregeln. Du brauchst ihn nur kurz für Schritt 8.
+3. **Nicht in die App** gehören der **Secret key / service_role key**. Er umgeht alle Zugriffsregeln. Du brauchst ihn für die normale Einrichtung nicht (nur für die optionale Terminal-Variante in Schritt 8).
 
 ## Schritt 3 – Datenbank anlegen (5 Min.)
 
@@ -122,40 +122,55 @@ Hinweis: Der Worker hat keine eigenen Rate-Limits (auch vorher nicht); die Nutze
 2. **Settings → Pages**: Veröffentlichung abschalten (Hosting läuft über Vercel).
 3. Die Variable `VITE_IMPORT_PROXY_URL` auf GitHub wird nicht mehr genutzt und kann ebenfalls weg.
 
-## Schritt 8 – Daten aus Firebase übernehmen (optional, 15 Min.)
+## Schritt 8 – Daten aus Firebase übernehmen (optional, ohne Terminal, ca. 10 Min.)
 
-Überspringen, wenn du frisch starten willst (Nutzer registrieren sich neu).
+Überspringen, wenn du frisch starten willst. Die Übernahme läuft **in der App selbst**: Du meldest dich mit deinem **alten Firebase-Login** an, und die App kopiert **deine eigene** Sammlung und deine Decks in dein neues Konto. Jeder Nutzer macht das für sich selbst; ein Admin-Zugriff ist nicht nötig. Dein altes Passwort bleibt dafür gültig (es wird nur in Firebase verwendet und nicht gespeichert).
 
-### 8a) Voraussetzungen
-- Node.js 22 lokal installiert, Repo geklont (`npm ci`).
-- `npm install --no-save firebase-admin` (ändert `package.json` nicht).
-- **Firebase-Zugangsdatei:** Firebase Console → Zahnrad → **Projekteinstellungen → Dienstkonten → Neuen privaten Schlüssel generieren** → JSON-Datei speichern (z. B. `serviceAccount.json`; Dateien dieses Namens sind per `.gitignore` ausgeschlossen, trotzdem **nie committen**).
-- **Supabase Secret key:** Schritt 2, *Secret key* bzw. *service_role* (nur lokal in der Konsole nutzen).
+> Voraussetzung: Das Firebase-Projekt existiert noch (nicht löschen, bevor alle fertig sind) und Schritte 1–7 sind erledigt.
 
-### 8b) Trockenlauf (schreibt nichts)
-```bash
-FIREBASE_SERVICE_ACCOUNT=./serviceAccount.json \
-SUPABASE_URL=https://abcdxyz.supabase.co \
-SUPABASE_SERVICE_ROLE_KEY=<secret key> \
-node scripts/migrate-firestore-to-supabase.mjs --create-users
-```
-Die Ausgabe listet je Nutzer die Zahl der Karten und Decks und am Ende eine Zusammenfassung. Nutzer ohne E-Mail im Profil werden übersprungen.
+### 8a) Neues Konto anlegen und anmelden
+1. Öffne die Vercel-Adresse und **registriere dich** mit derselben E-Mail wie im alten Konto (oder einer anderen, das ist egal).
+2. Bestätige die E-Mail über den Link in der Bestätigungs-Mail und melde dich an.
 
-### 8c) Wirklich übernehmen
-```bash
-… node scripts/migrate-firestore-to-supabase.mjs --create-users --apply
-```
-- `--create-users` legt fehlende Supabase-Konten an (E-Mail bereits bestätigt, zufälliges Passwort).
-- Sammlung, Decks, Profil/Anzeigename und Marketplace-Angebote werden übernommen. In Angeboten wird die alte Nutzer-ID durch die neue ersetzt.
-- Einzelne Datensätze, die die neuen Prüfregeln verletzen, werden mit Meldung übersprungen (Exit-Code 2); alles andere wird geschrieben. Das Skript ist wiederholbar (Upsert).
-- Mit `--skip-market` bleiben Angebote draußen.
+### 8b) Firebase-Konfiguration kopieren
+1. https://console.firebase.google.com → dein Projekt → **Zahnrad → Projekteinstellungen → Allgemein**.
+2. Nach unten zu **Meine Apps** scrollen (Web-App `</>`), unter **SDK-Einrichtung und -Konfiguration** **Konfig** wählen.
+3. Den gesamten Block `const firebaseConfig = { … };` markieren und kopieren (mit der Maus oder dem Kopier-Symbol).
 
-### 8d) Nutzer informieren
-Jeder übernommene Nutzer öffnet die Seite → **„Passwort vergessen?“** → E-Mail eingeben → Link in der Mail → neues Passwort festlegen. (Dafür muss der E-Mail-Versand aus Schritt 4 funktionieren.)
+### 8c) Übernahme-Dialog
+1. In der App oben rechts auf **„Daten aus Firebase“** klicken.
+2. Die kopierte Konfiguration in das große Feld einfügen.
+3. **E-Mail und Passwort deines alten Firebase-Kontos** eintragen → **Aus Firebase laden**.
+4. Die App zeigt, was gefunden wurde („X Karten und Y Decks“).
+5. Den Haken **„Bereits vorhandene Einträge … überschreiben“** nur setzen, wenn im neuen Konto schon Karten mit gleicher ID liegen, die ersetzt werden sollen. Ohne Haken bleibt Vorhandenes unverändert.
+6. **In dieses Konto übernehmen** klicken und warten, bis „Fertig“ erscheint (der Fortschritt wird angezeigt).
+7. Die Zusammenfassung zeigt je Bereich „übernommen / übersprungen / fehlgeschlagen“. Fehlgeschlagene Einträge sind ausklappbar mit Grund. Danach **„Fertig – Daten neu laden“** klicken.
+
+Gut zu wissen:
+- Der Vorgang ist wiederholbar. Er ändert nichts in Firebase (nur Lesen).
+- **Marketplace-Angebote** werden nicht übernommen; biete die Karten im Marketplace einfach neu an. Der Anzeigename wird übernommen, falls im neuen Konto noch keiner gesetzt ist.
+- Mehrere Nutzer? Jeder wiederholt 8a–8c mit dem eigenen alten Login.
+
+### 8d) Wenn etwas nicht klappt
+| Meldung | Lösung |
+| --- | --- |
+| „E-Mail oder Passwort des alten Firebase-Kontos stimmen nicht“ | Das sind die **alten** Firebase-Zugangsdaten. Falls vergessen: Im Firebase-Projekt unter *Authentication → Users* beim Konto `⋯ → Passwort zurücksetzen` bzw. die Zurücksetzen-Mail auslösen. |
+| „In der eingefügten Konfiguration fehlen …“ | Den **kompletten** Block aus 8b kopieren (`apiKey`, `authDomain`, `projectId` sind Pflicht). |
+| „API-Schlüssel ist auf andere Webseiten beschränkt“ | Google Cloud Console (console.cloud.google.com) → Projekt wählen → **APIs & Dienste → Anmeldedaten** → den „Browser key“ öffnen → unter *Website-Einschränkungen* deine Vercel-Adresse (`https://…vercel.app/*`) hinzufügen → speichern, 1–2 Minuten warten. |
+| „Firestore verweigert den Zugriff“ | Die Firestore-Regeln im Firebase-Projekt wurden geändert oder das Projekt wurde gelöscht. Unter *Firestore Database → Regeln* muss der Besitzer seine Daten lesen dürfen (`users/{userId}/…`). |
+| Einträge „fehlgeschlagen“ | Der Datensatz verletzt eine Prüfregel der neuen Datenbank (z. B. zu lange Texte). Der Grund steht in der Liste; die übrigen Einträge sind trotzdem übernommen. |
+| Die Schaltfläche „Daten aus Firebase“ fehlt | Sie erscheint nur mit echtem Konto, nicht im Demo-Modus. Vercel-Deployment mit dem aktuellen `main` abwarten. |
 
 ### 8e) Danach
-- Dienstkonto-Schlüssel in der Firebase Console **löschen** und den Supabase **Secret key** über *Project Settings → API Keys* rotieren, falls er irgendwo gelandet ist.
-- Firebase erst abschalten, wenn alle Daten geprüft sind (Schritt 9).
+- Prüfe in der App Sammlung und Decks (Schritt 9).
+- Erst wenn alle Nutzer ihre Daten übernommen haben, kannst du das Firebase-Projekt abschalten bzw. löschen (Firebase Console → Projekteinstellungen → ganz unten *Projekt löschen*). Vorher ggf. in der Firebase Console unter *Firestore Database* stichprobenartig vergleichen.
+- Der Button „Daten aus Firebase“ kann nach der Migration wieder aus der App entfernt werden (sag Bescheid, dann baue ich ihn zurück).
+
+<details>
+<summary>Alternative für Fortgeschrittene (Terminal): Massenübernahme aller Nutzer</summary>
+
+Das Skript `scripts/migrate-firestore-to-supabase.mjs` übernimmt alle Nutzer auf einmal und legt fehlende Konten an. Es braucht Node.js, den Firebase-Dienstkonto-Schlüssel und den Supabase Secret key und wird mit `node scripts/migrate-firestore-to-supabase.mjs --create-users` (Trockenlauf) bzw. mit `--apply` gestartet. Details stehen im Kopf der Datei. Für die normale Nutzung ist der Dialog oben einfacher.
+</details>
 
 ## Schritt 9 – Funktionstest (10 Min.)
 

@@ -105,6 +105,7 @@ import CardDetailsModal from "./components/CardDetailsModal";
 const CardScanner = lazy(() => import("./components/CardScanner"));
 const ExternalImportDialog = lazy(() => import("./components/ExternalImportDialog"));
 const PreconImportDialog = lazy(() => import("./components/PreconImportDialog"));
+const FirebaseMigrationDialog = lazy(() => import("./components/FirebaseMigrationDialog"));
 const Markdown = lazy(() => import("./components/Markdown"));
 import { useAppNavigation } from "./navigation";
 
@@ -888,6 +889,7 @@ function Main({
   demoMode: boolean;
   onExitDemo: () => void;
 }) {
+  const [migrationOpen, setMigrationOpen] = useState(false);
   const [collection, setCollection] =
     useState<CardRecord[]>([]);
 
@@ -1243,7 +1245,21 @@ function Main({
             ? onExitDemo
             : logout
         }
+        onMigrate={
+          demoMode
+            ? undefined
+            : () => setMigrationOpen(true)
+        }
       />
+
+      {migrationOpen && (
+        <Suspense fallback={<div className="loading">Wird geladen…</div>}>
+          <FirebaseMigrationDialog
+            uid={uid}
+            onClose={() => setMigrationOpen(false)}
+          />
+        </Suspense>
+      )}
 
       <ToastHost />
 
