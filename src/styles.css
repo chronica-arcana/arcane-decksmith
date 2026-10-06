@@ -5581,27 +5581,5 @@ footer {
   font-size: 1.05rem;
 }
 
-.auth-links {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: 6px 14px;
-}
 
-.link-button {
-  min-height: 0;
-  padding: 2px 0;
-  background: none;
-  border: 0;
-  color: var(--arcane-bright);
-  text-decoration: underline;
-  cursor: pointer;
-  font: inherit;
-  font-size: 0.9rem;
-}
 
-.auth-demo-hint {
-  margin: 0;
-  font-size: 0.82rem;
-  text-align: center;
-}

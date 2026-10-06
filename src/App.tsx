@@ -1,5 +1,5 @@
 import { Suspense, lazy, useEffect, useMemo, useRef, useState, type Dispatch, type FormEvent, type SetStateAction } from "react";
-import { subscribeAuth, login, logout, register, resetPassword, updatePassword, authMessage, type AppUser } from "./auth";
+import { subscribeAuth, login, logout, authMessage, type AppUser } from "./auth";
 import { supabaseConfigured } from "./supabase";
 import {
   loadCollection,
@@ -10,8 +10,7 @@ import {
   saveCardsBatch,
   saveDeck,
   cleanRecord,
-  PartialSaveError,
-  uidFromEmail
+  PartialSaveError
 } from "./db";
 import {
   PRICE_REFRESH_INTERVAL_MS,
@@ -558,15 +557,10 @@ function App() {
   const [auth, setAuth] = useState<{
     user: AppUser | null;
     loading: boolean;
-    recovery: boolean;
   }>({
     user: null,
-    loading: true,
-    recovery: false
+    loading: true
   });
-
-  const [demoEmail, setDemoEmail] = useState("");
-  const [demoMode, setDemoMode] = useState(false);
 
   useEffect(
     () => subscribeAuth(setAuth),
@@ -581,131 +575,29 @@ function App() {
     );
   }
 
-  if (auth.user && auth.recovery) {
-    return (
-      <NewPassword
-        onDone={() => setAuth(current => ({ ...current, recovery: false }))}
-      />
-    );
+  if (!auth.user) {
+    return <Auth />;
   }
-
-  if (!auth.user && !demoMode) {
-    return (
-      <Auth
-        onDemo={email => {
-          setDemoEmail(email);
-          setDemoMode(true);
-        }}
-      />
-    );
-  }
-
-  const uid =
-    auth.user?.uid ??
-    uidFromEmail(demoEmail);
 
   return (
     <Main
       user={auth.user}
-      uid={uid}
-      demoMode={demoMode}
-      onExitDemo={() => setDemoMode(false)}
+      uid={auth.user.uid}
     />
   );
 }
 
-type AuthMode = "login" | "register" | "reset";
-
-/** Formular zum Setzen eines neuen Passworts nach dem Klick auf den Link aus der Reset-Mail. */
-function NewPassword({ onDone }: { onDone: () => void }) {
-  const [pw, setPw] = useState("");
-  const [pwRepeat, setPwRepeat] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [msg, setMsg] = useState("");
-
-  const submit = async (event: FormEvent) => {
-    event.preventDefault();
-    if (busy) return;
-    if (pw !== pwRepeat) {
-      setMsg("Die Passwörter stimmen nicht überein.");
-      return;
-    }
-    setBusy(true);
-    setMsg("");
-    try {
-      await updatePassword(pw);
-      onDone();
-    } catch (e: unknown) {
-      setMsg(authMessage(e));
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <div className="auth-shell">
-      <form className="auth-card" onSubmit={submit}>
-        <h2 className="auth-title">Neues Passwort festlegen</h2>
-        <label>
-          Neues Passwort
-          <input
-            value={pw}
-            onChange={e => setPw(e.target.value)}
-            type="password"
-            autoComplete="new-password"
-            minLength={6}
-            required
-          />
-        </label>
-        <label>
-          Passwort wiederholen
-          <input
-            value={pwRepeat}
-            onChange={e => setPwRepeat(e.target.value)}
-            type="password"
-            autoComplete="new-password"
-            minLength={6}
-            required
-          />
-        </label>
-        {msg && (
-          <div className="error" role="alert">
-            {msg}
-          </div>
-        )}
-        <button type="submit" className="primary full" disabled={busy || !pw || !pwRepeat}>
-          {busy ? "…" : "Passwort speichern"}
-        </button>
-      </form>
-    </div>
-  );
-}
-
-function Auth({
-  onDemo
-}: {
-  onDemo: (email: string) => void;
-}) {
-  const [mode, setMode] = useState<AuthMode>("login");
+function Auth() {
   const [email, setEmail] = useState("");
   const [pw, setPw] = useState("");
-  const [pwRepeat, setPwRepeat] = useState("");
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
-  const [info, setInfo] = useState("");
-
-  const switchMode = (next: AuthMode) => {
-    setMode(next);
-    setMsg("");
-    setInfo("");
-  };
 
   const canSubmit =
     !busy &&
     supabaseConfigured &&
     Boolean(email) &&
-    (mode === "reset" || Boolean(pw)) &&
-    (mode !== "register" || Boolean(pwRepeat));
+    Boolean(pw);
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
@@ -713,41 +605,15 @@ function Auth({
 
     setBusy(true);
     setMsg("");
-    setInfo("");
 
     try {
-      if (mode === "login") {
-        await login(email, pw);
-      } else if (mode === "register") {
-        if (pw !== pwRepeat) {
-          setMsg("Die Passwörter stimmen nicht überein.");
-          return;
-        }
-        const { needsConfirmation } = await register(email, pw);
-        if (needsConfirmation) {
-          setInfo(
-            "Fast geschafft: Wir haben dir eine E-Mail geschickt. Bitte bestätige deine Adresse über den Link in der Mail und melde dich danach an."
-          );
-        }
-      } else {
-        await resetPassword(email);
-        setInfo(
-          "Falls ein Konto mit dieser E-Mail-Adresse existiert, wurde eine E-Mail zum Zurücksetzen des Passworts gesendet."
-        );
-      }
+      await login(email, pw);
     } catch (e: unknown) {
       setMsg(authMessage(e));
     } finally {
       setBusy(false);
     }
   };
-
-  const title =
-    mode === "login"
-      ? "Anmelden"
-      : mode === "register"
-        ? "Konto erstellen"
-        : "Passwort zurücksetzen";
 
   return (
     <div className="auth-shell">
@@ -767,13 +633,12 @@ function Auth({
         </p>
 
         {!supabaseConfigured && (
-          <div className="notice">
-            Supabase ist noch nicht konfiguriert. Du kannst
-            den lokalen Demo-Modus verwenden.
+          <div className="error" role="alert">
+            Die Anmeldung ist nicht eingerichtet (Supabase-Zugangsdaten fehlen).
           </div>
         )}
 
-        <h2 className="auth-title">{title}</h2>
+        <h2 className="auth-title">Anmelden</h2>
 
         <label>
           E-Mail
@@ -786,43 +651,20 @@ function Auth({
           />
         </label>
 
-        {mode !== "reset" && (
-          <label>
-            Passwort
-            <input
-              value={pw}
-              onChange={e => setPw(e.target.value)}
-              type="password"
-              autoComplete={mode === "register" ? "new-password" : "current-password"}
-              minLength={6}
-              required
-            />
-          </label>
-        )}
-
-        {mode === "register" && (
-          <label>
-            Passwort wiederholen
-            <input
-              value={pwRepeat}
-              onChange={e => setPwRepeat(e.target.value)}
-              type="password"
-              autoComplete="new-password"
-              minLength={6}
-              required
-            />
-          </label>
-        )}
+        <label>
+          Passwort
+          <input
+            value={pw}
+            onChange={e => setPw(e.target.value)}
+            type="password"
+            autoComplete="current-password"
+            required
+          />
+        </label>
 
         {msg && (
           <div className="error" role="alert">
             {msg}
-          </div>
-        )}
-
-        {info && (
-          <div className="notice" role="status">
-            {info}
           </div>
         )}
 
@@ -831,47 +673,8 @@ function Auth({
           className="primary full"
           disabled={!canSubmit}
         >
-          {busy ? "…" : title}
+          {busy ? "…" : "Anmelden"}
         </button>
-
-        {supabaseConfigured && (
-          <div className="auth-links">
-            {mode !== "login" && (
-              <button type="button" className="link-button" onClick={() => switchMode("login")}>
-                Zur Anmeldung
-              </button>
-            )}
-            {mode !== "register" && (
-              <button type="button" className="link-button" onClick={() => switchMode("register")}>
-                Neues Konto erstellen
-              </button>
-            )}
-            {mode !== "reset" && (
-              <button type="button" className="link-button" onClick={() => switchMode("reset")}>
-                Passwort vergessen?
-              </button>
-            )}
-          </div>
-        )}
-
-        <div className="divider">
-          oder
-        </div>
-
-        <button
-          type="button"
-          className="secondary full"
-          onClick={() =>
-            onDemo(email || "demo@example.com")
-          }
-        >
-          Lokalen Demo-Modus verwenden
-        </button>
-
-        <p className="muted auth-demo-hint">
-          Demo-Daten werden nur in diesem Browser gespeichert. Ohne E-Mail-Adresse
-          teilen sich alle Demo-Nutzer dieses Browsers denselben Speicher.
-        </p>
       </form>
     </div>
   );
@@ -879,14 +682,10 @@ function Auth({
 
 function Main({
   user,
-  uid,
-  demoMode,
-  onExitDemo
+  uid
 }: {
-  user: AppUser | null;
+  user: AppUser;
   uid: string;
-  demoMode: boolean;
-  onExitDemo: () => void;
 }) {
   const [collection, setCollection] =
     useState<CardRecord[]>([]);
@@ -1234,15 +1033,9 @@ function Main({
       <AppHeader
         page={page}
         accountLabel={
-          demoMode
-            ? "Demo"
-            : user?.email ?? "Angemeldet"
+          user.email ?? "Angemeldet"
         }
-        onSignOut={
-          demoMode
-            ? onExitDemo
-            : logout
-        }
+        onSignOut={logout}
       />
 
       <ToastHost />
@@ -1424,7 +1217,6 @@ function Main({
                 ? (
                   <BuildHub
                     pool={collection}
-                    demoMode={demoMode}
                     onSave={persistDeck}
                   />
                 )
@@ -1432,7 +1224,6 @@ function Main({
                   ? (
                     <MarketplacePage
                       uid={uid}
-                      demoMode={demoMode}
                       collection={collection}
                       myListings={myListings}
                       displayName={displayName}
@@ -1451,7 +1242,6 @@ function Main({
                     onCloseDeck={() => navigate("decks")}
                     onDelete={delDeck}
                     onSave={persistDeck}
-                    demoMode={demoMode}
                   />
                 )}
       </main>
@@ -3818,11 +3608,9 @@ function Builder({
 
 function BuildHub({
   pool,
-  demoMode,
   onSave
 }: {
   pool: CardRecord[];
-  demoMode: boolean;
   onSave: (deck: DeckRecord) => Promise<void>;
 }) {
   const [mode, setMode] = useState<"automatic" | "manual" | null>(null);
@@ -3860,7 +3648,6 @@ function BuildHub({
       <DeckEditor
         deck={manualDeck}
         pool={pool}
-        demoMode={demoMode}
         onBack={() => {
           setManualDeck(null);
           setMode(null);
@@ -3927,8 +3714,7 @@ function Decks({
   onOpenDeck,
   onCloseDeck,
   onDelete,
-  onSave,
-  demoMode
+  onSave
 }: {
   decks: DeckRecord[];
   pool: CardRecord[];
@@ -3937,7 +3723,6 @@ function Decks({
   onCloseDeck: () => void;
   onDelete: (id: string) => Promise<void>;
   onSave: (d: DeckRecord) => Promise<void>;
-  demoMode: boolean;
 }) {
   const [editing, setEditing] = useState<DeckRecord | null>(null);
   const [analysisByDeckId, setAnalysisByDeckId] = useState<Record<string, string>>({});
@@ -3957,7 +3742,7 @@ function Decks({
     : null;
 
   const analyzeSavedDeck = async (deck: DeckRecord) => {
-    if (demoMode || deck.cards.length === 0 || aiBusyDeckId) {
+    if (deck.cards.length === 0 || aiBusyDeckId) {
       return;
     }
 
@@ -4000,7 +3785,6 @@ function Decks({
       <DeckEditor
         deck={editing}
         pool={poolForDeck(editing, pool)}
-        demoMode={demoMode}
         onBack={() => setEditing(null)}
         onSave={async deck => {
           await onSave(deck);
@@ -4085,13 +3869,11 @@ function Decks({
             className="secondary"
             type="button"
             onClick={() => void analyzeSavedDeck(selectedDeck)}
-            disabled={Boolean(aiBusyDeckId) || demoMode || selectedDeck.cards.length === 0}
+            disabled={Boolean(aiBusyDeckId) || selectedDeck.cards.length === 0}
             title={
-              demoMode
-                ? "Die generative KI benötigt eine Anmeldung."
-                : selectedDeck.cards.length === 0
-                  ? "Für ein leeres Deck ist keine Analyse sinnvoll."
-                  : undefined
+              selectedDeck.cards.length === 0
+                ? "Für ein leeres Deck ist keine Analyse sinnvoll."
+                : undefined
             }
           >
             {aiBusyDeckId === selectedDeck.id ? "KI analysiert…" : "KI analysieren"}
@@ -4233,13 +4015,11 @@ function Decks({
 function DeckEditor({
   deck,
   pool,
-  demoMode,
   onBack,
   onSave
 }: {
   deck: DeckRecord;
   pool: CardRecord[];
-  demoMode: boolean;
   onBack: () => void;
   onSave: (
     d: DeckRecord
@@ -4602,7 +4382,6 @@ function DeckEditor({
     commanderTooLarge;
 
   const canAnalyze =
-    !demoMode &&
     d.cards.length >
       0;
 
@@ -4952,12 +4731,10 @@ function DeckEditor({
               !canAnalyze
             }
             title={
-              demoMode
-                ? "Die generative KI benötigt eine Anmeldung."
-                : d.cards.length ===
-                    0
-                  ? "Für ein leeres Deck ist keine Analyse sinnvoll."
-                  : undefined
+              d.cards.length ===
+                0
+                ? "Für ein leeres Deck ist keine Analyse sinnvoll."
+                : undefined
             }
           >
             {aiBusy
