@@ -33,7 +33,15 @@ export type FirebaseSnapshot = {
 };
 
 export type FailedItem = { id: string; name: string; reason: string };
-export type SectionReport = { found: number; written: number; skipped: number; failed: FailedItem[] };
+/** `found`/`written` zählen Einträge; `copies`/`copiesWritten` die Summe der Exemplare (Feld `count`). */
+export type SectionReport = {
+  found: number;
+  written: number;
+  skipped: number;
+  failed: FailedItem[];
+  copies: number;
+  copiesWritten: number;
+};
 export type UserReport = {
   email: string;
   status: "ok" | "no-account";
@@ -187,6 +195,24 @@ async function loadAuthEmails(projectId: string, token: string, fetchImpl: Fetch
   return emails;
 }
 
+/** Summe der Exemplare: addiert das Feld `count` aller Einträge (fehlend/ungültig = 1 Exemplar). */
+export function sumCopies(items: ReadonlyArray<{ count?: unknown }>): number {
+  let total = 0;
+  for (const item of items) {
+    const count = Number(item.count);
+    total += Number.isFinite(count) && count >= 0 ? count : 1;
+  }
+  return total;
+}
+
+/** Karten insgesamt in Decks (Hauptdeck + Sideboard, jeweils nach `count`). */
+export function sumDeckCards(decks: ReadonlyArray<Partial<DeckRecord>>): number {
+  return decks.reduce(
+    (total, deck) => total + sumCopies(deck.cards ?? []) + sumCopies(deck.sideboard ?? []),
+    0
+  );
+}
+
 export const normalizeEmail = (value: unknown) => (typeof value === "string" ? value.trim().toLowerCase() : "");
 
 /** Liest Nutzer, Sammlungen, Decks und Marketplace-Angebote komplett aus Firebase. */
@@ -304,17 +330,18 @@ export function buildListingRow(
 }
 
 type Table = "collection_cards" | "decks" | "market_listings";
-type WriteItem = { id: string; name: string; row: Record<string, unknown> };
+type WriteItem = { id: string; name: string; row: Record<string, unknown>; weight: number };
 
 /** Schreibt Zeilen blockweise; schlägt ein Block fehl, werden die Zeilen einzeln versucht. */
 async function writeRows(
   table: Table,
   conflict: string,
   items: WriteItem[]
-): Promise<{ written: number; failed: FailedItem[] }> {
+): Promise<{ written: number; writtenWeight: number; failed: FailedItem[] }> {
   const client = requireClient();
   const failed: FailedItem[] = [];
   let written = 0;
+  let writtenWeight = 0;
   for (let start = 0; start < items.length; start += BATCH_SIZE) {
     const chunk = items.slice(start, start + BATCH_SIZE);
     try {
@@ -323,15 +350,20 @@ async function writeRows(
         throwIfError(error);
       });
       written += chunk.length;
+      writtenWeight += chunk.reduce((sum, item) => sum + item.weight, 0);
     } catch {
       for (const item of chunk) {
         const { error } = await client.from(table).upsert(item.row, { onConflict: conflict });
-        if (error) failed.push({ id: item.id, name: item.name, reason: error.message });
-        else written += 1;
+        if (error) {
+          failed.push({ id: item.id, name: item.name, reason: error.message });
+        } else {
+          written += 1;
+          writtenWeight += item.weight;
+        }
       }
     }
   }
-  return { written, failed };
+  return { written, writtenWeight, failed };
 }
 
 async function existingCardIds(userId: string): Promise<Set<string>> {
@@ -350,7 +382,9 @@ async function existingDeckIds(userId: string): Promise<Set<string>> {
   return new Set(rows.map((r) => r.deck_id));
 }
 
-const emptySection = (found = 0): SectionReport => ({ found, written: 0, skipped: 0, failed: [] });
+const emptySection = (found = 0, copies = 0): SectionReport => ({
+  found, written: 0, skipped: 0, failed: [], copies, copiesWritten: 0
+});
 
 export async function migrateAll(options: {
   snapshot: FirebaseSnapshot;
@@ -369,8 +403,8 @@ export async function migrateAll(options: {
       reports.push({
         email: user.email || `(ohne E-Mail, UID ${user.firebaseUid})`,
         status: "no-account",
-        cards: emptySection(user.cards.length),
-        decks: emptySection(user.decks.length),
+        cards: emptySection(user.cards.length, sumCopies(user.cards)),
+        decks: emptySection(user.decks.length, sumDeckCards(user.decks)),
         profileWritten: false
       });
       continue;
@@ -390,7 +424,8 @@ export async function migrateAll(options: {
       cardPlan.toWrite.map((card) => ({
         id: card.id,
         name: card.name ?? card.id,
-        row: { user_id: userId, card_id: card.id, data: cleanRecord(card) }
+        row: { user_id: userId, card_id: card.id, data: cleanRecord(card) },
+        weight: sumCopies([card])
       }))
     );
     const deckResult = await writeRows(
@@ -399,7 +434,8 @@ export async function migrateAll(options: {
       deckPlan.toWrite.map((deck) => ({
         id: deck.id,
         name: deck.name ?? deck.id,
-        row: { user_id: userId, deck_id: deck.id, data: cleanRecord(deck) }
+        row: { user_id: userId, deck_id: deck.id, data: cleanRecord(deck) },
+        weight: sumDeckCards([deck])
       }))
     );
 
@@ -419,8 +455,22 @@ export async function migrateAll(options: {
     reports.push({
       email: user.email,
       status: "ok",
-      cards: { found: user.cards.length, written: cardResult.written, skipped: cardPlan.skipped, failed: cardResult.failed },
-      decks: { found: user.decks.length, written: deckResult.written, skipped: deckPlan.skipped, failed: deckResult.failed },
+      cards: {
+        found: user.cards.length,
+        written: cardResult.written,
+        skipped: cardPlan.skipped,
+        failed: cardResult.failed,
+        copies: sumCopies(user.cards),
+        copiesWritten: cardResult.writtenWeight
+      },
+      decks: {
+        found: user.decks.length,
+        written: deckResult.written,
+        skipped: deckPlan.skipped,
+        failed: deckResult.failed,
+        copies: sumDeckCards(user.decks),
+        copiesWritten: deckResult.writtenWeight
+      },
       profileWritten
     });
   }
@@ -435,7 +485,7 @@ export async function migrateAll(options: {
       listingSkipped += 1;
       continue;
     }
-    listingItems.push({ id: row.id, name: String(row.data.name ?? row.id), row });
+    listingItems.push({ id: row.id, name: String(row.data.name ?? row.id), row, weight: 0 });
   }
   const listingResult = await writeRows("market_listings", "id", listingItems);
 
@@ -445,7 +495,9 @@ export async function migrateAll(options: {
       found: snapshot.listings.length,
       written: listingResult.written,
       skipped: listingSkipped,
-      failed: listingResult.failed
+      failed: listingResult.failed,
+      copies: 0,
+      copiesWritten: 0
     }
   };
 }

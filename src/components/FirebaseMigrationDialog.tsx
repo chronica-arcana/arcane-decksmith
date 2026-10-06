@@ -8,14 +8,17 @@ import {
   type FirebaseSnapshot,
   type MigrationProgress,
   type MigrationReport,
+  sumCopies,
+  sumDeckCards,
   type SectionReport
 } from "../firebaseMigration";
 import "../importDialog.css";
 
 type Step = "form" | "preview" | "running" | "done";
 
-function sectionText(report: SectionReport): string {
+function sectionText(report: SectionReport, unit?: string): string {
   const parts = [`${report.written} von ${report.found} übernommen`];
+  if (unit) parts[0] += ` (${report.copiesWritten} von ${report.copies} ${unit})`;
   if (report.skipped > 0) parts.push(`${report.skipped} übersprungen`);
   if (report.failed.length > 0) parts.push(`${report.failed.length} fehlgeschlagen`);
   return parts.join(", ");
@@ -87,7 +90,9 @@ export default function FirebaseMigrationDialog({ onClose }: { onClose: () => vo
   const matched = snapshot?.users.filter((u) => u.supabaseId) ?? [];
   const unmatched = snapshot?.users.filter((u) => !u.supabaseId) ?? [];
   const totalCards = matched.reduce((sum, u) => sum + u.cards.length, 0);
+  const totalCopies = matched.reduce((sum, u) => sum + sumCopies(u.cards), 0);
   const totalDecks = matched.reduce((sum, u) => sum + u.decks.length, 0);
+  const totalDeckCards = matched.reduce((sum, u) => sum + sumDeckCards(u.decks), 0);
   const failed = report
     ? [...report.users.flatMap((u) => [...u.cards.failed, ...u.decks.failed]), ...report.listings.failed]
     : [];
@@ -147,7 +152,8 @@ export default function FirebaseMigrationDialog({ onClose }: { onClose: () => vo
             <p>
               Projekt <strong>{snapshot.projectId}</strong>: <strong>{snapshot.users.length} Nutzer</strong> in Firebase,
               davon <strong>{matched.length}</strong> mit Supabase-Konto. Zu übertragen:
-              {" "}<strong>{totalCards} Karten</strong>, <strong>{totalDecks} Decks</strong>
+              {" "}<strong>{totalCards} Karten-Einträge</strong> (<strong>{totalCopies} Exemplare</strong> insgesamt),
+              {" "}<strong>{totalDecks} Decks</strong> (<strong>{totalDeckCards} Karten</strong> in Decks)
               {" "}und <strong>{snapshot.listings.length} Marketplace-Angebote</strong>.
             </p>
             {!snapshot.authListLoaded && (
@@ -158,13 +164,14 @@ export default function FirebaseMigrationDialog({ onClose }: { onClose: () => vo
             )}
             <table>
               <thead>
-                <tr><th>E-Mail</th><th>Karten</th><th>Decks</th><th>Supabase-Konto</th></tr>
+                <tr><th>E-Mail</th><th>Karten-Einträge</th><th>Exemplare</th><th>Decks</th><th>Supabase-Konto</th></tr>
               </thead>
               <tbody>
                 {snapshot.users.map((u) => (
                   <tr key={u.firebaseUid}>
                     <td>{u.email || `(ohne E-Mail) ${u.firebaseUid}`}</td>
                     <td>{u.cards.length}</td>
+                    <td>{sumCopies(u.cards)}</td>
                     <td>{u.decks.length}</td>
                     <td>{u.supabaseId ? "ja" : "nein – wird übersprungen"}</td>
                   </tr>
@@ -176,6 +183,10 @@ export default function FirebaseMigrationDialog({ onClose }: { onClose: () => vo
                 Nutzer ohne Supabase-Konto werden übersprungen (und deren Angebote auch). Konto zuerst anlegen und dann erneut lesen.
               </p>
             )}
+            <p className="muted">
+              „Karten-Einträge“ zählt jede Karte in jeder Druckversion einmal. „Exemplare“ ist die Summe aller
+              Mengen und entspricht „Karten gesamt“ in der App.
+            </p>
             <label>
               <input
                 type="checkbox"
@@ -205,14 +216,14 @@ export default function FirebaseMigrationDialog({ onClose }: { onClose: () => vo
             <h3>Fertig</h3>
             <table>
               <thead>
-                <tr><th>E-Mail</th><th>Karten</th><th>Decks</th></tr>
+                <tr><th>E-Mail</th><th>Karten-Einträge (Exemplare)</th><th>Decks (Karten darin)</th></tr>
               </thead>
               <tbody>
                 {report.users.map((u) => (
                   <tr key={u.email}>
                     <td>{u.email}</td>
-                    <td>{u.status === "ok" ? sectionText(u.cards) : "übersprungen (kein Supabase-Konto)"}</td>
-                    <td>{u.status === "ok" ? sectionText(u.decks) : "–"}</td>
+                    <td>{u.status === "ok" ? sectionText(u.cards, "Exemplaren") : "übersprungen (kein Supabase-Konto)"}</td>
+                    <td>{u.status === "ok" ? sectionText(u.decks, "Karten") : "–"}</td>
                   </tr>
                 ))}
               </tbody>
