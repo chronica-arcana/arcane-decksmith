@@ -7,14 +7,11 @@ import {
 export default function AppHeader({
   page,
   accountLabel,
-  onSignOut,
-  onMigrate
+  onSignOut
 }: {
   page: AppPage;
   accountLabel: string;
   onSignOut: () => void;
-  /** Öffnet die einmalige Komplett-Übernahme aus Firebase (nur für den Migrations-Admin). */
-  onMigrate?: () => void;
 }) {
   return (
     <header className="topbar">
@@ -53,12 +50,6 @@ export default function AppHeader({
 
       <div className="userbox">
         <span>{accountLabel}</span>
-
-        {onMigrate && (
-          <button type="button" className="secondary" onClick={onMigrate}>
-            Firebase-Migration
-          </button>
-        )}
 
         <button onClick={onSignOut}>
           Abmelden
