@@ -13,7 +13,7 @@ export default function AppHeader({
   page: AppPage;
   accountLabel: string;
   onSignOut: () => void;
-  /** Öffnet die einmalige Datenübernahme aus Firebase (nur mit Konto, nicht im Demo-Modus). */
+  /** Öffnet die einmalige Komplett-Übernahme aus Firebase (nur für den Migrations-Admin). */
   onMigrate?: () => void;
 }) {
   return (
@@ -56,7 +56,7 @@ export default function AppHeader({
 
         {onMigrate && (
           <button type="button" className="secondary" onClick={onMigrate}>
-            Daten aus Firebase
+            Firebase-Migration
           </button>
         )}
 

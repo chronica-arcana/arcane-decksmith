@@ -1,6 +1,7 @@
 import { Suspense, lazy, useEffect, useMemo, useRef, useState, type Dispatch, type FormEvent, type SetStateAction } from "react";
 import { subscribeAuth, login, logout, register, resetPassword, updatePassword, authMessage, type AppUser } from "./auth";
 import { supabaseConfigured } from "./supabase";
+import { isMigrationAdmin } from "./firebaseMigration";
 import {
   loadCollection,
   loadDecks,
@@ -890,6 +891,20 @@ function Main({
   onExitDemo: () => void;
 }) {
   const [migrationOpen, setMigrationOpen] = useState(false);
+  const [canMigrate, setCanMigrate] = useState(false);
+
+  // Der Button „Firebase-Migration“ erscheint nur für den Admin, solange die Freigabe
+  // (supabase/migration-tools/01-migration-freigeben.sql) aktiv ist.
+  useEffect(() => {
+    if (demoMode) return;
+    let active = true;
+    void isMigrationAdmin().then(allowed => {
+      if (active) setCanMigrate(allowed);
+    });
+    return () => {
+      active = false;
+    };
+  }, [demoMode, uid]);
   const [collection, setCollection] =
     useState<CardRecord[]>([]);
 
@@ -1246,16 +1261,15 @@ function Main({
             : logout
         }
         onMigrate={
-          demoMode
-            ? undefined
-            : () => setMigrationOpen(true)
+          canMigrate
+            ? () => setMigrationOpen(true)
+            : undefined
         }
       />
 
       {migrationOpen && (
         <Suspense fallback={<div className="loading">Wird geladen…</div>}>
           <FirebaseMigrationDialog
-            uid={uid}
             onClose={() => setMigrationOpen(false)}
           />
         </Suspense>
