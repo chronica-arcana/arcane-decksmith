@@ -28,7 +28,7 @@ Alles läuft über den Bereich **Marketplace**: Im Tab **Karten hinzufügen** du
 
 Die KI-Erklärungen und Zusatzdaten (Turnier-, Combo- und Community-Signale) laufen über einen **Cloudflare Worker** (nicht im Browser). Die Standard-URL ist `https://arcane-decksmith-ai.arcane-decksmith-api.workers.dev`; sie lässt sich über `VITE_AI_WORKER_URL` bzw. `VITE_DECK_INTELLIGENCE_URL` überschreiben.
 
-Der Quellcode des Workers liegt **nicht** in diesem Repository. Der Client sendet das Supabase-Access-Token als `Authorization: Bearer …`; Tokenprüfung und Rate-Limits müssen im Worker umgesetzt sein (Vorlage für die Token-Prüfung: `worker/supabase-auth.js`). Ist der Worker nicht erreichbar, zeigt die App einen Hinweis und arbeitet nur mit den Sammlungsdaten weiter.
+Der Quellcode des Workers liegt in `worker/ai-worker.js` (eine Datei, direkt in den Cloudflare-Editor einfügbar). Der Client sendet das Supabase-Access-Token als `Authorization: Bearer …`; Tokenprüfung und Rate-Limits müssen im Worker umgesetzt sein (Token-Prüfung: `worker/supabase-auth.js`, im Worker eingebettet). Ist der Worker nicht erreichbar, zeigt die App einen Hinweis und arbeitet nur mit den Sammlungsdaten weiter.
 
 ## Lokal starten
 

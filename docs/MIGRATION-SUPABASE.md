@@ -95,37 +95,26 @@ Cloudflare Dashboard → **Workers & Pages** → Worker auswählen → **Setting
 - Test im Browser: `https://<import-worker>.workers.dev/?url=https://archidekt.com/decks/<id>` liefert JSON mit Karten.
 
 ### 6b) KI-/Deck-Intelligence-Worker (Groq)
-Dieser Worker prüfte bisher das Firebase-Token und muss jetzt Supabase-Tokens prüfen.
+Der Worker prüfte bisher das Firebase-Token. Die umgebaute Version liegt in **`worker/ai-worker.js`** (komplette Datei, KI-Analyse und Deck-Intelligence unverändert; nur Anmeldung und Origin-Prüfung geändert).
 
-1. Variablen/Secrets setzen:
-   - `SUPABASE_URL` (Text) = Project URL aus Schritt 2
-   - `ALLOWED_ORIGINS` (Text) = Vercel-Adresse wie oben
-   - `SUPABASE_JWT_SECRET` (**Secret**) – **nur**, wenn dein Supabase-Projekt noch den alten gemeinsamen Schlüssel nutzt: *Project Settings → JWT Keys → Legacy JWT Secret*. Bei Projekten mit asymmetrischen Schlüsseln (Standard bei neuen Projekten, Algorithmus ES256) wird nichts benötigt; der öffentliche Schlüssel wird automatisch über `…/auth/v1/.well-known/jwks.json` geladen.
-   - Groq-Schlüssel und weitere vorhandene Secrets **unverändert lassen**.
-2. Im Worker-Code die Firebase-Tokenprüfung (Aufruf der Google-Schlüssel/`securetoken`-Prüfung, Prüfung von `aud`/`iss` mit der Firebase-Projekt-ID, ggf. `user_id`/`uid`) durch `authenticate()` aus `worker/supabase-auth.js` ersetzen:
+1. Cloudflare → Worker (`arcane-decksmith-ai`) → **Edit code**: den gesamten bisherigen Code durch den Inhalt von `worker/ai-worker.js` ersetzen → **Deploy**.
+2. **Settings → Variables and secrets** – diese Einträge setzen:
 
-   ```js
-   import { authenticate, AuthError } from "./supabase-auth.js"; // im Dashboard-Editor: Inhalt der Datei oben einfügen und "export" entfernen
+   | Name | Typ | Wert |
+   | --- | --- | --- |
+   | `ALLOWED_ORIGINS` | Text | `https://arcane-decksmith.vercel.app` (deine Adresse, ohne Pfad; mehrere mit Komma, z. B. zusätzlich `http://localhost:5173`) |
+   | `SUPABASE_URL` | Text | Project URL aus Schritt 2 (z. B. `https://abcdxyz.supabase.co`) |
+   | `SUPABASE_JWT_SECRET` | Secret | **nur** bei einem Projekt mit altem gemeinsamem Schlüssel: *Project Settings → JWT Keys → Legacy JWT Secret*. Bei neuen Projekten (ES256) weglassen, der öffentliche Schlüssel wird automatisch geladen. |
+   | `GROQ_API_KEY` | Secret | unverändert lassen |
+   | `TOPDECK_API_KEY` | Secret | unverändert lassen |
 
-   // …in fetch(request, env):
-   let auth;
-   try {
-     auth = await authenticate(request, env);   // prüft Signatur, Ablauf, Projekt
-   } catch (error) {
-     if (error instanceof AuthError) {
-       return new Response(JSON.stringify({ error: error.message }), {
-         status: error.status,
-         headers: { "Content-Type": "application/json", ...corsHeaders }
-       });
-     }
-     throw error;
-   }
-   const userId = auth.userId;   // vorher: Firebase-UID – z. B. als Schlüssel für Rate-Limits
-   ```
-3. Code **Deploy**en.
-4. **Du hast angeboten, den Worker-Code bereitzustellen:** Schick mir den Code der beiden Worker (ohne Secrets), dann baue ich die Prüfung passend ein und teste sie mit Unit-Tests.
+3. Was sich gegenüber dem alten Worker geändert hat:
+   - Die feste Origin `https://chronica-arcana.github.io` ist weg; erlaubt sind nur die Seiten aus `ALLOWED_ORIGINS`. Fehlt die Variable, antwortet der Worker mit 500 „ALLOWED_ORIGINS fehlt“.
+   - Die Prüfung des Firebase-ID-Tokens (Google-Zertifikate, Projekt-ID `arcane-decksmith-6a99f`) ist durch die Prüfung des Supabase-Tokens ersetzt (Signatur, Ablauf, Projekt, Zielgruppe).
+   - Fehlermeldung ohne gültige Anmeldung: 401 „Anmeldung fehlt“ bzw. „Anmeldung konnte nicht bestätigt werden“. 500/503 bedeutet: `SUPABASE_URL`/`SUPABASE_JWT_SECRET` fehlen oder falsch.
+4. Test (ohne Anmeldung muss der Worker ablehnen): im Browser ist `POST` nötig, daher in der App eine KI-Analyse starten. In Cloudflare → Worker → **Logs** siehst du bei Problemen die genaue Ursache („Supabase token verification failed: …“).
 
-Hinweis zu Rate-Limits/Zählern: Falls der Worker pro Nutzer zählt (KV/Durable Object), ändert sich die Nutzerkennung (Firebase-UID → Supabase-UUID). Alte Zähler verfallen dadurch; das ist unkritisch.
+Hinweis: Der Worker hat keine eigenen Rate-Limits (auch vorher nicht); die Nutzerkennung wird derzeit nicht für Zähler verwendet.
 
 ## Schritt 7 – GitHub aufräumen (3 Min.)
 
