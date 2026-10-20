@@ -178,3 +178,22 @@ Die App hat **keine Selbstregistrierung, keinen Demo-Modus und kein „Passwort 
 - **Passwort ändern/zurücksetzen:** Beim Nutzer `⋯ → Update password` bzw. ein neues Passwort setzen und dem Nutzer sicher mitteilen.
 - **Konto sperren oder löschen:** `⋯ → Ban user` bzw. `Delete user` (löscht auch alle Daten des Nutzers).
 - **Registrierung über die API verhindern:** *Sign In / Providers → „Allow new users to sign up“* ausschalten (siehe Schritt 4).
+
+## Betrieb: Keep-alive gegen die Pause im Gratis-Tarif
+
+Supabase pausiert Gratis-Projekte nach etwa einer Woche ohne Aktivität. Der Workflow `.github/workflows/keepalive.yml` verhindert das: Er fragt täglich um 05:17 UTC die Datenbank an (Funktion `public.ping()`) und prüft, ob die Vercel-Seite antwortet. Schlägt ein Aufruf fehl, schickt GitHub eine E-Mail zum fehlgeschlagenen Lauf.
+
+Einmalige Einrichtung:
+1. **Supabase SQL Editor:** Inhalt von `supabase/migrations/20261016000000_ping.sql` einfügen und **Run** klicken. Die Funktion gibt nur `ok` und die Uhrzeit zurück, die Tabellen bleiben für Anonyme gesperrt.
+2. **GitHub → Repo → Settings → Secrets and variables → Actions:**
+   - Tab **Secrets → New repository secret:** `SUPABASE_URL` (Project URL) und `SUPABASE_ANON_KEY` (derselbe öffentliche Schlüssel wie `VITE_SUPABASE_ANON_KEY` in Vercel).
+   - Tab **Variables → New repository variable:** `SITE_URL` (z. B. `https://arcane-decksmith.vercel.app`).
+3. **Testen:** *Actions → Keep-alive → Run workflow.* Der Lauf muss grün sein; im Log steht `Antwort: {"at": …, "ok": true}`.
+
+Gut zu wissen:
+- GitHub schaltet zeitgesteuerte Workflows in **öffentlichen** Repositories ab, wenn 60 Tage lang nichts im Repo passiert. Dann einmal unter *Actions → Keep-alive → Enable workflow* wieder einschalten (oder irgendeine Änderung pushen).
+- Läufe können einige Minuten später starten als geplant; täglich ist weit genug von der 7-Tage-Grenze entfernt.
+- Ob Supabase genau diese Abfrage als „Aktivität“ wertet, ist dessen interne Regel; die Abfrage greift auf die Datenbank zu und läuft über die normale API wie jede App-Anfrage.
+- Vercel pausiert statische Seiten nicht; die Prüfung dient nur der Erreichbarkeit.
+- Zuverlässiger als jede Pause-Verhinderung ist ein bezahlter Supabase-Tarif; er pausiert nicht.
+
