@@ -16,6 +16,7 @@ import type {
 } from "../types";
 
 const ExternalImportDialog = lazy(() => import("../components/ExternalImportDialog"));
+const SetCardsModal = lazy(() => import("../components/SetCardsModal"));
 
 const COLOR_NAMES: Record<string, string> = {
   W: "Weiß",
@@ -154,6 +155,7 @@ export default function CollectionPage({
   const [selectedCardId, setSelectedCardId] = useState<string | null>(null);
   const [setCatalog, setSetCatalog] = useState<ScryfallSet[]>([]);
   const [importOpen, setImportOpen] = useState(false);
+  const [openSet, setOpenSet] = useState<{ code: string; name: string } | null>(null);
 
   const [colorFilters, setColorFilters] = useState<Set<string>>(new Set());
   const [typeFilters, setTypeFilters] = useState<Set<string>>(new Set());
@@ -605,7 +607,14 @@ export default function CollectionPage({
             {setCompletion.map(set => (
               <div key={set.code}>
                 <span>
-                  <strong>{set.name}</strong>{" "}
+                  <button
+                    type="button"
+                    className="set-name-button"
+                    onClick={() => setOpenSet({ code: set.code.toLowerCase(), name: set.name })}
+                    aria-label={`Alle Karten von ${set.name} anzeigen`}
+                  >
+                    <strong>{set.name}</strong>
+                  </button>{" "}
                   <span className="muted">({set.code})</span>
                 </span>
                 <span>
@@ -831,6 +840,17 @@ export default function CollectionPage({
             pool={cards}
             onClose={() => setImportOpen(false)}
             onImportCollection={onImportCards}
+          />
+        </Suspense>
+      )}
+
+      {openSet && (
+        <Suspense fallback={<div className="loading">Set wird geladen…</div>}>
+          <SetCardsModal
+            setCode={openSet.code}
+            setName={openSet.name}
+            ownedCards={cards.filter(card => card.set.toLowerCase() === openSet.code)}
+            onClose={() => setOpenSet(null)}
           />
         </Suspense>
       )}

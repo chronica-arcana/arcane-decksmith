@@ -5583,3 +5583,142 @@ footer {
 
 
 
+
+/* =========================================================
+   SET-KARTEN-POP-UP (Klick auf einen Set-Namen im Set-Fortschritt)
+   ========================================================= */
+.set-name-button {
+  padding: 0;
+  background: none;
+  border: 0;
+  border-bottom: 1px dotted rgba(214, 173, 88, 0.6);
+  border-radius: 0;
+  box-shadow: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.set-name-button:hover {
+  color: #ffe3a0;
+  border-bottom-style: solid;
+}
+
+.set-name-button:focus-visible {
+  outline: 2px solid rgba(85, 215, 229, 0.72);
+  outline-offset: 3px;
+}
+
+.set-cards-dialog {
+  display: flex;
+  flex-direction: column;
+  width: min(1180px, 100%);
+  max-height: min(900px, calc(100vh - 48px));
+  overflow: hidden;
+  background:
+    linear-gradient(
+      145deg,
+      rgba(18, 29, 46, 0.995),
+      rgba(7, 13, 23, 0.995)
+    );
+  border: 1px solid rgba(214, 173, 88, 0.36);
+  border-radius: 18px;
+  box-shadow:
+    0 38px 100px rgba(0, 0, 0, 0.7),
+    0 0 42px rgba(85, 215, 229, 0.05);
+}
+
+.set-cards-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 18px 20px 8px;
+}
+
+.set-cards-head h2,
+.set-cards-head p {
+  margin: 0;
+}
+
+.set-cards-head p {
+  margin-top: 4px;
+}
+
+.set-cards-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 6px 20px 12px;
+}
+
+.set-cards-filters button.active {
+  border-color: rgba(223, 184, 104, 0.8);
+  background: rgba(223, 184, 104, 0.12);
+  color: var(--text, #f4f7fb);
+}
+
+.set-cards-body {
+  flex: 1;
+  min-height: 0;
+  padding: 4px 20px 20px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.set-cards-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(165px, 1fr));
+  gap: 16px;
+}
+
+.set-cards-grid .collection-card:hover {
+  transform: none;
+}
+
+.set-card .card-body {
+  padding: 10px 12px 12px;
+}
+
+.set-card .card-body h3 {
+  font-size: 14px;
+}
+
+.set-card .meta {
+  margin-bottom: 0;
+}
+
+/* Karten, die nicht im Besitz sind, werden ausgegraut. */
+.set-card-missing > img,
+.set-card-missing .collection-card-image-placeholder {
+  filter: grayscale(1);
+  opacity: 0.32;
+}
+
+.set-card-missing .card-body {
+  opacity: 0.55;
+}
+
+.set-cards-message {
+  display: grid;
+  gap: 8px;
+  justify-items: start;
+  padding: 18px 2px;
+}
+
+.set-cards-message p {
+  margin: 0;
+}
+
+@media (max-width: 560px) {
+  .set-cards-dialog {
+    max-height: calc(100vh - 24px);
+    border-radius: 14px;
+  }
+
+  .set-cards-grid {
+    grid-template-columns: repeat(auto-fill, minmax(135px, 1fr));
+    gap: 12px;
+  }
+}
