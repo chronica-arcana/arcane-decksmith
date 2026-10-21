@@ -16,6 +16,7 @@ const API = "https://api.scryfall.com";
 const cache = new Map<string, CardRecord>();
 const searchCache = new Map<string, ScryfallCard[]>();
 const printingsCache = new Map<string, ScryfallCard[]>();
+const setCardsCache = new Map<string, ScryfallCard[]>();
 const rawCardCache = new Map<string, ScryfallCard>();
 const collectorCardCache = new Map<string, ScryfallCard>();
 let setsCache: ScryfallSet[] | null = null;
@@ -638,6 +639,65 @@ export async function searchCards(
   });
 
   return result.data;
+}
+
+/** Alle Karten (Druckversionen) eines Sets, nach Sammlernummer sortiert. */
+export async function getSetCards(setCode: string): Promise<ScryfallCard[]> {
+  const code = setCode.trim().toLowerCase();
+
+  if (!/^[a-z0-9]{2,8}$/.test(code)) {
+    throw new Error("Ungültiger Set-Code.");
+  }
+
+  const cached = setCardsCache.get(code);
+
+  if (cached) {
+    return cached;
+  }
+
+  const params = new URLSearchParams({
+    q: `e:${code}`,
+    unique: "prints",
+    order: "set",
+    dir: "asc",
+    include_extras: "true",
+    include_variations: "true"
+  });
+
+  const cards: ScryfallCard[] = [];
+  let nextUrl: string | undefined = `${API}/cards/search?${params.toString()}`;
+
+  try {
+    while (nextUrl) {
+      const result: SearchResponse = await getJson<SearchResponse>(nextUrl);
+
+      cards.push(...result.data);
+
+      nextUrl =
+        result.has_more && result.next_page
+          ? result.next_page
+          : undefined;
+    }
+  } catch (error) {
+    // Scryfall antwortet bei einer Suche ohne Treffer mit 404.
+    if (error instanceof Error && /Scryfall-Fehler 404/.test(error.message) && cards.length === 0) {
+      return [];
+    }
+
+    throw error;
+  }
+
+  cards.sort((a, b) =>
+    a.collector_number.localeCompare(b.collector_number, undefined, { numeric: true })
+  );
+
+  setCardsCache.set(code, cards);
+
+  cards.forEach(card => {
+    rawCardCache.set(card.id, card);
+  });
+
+  return cards;
 }
 
 export async function getSets(): Promise<ScryfallSet[]> {
