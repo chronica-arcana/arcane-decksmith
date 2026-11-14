@@ -11,3 +11,7 @@ dist
 # Geheimnisse für die Datenmigration
 serviceAccount*.json
 *service-account*.json
+
+# Spiel-Worker: lokale Entwicklung
+worker/game/.dev.vars
+worker/game/.wrangler

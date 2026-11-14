@@ -1,0 +1,14 @@
+{
+  "name": "arcane-decksmith-game-worker",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "description": "Cloudflare Worker mit Durable Object für Online-Spiele (Machbarkeitstest)",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy"
+  },
+  "devDependencies": {
+    "wrangler": "^4.0.0"
+  }
+}
