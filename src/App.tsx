@@ -105,6 +105,7 @@ const CardScanner = lazy(() => import("./components/CardScanner"));
 const ExternalImportDialog = lazy(() => import("./components/ExternalImportDialog"));
 const PreconImportDialog = lazy(() => import("./components/PreconImportDialog"));
 const Markdown = lazy(() => import("./components/Markdown"));
+const GameTestPage = lazy(() => import("./pages/GameTestPage"));
 import { useAppNavigation } from "./navigation";
 
 function errorMessage(error: unknown): string {
@@ -1232,6 +1233,12 @@ function Main({
                       onSaveOffers={saveOffers}
                       onRemoveListing={removeMyListing}
                     />
+                  )
+                : page === "gametest"
+                  ? (
+                    <Suspense fallback={<div className="loading">Spieltest wird geladen…</div>}>
+                      <GameTestPage />
+                    </Suspense>
                   )
                 : (
                   <Decks

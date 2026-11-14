@@ -1,0 +1,20 @@
+# Spiel-Worker (Machbarkeitstest). Deployment: .github/workflows/deploy-game-worker.yml
+name = "arcane-decksmith-game"
+main = "src/index.js"
+compatibility_date = "2025-09-01"
+
+[durable_objects]
+bindings = [{ name = "GAME_ROOM", class_name = "GameRoom" }]
+
+# SQLite-gestützte Durable Objects (im Gratis-Tarif die einzige Variante).
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["GameRoom"]
+
+# Werte werden beim Deployment gesetzt (GitHub-Variablen), nicht hier.
+[vars]
+SUPABASE_URL = ""
+ALLOWED_ORIGINS = ""
+
+[observability]
+enabled = false
