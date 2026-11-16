@@ -46,7 +46,100 @@ export type RoomView = {
   players: RoomPlayer[];
 };
 
+export type GameZone = "library" | "hand" | "battlefield" | "graveyard" | "exile" | "command";
+export type PlayerCounterKind = "poison" | "energy" | "experience";
+
+export type GameCard = {
+  id: string;
+  owner: string;
+  tapped: boolean;
+  counters: Record<string, number>;
+  token: boolean;
+  faceDown: boolean;
+  /** Fehlt bei verdeckten Karten anderer Spieler. */
+  name?: string;
+  typeLine?: string;
+  manaValue?: number;
+  imageUri?: string | null;
+};
+
+export type GamePlayer = {
+  userId: string;
+  name: string;
+  deckName?: string;
+  life: number;
+  poison: number;
+  energy: number;
+  experience: number;
+  eliminated: string | null;
+  mulligans: number;
+  kept: boolean;
+  counts: Record<GameZone, number>;
+  /** Eigene Hand komplett, bei anderen nur gezeigte Karten. */
+  hand: GameCard[];
+  battlefield: GameCard[];
+  graveyard: GameCard[];
+  exile: GameCard[];
+  command: GameCard[];
+  /** Nur für den Besitzer: gerade angesehene Bibliothekskarten (oberste zuerst). */
+  looking: GameCard[] | null;
+  cmdDamage: Record<string, number>;
+  cmdCasts: Record<string, number>;
+};
+
+export type GameLogLine = { n: number; text: string };
+
+export type GameView = {
+  format: RoomFormat;
+  phase: "mulligan" | "playing" | "ended";
+  you: string;
+  turn: { number: number; active: string | null; phase: string; first: string | null };
+  winner: string | null;
+  startedAt: number;
+  endedAt: number | null;
+  players: GamePlayer[];
+  log: GameLogLine[];
+};
+
+export type GameAction =
+  | { type: "keep"; bottom?: string[] }
+  | { type: "mulligan" }
+  | { type: "draw"; count?: number }
+  | { type: "mill"; count?: number }
+  | { type: "shuffle" }
+  | { type: "look"; count: number | "all" }
+  | { type: "closeLook" }
+  | { type: "move"; id: string; to: GameZone; position?: "top" | "bottom"; faceDown?: boolean }
+  | { type: "tap"; id: string; tapped?: boolean }
+  | { type: "untapAll" }
+  | { type: "flip"; id: string }
+  | { type: "reveal"; id: string }
+  | { type: "counter"; id: string; kind: string; delta: number }
+  | { type: "token"; name: string }
+  | { type: "life"; delta?: number; set?: number }
+  | { type: "pcounter"; kind: PlayerCounterKind; delta: number }
+  | { type: "cmddmg"; from: string; delta: number }
+  | { type: "dice"; sides: number }
+  | { type: "coin" }
+  | { type: "nextPhase" }
+  | { type: "endTurn" }
+  | { type: "concede" };
+
+export type HistoryEntry = {
+  id: string;
+  code: string;
+  format: RoomFormat;
+  aborted: boolean;
+  winner: string | null;
+  won: boolean;
+  turns: number;
+  startedAt: number;
+  endedAt: number;
+  players: { userId: string; name: string; deckName: string; eliminated: string | null; life: number }[];
+};
+
 export type ServerMessage =
+  | { type: "game"; game: GameView }
   | { type: "welcome"; userId: string; code: string }
   | { type: "room"; room: RoomView; instance?: string }
   | { type: "chat"; from: string; userId: string; text: string }
@@ -54,7 +147,12 @@ export type ServerMessage =
   | { type: "closed"; reason: string }
   | { type: "error"; message: string };
 
-export type ClientMessage = { type: "chat"; text: string } | { type: "ready"; ready: boolean } | { type: "start" };
+export type ClientMessage =
+  | { type: "chat"; text: string }
+  | { type: "ready"; ready: boolean }
+  | { type: "start" }
+  | { type: "rematch" }
+  | { type: "game"; action: GameAction };
 
 export type ConnectionStatus =
   | { state: "connecting" }
@@ -119,6 +217,10 @@ export function parseServerMessage(raw: unknown): ServerMessage | null {
             ...(typeof message.instance === "string" ? { instance: message.instance } : {})
           }
         : null;
+    }
+    case "game": {
+      const game = message.game as Partial<GameView> | undefined;
+      return game && Array.isArray(game.players) && typeof game.phase === "string" ? { type: "game", game: game as GameView } : null;
     }
     case "chat":
       return typeof message.from === "string" && typeof message.text === "string"
@@ -281,6 +383,7 @@ export function createGameApi(options: {
       call<{ code: string; expiresAt: number }>("POST", "/api/rooms", input),
     joinRoom: (input: { code: string; deckId: string }) => call<{ code: string }>("POST", "/api/rooms/join", input),
     leaveRoom: () => call<{ ok: true }>("POST", "/api/rooms/leave", {}),
+    getHistory: async () => (await call<{ entries: HistoryEntry[] }>("GET", "/api/history")).entries,
     kickPlayer: (userId: string) => call<{ ok: true }>("POST", "/api/rooms/kick", { userId })
   };
 }

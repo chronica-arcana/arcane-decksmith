@@ -15,6 +15,14 @@ describe("parseClientMessage", () => {
     expect(parseClientMessage('{"type":"ready","ready":true}')).toEqual({ ok: true, message: { type: "ready", ready: true } });
     expect(parseClientMessage('{"type":"ready","ready":false}').message.ready).toBe(false);
     expect(parseClientMessage('{"type":"start"}')).toEqual({ ok: true, message: { type: "start" } });
+    expect(parseClientMessage('{"type":"rematch"}')).toEqual({ ok: true, message: { type: "rematch" } });
+    expect(parseClientMessage('{"type":"game","action":{"type":"draw","count":2}}')).toEqual({
+      ok: true,
+      message: { type: "game", action: { type: "draw", count: 2 } }
+    });
+    for (const bad of ['{"type":"game"}', '{"type":"game","action":[]}', '{"type":"game","action":{"count":1}}']) {
+      expect(parseClientMessage(bad).ok).toBe(false);
+    }
     const long = parseClientMessage(JSON.stringify({ type: "chat", text: `  ${"x".repeat(1000)}  ` }));
     expect(long.ok).toBe(true);
     expect(long.message.text).toHaveLength(MAX_CHAT_LENGTH);

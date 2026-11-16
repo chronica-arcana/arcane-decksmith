@@ -16,6 +16,7 @@
 import { DurableObject } from "cloudflare:workers";
 import { AuthError, authenticate, verifySupabaseJwt } from "../../supabase-auth.js";
 import { validateDeckForRoom } from "./deckValidation.js";
+import { abortGame, applyAction, createGame, gameView, playerLeft } from "./gameLogic.js";
 import {
   RateLimiter,
   allowedOrigins,
@@ -79,12 +80,35 @@ const lobbyOf = env => env.LOBBY.get(env.LOBBY.idFromName("lobby"));
 const roomOf = (env, code) => env.GAME_ROOM.get(env.GAME_ROOM.idFromName(code));
 
 // ---------------------------------------------------------------------------
+// Verlauf: beendete Spiele je Konto (ein Durable Object je Konto, höchstens 50 Einträge)
+// ---------------------------------------------------------------------------
+const HISTORY_LIMIT = 50;
+
+export class History extends DurableObject {
+  async add(entry) {
+    const list = (await this.ctx.storage.get("entries")) ?? [];
+    if (list.some(existing => existing.id === entry.id)) return { ok: true };
+    list.unshift(entry);
+    list.length = Math.min(list.length, HISTORY_LIMIT);
+    await this.ctx.storage.put("entries", list);
+    return { ok: true };
+  }
+
+  async list() {
+    return (await this.ctx.storage.get("entries")) ?? [];
+  }
+}
+
+const historyOf = (env, userId) => env.HISTORY.get(env.HISTORY.idFromName(userId));
+
+// ---------------------------------------------------------------------------
 // Raum
 // ---------------------------------------------------------------------------
 export class GameRoom extends DurableObject {
   constructor(ctx, env) {
     super(ctx, env);
     this.room = null;
+    this.game = null;
     /** Ändert sich, wenn das Objekt nach einer Hibernation neu im Speicher entsteht (Diagnose). */
     this.instanceId = crypto.randomUUID().slice(0, 8);
     /** Ratenbegrenzer je Verbindung (nur im Arbeitsspeicher; nach dem Aufwachen neu). */
@@ -93,6 +117,7 @@ export class GameRoom extends DurableObject {
     this.ctx.blockConcurrencyWhile(async () => {
       const stored = await this.ctx.storage.get("room");
       this.room = stored?.version === ROOM_VERSION ? stored : null;
+      this.game = this.room ? ((await this.ctx.storage.get("game")) ?? null) : null;
     });
 
     // Keepalive: "ping" wird beantwortet, ohne das Objekt aufzuwecken.
@@ -137,6 +162,10 @@ export class GameRoom extends DurableObject {
     if (!this.room) return { ok: true, removed: false, closed: false };
     const result = removePlayer(this.room, userId);
     if (!result.removed) return { ok: true, removed: false, closed: false };
+    if (this.game && !result.closed) {
+      playerLeft(this.game, userId);
+      await this.afterGameChange();
+    }
     if (result.closed) {
       await this.closeRoom("Der Gastgeber hat den Raum verlassen.");
       return { ok: true, removed: true, closed: true };
@@ -172,6 +201,11 @@ export class GameRoom extends DurableObject {
   async closeRoom(reason) {
     const room = this.room;
     if (!room) return;
+    if (this.game && this.game.phase !== "ended") {
+      abortGame(this.game);
+      await this.recordHistory();
+    }
+    this.game = null;
     for (const socket of this.sockets()) {
       this.send(socket, { type: "closed", reason });
       try {
@@ -184,6 +218,35 @@ export class GameRoom extends DurableObject {
     await Promise.allSettled(Object.keys(room.players).map(userId => lobby.release(userId, room.code)));
     this.room = null;
     await this.ctx.storage.deleteAll();
+  }
+
+  // --- Spiel ----------------------------------------------------------------------------------
+
+  /** Speichert das Spiel, trägt ein beendetes Spiel in den Verlauf ein und schickt allen ihre Sicht. */
+  async afterGameChange() {
+    if (!this.game) return;
+    await this.ctx.storage.put("game", this.game);
+    if (this.game.phase === "ended") await this.recordHistory();
+    this.broadcastGame();
+  }
+
+  async recordHistory() {
+    const game = this.game;
+    if (!game?.summary || !this.room) return;
+    const id = `${this.room.code}-${game.startedAt}`;
+    await Promise.allSettled(
+      game.seats.map(userId =>
+        historyOf(this.env, userId).add({ ...game.summary, id, code: this.room.code, won: game.summary.winner === userId })
+      )
+    );
+  }
+
+  broadcastGame(except) {
+    if (!this.game) return;
+    for (const socket of this.authedSockets(except)) {
+      const { userId } = socket.deserializeAttachment();
+      if (this.game.players[userId]) this.send(socket, { type: "game", game: gameView(this.game, userId) });
+    }
   }
 
   // --- WebSocket ------------------------------------------------------------------------------
@@ -289,9 +352,43 @@ export class GameRoom extends DurableObject {
           this.send(socket, { type: "error", message: result.error });
           break;
         }
+        this.game = createGame({ room: this.room, random: randomUnit });
         await this.persist();
         this.broadcast({ type: "system", text: "Das Spiel wurde gestartet." });
         this.broadcastRoom();
+        await this.afterGameChange();
+        break;
+      }
+      case "game": {
+        if (!this.game) {
+          this.send(socket, { type: "error", message: "Das Spiel hat noch nicht begonnen." });
+          break;
+        }
+        const result = applyAction(this.game, attachment.userId, parsed.message.action, { random: randomUnit });
+        if (!result.ok) {
+          this.send(socket, { type: "error", message: result.error });
+          break;
+        }
+        await this.afterGameChange();
+        break;
+      }
+      case "rematch": {
+        if (attachment.userId !== this.room.hostId) {
+          this.send(socket, { type: "error", message: "Nur der Gastgeber kann eine Revanche starten." });
+          break;
+        }
+        if (!this.game || this.game.phase !== "ended") {
+          this.send(socket, { type: "error", message: "Das laufende Spiel ist noch nicht beendet." });
+          break;
+        }
+        const remaining = Object.keys(this.room.players);
+        if (remaining.length < 2) {
+          this.send(socket, { type: "error", message: "Für eine Revanche braucht es mindestens 2 Spieler." });
+          break;
+        }
+        this.game = createGame({ room: this.room, random: randomUnit });
+        this.broadcast({ type: "system", text: "Revanche: ein neues Spiel beginnt." });
+        await this.afterGameChange();
         break;
       }
       default:
@@ -329,6 +426,7 @@ export class GameRoom extends DurableObject {
 
     socket.serializeAttachment({ authed: true, userId, name: this.room.players[userId].name, at: Date.now() });
     this.send(socket, { type: "welcome", userId, code: this.room.code });
+    if (this.game?.players[userId]) this.send(socket, { type: "game", game: gameView(this.game, userId) });
     await this.scheduleAlarm();
     this.broadcastRoom();
   }
@@ -562,6 +660,10 @@ async function handleApi(request, env, url) {
       const code = await currentRoomCode(env, auth.userId);
       const info = code ? await roomOf(env, code).info(auth.userId) : null;
       return reply({ room: info ?? null });
+    }
+
+    if (method === "GET" && path === "/api/history") {
+      return reply({ entries: await historyOf(env, auth.userId).list() });
     }
 
     const infoMatch = path.match(/^\/api\/rooms\/([A-Za-z0-9]+)$/);
