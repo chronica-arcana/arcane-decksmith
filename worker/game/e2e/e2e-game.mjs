@@ -97,6 +97,17 @@ act(pA, { type: "look", count: 2 });
 await waitFor(() => me(pA).looking?.length === 2);
 check("Bibliothek ansehen: nur der Besitzer sieht Karten", me(pA).looking.length === 2 && !game(pC).players.find(p => p.userId === game(pA).you).looking);
 act(pA, { type: "closeLook" });
+// Zaubern über den Stapel (die Testkarten haben keine Manakosten): wirken, beide passen, Karte liegt auf dem Schlachtfeld
+const spell = me(pA).hand.find(c => c.play?.kind === "spell");
+act(pA, { type: "cast", id: spell.id });
+await waitFor(() => game(pC).stack.length === 1);
+check("Zauber liegt für alle sichtbar auf dem Stapel", game(pC).stack[0].card?.name === spell.name && game(pA).priority === game(pA).you);
+act(pA, { type: "pass" });
+await waitFor(() => game(pC).priority === game(pC).you);
+check("Gegner bekommt Priorität", game(pC).priority === game(pC).you);
+act(pC, { type: "pass" });
+await waitFor(() => game(pA).stack.length === 0);
+check("Zauber löst sich auf", game(pA).players.find(p => p.userId === game(pA).you).battlefield.some(c => c.id === spell.id));
 act(pA, { type: "endTurn" });
 await waitFor(() => game(pC).turn.active !== first);
 check("Zugwechsel", game(pC).turn.active !== first && game(pC).turn.number === 2);
