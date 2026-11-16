@@ -89,6 +89,17 @@ export default function HomePage({
       cta: "Decks öffnen",
       meta:
         `${commanderDecks} Commander · ${standardDecks} Standard`
+    },
+    {
+      key: "game" as const,
+      eyebrow: "SPIELEN",
+      icon: "⚔",
+      title: "Online gegeneinander spielen",
+      text:
+        "Lade Freunde per Einladungscode ein und spiele mit deinen eigenen Decks – Standard oder Commander mit bis zu 4 Spielern.",
+      cta: "Spiel starten",
+      meta:
+        "Einladungscode · Stapel · Kampf"
     }
   ];
 
@@ -222,6 +233,10 @@ export default function HomePage({
           grid-template-columns:
             repeat(2,minmax(0,1fr));
           gap:16px;
+        }
+
+        .landing-card:last-child:nth-child(odd){
+          grid-column:1 / -1;
         }
 
         .landing-card{

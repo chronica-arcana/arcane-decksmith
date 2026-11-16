@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  APP_NAV_ITEMS,
   APP_PAGE_HASHES,
   appLocationFromHash,
   appPageFromHash,
@@ -13,6 +14,10 @@ describe("navigation", () => {
       expect(appPageHref(page as keyof typeof APP_PAGE_HASHES)).toBe(hash);
       expect(appPageFromHash(hash)).toBe(page);
     }
+  });
+
+  it("lists the game page in the navigation", () => {
+    expect(APP_NAV_ITEMS).toContainEqual({ page: "game", label: "Spielen" });
   });
 
   it("recognizes home aliases", () => {
