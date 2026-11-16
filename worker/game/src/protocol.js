@@ -40,6 +40,13 @@ export function parseClientMessage(raw) {
       return { ok: true, message: { type: "ready", ready: data.ready } };
     case "start":
       return { ok: true, message: { type: "start" } };
+    case "rematch":
+      return { ok: true, message: { type: "rematch" } };
+    case "game":
+      if (!data.action || typeof data.action !== "object" || Array.isArray(data.action) || typeof data.action.type !== "string") {
+        return { ok: false, error: "Ungültige Spielaktion." };
+      }
+      return { ok: true, message: { type: "game", action: data.action } };
     default:
       return { ok: false, error: "Unbekannter Nachrichtentyp." };
   }

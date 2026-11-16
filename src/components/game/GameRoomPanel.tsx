@@ -1,7 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import { getSession } from "../../auth";
+import GameTable from "./GameTable";
 import {
   GameApiError,
+  type GameAction,
+  type GameView,
   connectGame,
   gameSocketUrl,
   type ConnectionStatus,
@@ -29,6 +32,7 @@ export default function GameRoomPanel({
 }) {
   const [status, setStatus] = useState<ConnectionStatus>({ state: "connecting" });
   const [room, setRoom] = useState<RoomView | null>(null);
+  const [game, setGame] = useState<GameView | null>(null);
   const [log, setLog] = useState<LogLine[]>([]);
   const [chat, setChat] = useState("");
   const [error, setError] = useState("");
@@ -61,6 +65,7 @@ export default function GameRoomPanel({
       },
       onMessage: message => {
         if (message.type === "room") setRoom(message.room);
+        if (message.type === "game") setGame(message.game);
         if (message.type === "chat") addLog(`${message.from}: ${message.text}`);
         if (message.type === "system") addLog(message.text);
         if (message.type === "error") addLog(`Hinweis: ${message.message}`);
@@ -95,6 +100,16 @@ export default function GameRoomPanel({
     } catch {
       setError("Der Code konnte nicht kopiert werden. Bitte markieren und kopieren.");
     }
+  };
+
+  const sendAction = (action: GameAction) => connection.current?.send({ type: "game", action });
+  const leave = () => {
+    if (game && game.phase !== "ended" && !window.confirm("Das Spiel läuft noch. Wenn du den Raum verlässt, gibst du auf. Wirklich verlassen?")) return;
+    void run(async () => {
+      await api.leaveRoom();
+      finished.current = true;
+      onLeft(room && room.you === room.hostId ? "Du hast den Raum geschlossen." : "Du hast den Raum verlassen.");
+    });
   };
 
   const me = room?.players.find(player => player.userId === room.you);
@@ -138,7 +153,7 @@ export default function GameRoomPanel({
         )}
       </div>
 
-      {room && (
+      {room && !game && (
         <div className="panel">
           <h3>Spieler</h3>
           <ul className="game-player-list">
@@ -193,12 +208,18 @@ export default function GameRoomPanel({
           {open && isHost && !everyoneReady && (
             <p className="muted">Zum Starten brauchst du mindestens 2 Spieler, und alle müssen „bereit“ sein.</p>
           )}
-          {!open && (
-            <div className="notice" role="status">
-              Das Spiel wurde gestartet. Der Spieltisch selbst folgt mit dem nächsten Meilenstein.
-            </div>
-          )}
+          {!open && !game && <div className="notice" role="status">Das Spiel wird vorbereitet …</div>}
         </div>
+      )}
+
+      {game && room && (
+        <GameTable
+          game={game}
+          hostId={room.hostId}
+          send={sendAction}
+          onRematch={() => connection.current?.send({ type: "rematch" })}
+          onLeave={leave}
+        />
       )}
 
       <div className="panel">
@@ -229,17 +250,7 @@ export default function GameRoomPanel({
       {error && <div className="error" role="alert">{error}</div>}
 
       <div className="row">
-        <button
-          type="button"
-          className="secondary"
-          onClick={() =>
-            void run(async () => {
-              await api.leaveRoom();
-              finished.current = true;
-              onLeft(isHost ? "Du hast den Raum geschlossen." : "Du hast den Raum verlassen.");
-            })
-          }
-        >
+        <button type="button" className="secondary" onClick={leave}>
           {isHost ? "Raum schließen" : "Raum verlassen"}
         </button>
       </div>

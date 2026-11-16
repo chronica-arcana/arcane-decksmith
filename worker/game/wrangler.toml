@@ -6,7 +6,8 @@ compatibility_date = "2025-09-01"
 [durable_objects]
 bindings = [
   { name = "GAME_ROOM", class_name = "GameRoom" },
-  { name = "LOBBY", class_name = "Lobby" }
+  { name = "LOBBY", class_name = "Lobby" },
+  { name = "HISTORY", class_name = "History" }
 ]
 
 # SQLite-gestützte Durable Objects (im Gratis-Tarif die einzige Variante).
@@ -17,6 +18,10 @@ new_sqlite_classes = ["GameRoom"]
 [[migrations]]
 tag = "v2"
 new_sqlite_classes = ["Lobby"]
+
+[[migrations]]
+tag = "v3"
+new_sqlite_classes = ["History"]
 
 # Werte werden beim Deployment gesetzt (GitHub-Variablen/-Secrets), nicht hier.
 [vars]

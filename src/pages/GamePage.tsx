@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import HistoryPanel from "../components/game/HistoryPanel";
 import DeckPicker, { type DeckPickerResult } from "../components/game/DeckPicker";
 import GameRoomPanel from "../components/game/GameRoomPanel";
 import { getSession } from "../auth";
@@ -249,6 +250,7 @@ function Lobby({
           </div>
         )}
       </div>
+      <HistoryPanel api={api} />
     </section>
   );
 }
