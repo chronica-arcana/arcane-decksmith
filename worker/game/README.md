@@ -1,4 +1,4 @@
-# Spiel-Worker (Online-Spiel, Machbarkeitstest)
+# Spiel-Worker (Online-Spiel, Meilenstein 1: Räume)
 
 Cloudflare Worker mit einem **Durable Object je Raum**. Er ist die Grundlage für das geplante Online-Spiel
 (digitaler Spieltisch) und beweist in diesem ersten Schritt drei Dinge:
@@ -17,27 +17,29 @@ Cloudflare Worker mit einem **Durable Object je Raum**. Er ist die Grundlage fü
 | Zugang | Nur per Einladungscode, nur angemeldete Konten |
 | Eigene Karten | Strenge Prüfung auf dem Server gegen die Sammlung. Basic Lands gemäß offiziellen Regeln: beliebig viele erlaubt, keine Besitzprüfung |
 
-## Aufbau
-- `src/index.js` – Worker-Einstieg (Herkunftsprüfung, Raumcode) und die Klasse `GameRoom` (Durable Object).
-- `src/protocol.js` – reine Logik (Nachrichten prüfen, Spielstand, Sicht pro Spieler, Ratenbegrenzung); in Node testbar
-  (`protocol.test.js`, läuft mit `npm test` im Hauptprojekt).
-- Anmeldung: Der Client schickt als **erste Nachricht** `{ "type": "auth", "token": … }` (nie in der Adresse). Geprüft wird mit
-  `worker/supabase-auth.js` (dieselbe Prüfung wie beim KI-Worker). Wer sich nicht binnen 10 Sekunden anmeldet, wird getrennt.
-- Nachrichten (Client → Server): `auth`, `chat`, `draw`. Server → Client: `welcome`, `view`, `chat`, `error`.
-- Grenzen: höchstens 4 Spieler je Raum, 4 KB je Nachricht, Ratenbegrenzung je Verbindung.
+## Meilenstein 1: Räume mit Einladungscode
+- Ein Konto kann **immer nur in einem Raum** sein (Durable Object `Lobby` führt das Register, mit Selbstheilung).
+- Der Einladungscode (6 Zeichen) ist **24 Stunden gültig**; danach schließt der Raum automatisch.
+- Beim Erstellen und Beitreten wird das Deck **auf dem Server streng geprüft** (Besitz in der Sammlung, Formatregeln aus
+  `src/deckBuilder.ts`, Basic Lands ohne Besitzprüfung). Ein ungültiges Deck verhindert das Betreten; die App zeigt die Gründe.
+- Raum: bereit/nicht bereit, Gastgeber startet (mind. 2 Spieler, alle bereit), Gastgeber kann entfernen, Chat.
+- HTTP-Schnittstelle (Bearer-Token): `GET /api/room/mine`, `GET /api/room/<code>`, `POST /api/deck/check`, `POST /api/room`, `POST /api/room/join`, `POST /api/room/leave`, `POST /api/room/kick`.
+- WebSocket `/ws/<code>`: Client → Server `auth`, `chat`, `ready`, `start`; Server → Client `welcome`, `room`, `chat`, `system`, `closed`, `error`.
+- Dateien: `src/index.js` (Worker, `Lobby`, `GameRoom`), `roomLogic.js`, `deckValidation.js`, `supabaseData.js`, `protocol.js` (alle mit Tests).
+- Die App-Seite ist versteckt unter **`#/spielen`**.
 
 ## Einrichtung ohne Terminal (GitHub-Workflow)
 1. **Cloudflare-Token erzeugen:** Cloudflare Dashboard → *My Profile → API Tokens → Create Token* → Vorlage
    **„Edit Cloudflare Workers“** → Account und Zonen auswählen → Token kopieren (wird nur einmal angezeigt).
 2. **Account-ID:** Cloudflare Dashboard → *Workers & Pages* → rechte Seitenleiste „Account ID“.
 3. **GitHub → Repo → Settings → Secrets and variables → Actions:**
-   - Secrets: `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID` (und `SUPABASE_URL` ist durch den Keep-alive schon vorhanden).
+   - Secrets: `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID` (`SUPABASE_URL` und `SUPABASE_ANON_KEY` sind durch den Keep-alive schon vorhanden).
    - Variable `SITE_URL` ist vorhanden. Optional `GAME_ALLOWED_ORIGINS` (kommagetrennt, ohne Pfad), wenn mehr als die Seite erlaubt sein soll.
    - Nur bei einem Supabase-Projekt mit altem HS256-Schlüssel zusätzlich das Secret `SUPABASE_JWT_SECRET`.
 4. **Actions → „Deploy Spiel-Worker“ → Run workflow.** Beim ersten Lauf legt Cloudflare das Durable Object an.
 5. **Testen:** Im Browser `https://arcane-decksmith-game.<dein-subdomain>.workers.dev/health` öffnen (erwartet `{"ok":true,…}`).
-   Danach in der App die versteckte Seite **`#/spieltest`** mit zwei Konten in zwei Browsern öffnen und denselben Raumcode verwenden.
-   Hat der Worker eine andere Adresse, in Vercel `VITE_GAME_WORKER_URL` setzen oder sie auf der Testseite eintragen.
+   Danach in der App die versteckte Seite **`#/spielen`** mit zwei Konten in zwei Browsern öffnen: ein Konto erstellt den Raum, das andere tritt mit dem Code bei.
+   Hat der Worker eine andere Adresse, in Vercel `VITE_GAME_WORKER_URL` setzen.
 
 ## Lokal testen (optional, mit Terminal)
 ```bash
@@ -52,4 +54,4 @@ Durable Objects sind im Gratis-Tarif nur mit SQLite-Speicher verfügbar (hier de
 **gebündelt** speichern, nicht bei jeder Aktion (der Test speichert aus Einfachheit noch bei jedem Zug).
 
 ## Nächste Schritte
-Meilenstein 1: Räume mit Einladungscode in Supabase, Deck-Wahl und strenge Prüfung (Besitz und Formatgültigkeit) auf dem Server.
+Meilenstein 2: Spielkern für 2 Spieler (Spieltisch, Bibliothek mischen, ziehen, Zonen).

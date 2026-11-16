@@ -1,23 +1,11 @@
 /**
- * Reine Logik des Machbarkeitstests (ohne Cloudflare-Abhängigkeiten, daher in Node testbar):
- * Nachrichten prüfen, Spielstand ändern, Sicht pro Spieler erzeugen, Ratenbegrenzung.
- *
- * Kernidee für den späteren Spieltisch: Der **volle Zustand** liegt nur auf dem Server.
- * Jeder Client bekommt über `buildView` ausschließlich seine eigene Sicht – vom Gegner
- * erfährt er nur öffentliche Werte (z. B. die Anzahl der Handkarten).
+ * Reine Hilfsfunktionen des Spiel-Workers (ohne Cloudflare-Abhängigkeiten, daher in Node testbar):
+ * WebSocket-Nachrichten prüfen, Ratenbegrenzung, Namen und Codes normalisieren.
  */
 
-export const MAX_PLAYERS = 4;
 export const MAX_MESSAGE_BYTES = 4096;
 export const MAX_CHAT_LENGTH = 300;
 export const MAX_NAME_LENGTH = 30;
-
-/** Demo-Stapel: 20 Karten, Kartennamen nur zur Anschauung. */
-export const DEMO_DECK = Array.from({ length: 20 }, (_, i) => `Karte ${i + 1}`);
-
-export function createRoomState(roomCode) {
-  return { roomCode, players: {}, events: 0 };
-}
 
 /** Prüft eine Roh-Nachricht des Clients. Liefert `{ ok: true, message }` oder `{ ok: false, error }`. */
 export function parseClientMessage(raw) {
@@ -47,83 +35,28 @@ export function parseClientMessage(raw) {
       if (!text) return { ok: false, error: "Leere Chat-Nachricht." };
       return { ok: true, message: { type: "chat", text: text.slice(0, MAX_CHAT_LENGTH) } };
     }
-    case "draw":
-      return { ok: true, message: { type: "draw" } };
+    case "ready":
+      if (typeof data.ready !== "boolean") return { ok: false, error: "Ungültige Bereit-Angabe." };
+      return { ok: true, message: { type: "ready", ready: data.ready } };
+    case "start":
+      return { ok: true, message: { type: "start" } };
     default:
       return { ok: false, error: "Unbekannter Nachrichtentyp." };
   }
 }
 
-/** Anzeigename aus dem Token (nur E-Mail-Vorderteil, nie die volle Adresse an andere senden). */
-export function displayNameFromClaims(claims) {
+/** Bereinigt einen Anzeigenamen (Buchstaben, Ziffern, Leerzeichen und . _ -). */
+export function cleanName(value) {
+  const text = typeof value === "string" ? value : "";
+  return text.replace(/[^\p{L}\p{N} ._-]/gu, "").trim().slice(0, MAX_NAME_LENGTH);
+}
+
+/** Anzeigename: Profilname, sonst der Vorderteil der E-Mail (nie die volle Adresse an andere senden). */
+export function displayName(profileName, claims) {
+  const fromProfile = cleanName(profileName);
+  if (fromProfile.length >= 2) return fromProfile;
   const email = typeof claims?.email === "string" ? claims.email : "";
-  const base = email.split("@")[0] || "Spieler";
-  return base.replace(/[^\p{L}\p{N} ._-]/gu, "").slice(0, MAX_NAME_LENGTH) || "Spieler";
-}
-
-/**
- * Nimmt einen Spieler auf (oder erkennt ihn wieder). Liefert `{ ok, seat }` bzw. `{ ok: false, error }`.
- * Der Mutations-Hinweis `changed` zeigt, ob der Zustand gespeichert werden muss.
- */
-export function joinPlayer(state, userId, name) {
-  const existing = state.players[userId];
-  if (existing) {
-    const changed = existing.name !== name;
-    existing.name = name;
-    return { ok: true, seat: existing.seat, changed };
-  }
-
-  const taken = new Set(Object.values(state.players).map(player => player.seat));
-  let seat = 0;
-  while (taken.has(seat)) seat += 1;
-  if (seat >= MAX_PLAYERS) return { ok: false, error: "Der Raum ist voll." };
-
-  state.players[userId] = { name, seat, hand: [], library: [] };
-  return { ok: true, seat, changed: true };
-}
-
-/** Mischt den Demo-Stapel des Spielers mit Fisher-Yates; `random` liefert Zahlen in [0, 1). */
-export function shuffleInto(state, userId, random) {
-  const player = state.players[userId];
-  const cards = [...DEMO_DECK];
-  for (let i = cards.length - 1; i > 0; i -= 1) {
-    const j = Math.floor(random() * (i + 1));
-    [cards[i], cards[j]] = [cards[j], cards[i]];
-  }
-  player.library = cards;
-  player.hand = [];
-}
-
-/** Zieht die oberste Karte der Bibliothek in die Hand. Mischt beim ersten Mal. */
-export function drawCard(state, userId, random) {
-  const player = state.players[userId];
-  if (!player) return { ok: false, error: "Du bist nicht im Raum." };
-  if (player.library.length === 0 && player.hand.length === 0) shuffleInto(state, userId, random);
-  const card = player.library.shift();
-  if (card === undefined) return { ok: false, error: "Die Bibliothek ist leer." };
-  player.hand.push(card);
-  state.events += 1;
-  return { ok: true, card };
-}
-
-/**
- * Sicht eines Spielers: eigene Hand sichtbar, bei allen anderen nur die Anzahl.
- * Die Bibliothek (Reihenfolge!) wird **nie** übertragen, auch nicht dem Besitzer.
- */
-export function buildView(state, viewerId, onlineIds) {
-  const online = new Set(onlineIds);
-  const players = Object.entries(state.players)
-    .sort((a, b) => a[1].seat - b[1].seat)
-    .map(([userId, player]) => ({
-      userId,
-      name: player.name,
-      seat: player.seat,
-      online: online.has(userId),
-      handCount: player.hand.length,
-      libraryCount: player.library.length,
-      ...(userId === viewerId ? { hand: [...player.hand] } : {})
-    }));
-  return { roomCode: state.roomCode, you: viewerId, events: state.events, players };
+  return cleanName(email.split("@")[0]) || "Spieler";
 }
 
 /** Einfacher Token-Bucket: `capacity` Nachrichten, danach `refillPerSecond` pro Sekunde. */

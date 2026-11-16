@@ -3,31 +3,58 @@
  * Supabase-Token als erste Nachricht (das Token steht nie in der Adresse) und Nachrichten-Parsing.
  */
 
-export type GamePlayerView = {
+export type RoomFormat = "standard" | "commander";
+
+export type DeckIssue = { code: string; message: string };
+
+export type DeckCheck = {
+  ok: boolean;
+  errors: DeckIssue[];
+  summary: { format: RoomFormat; mainCount: number; sideboardCount: number; commanderCount: number; totalCards: number };
+};
+
+/** Öffentliche Rauminfo (für den Beitritt per Code). */
+export type RoomInfo = {
+  code: string;
+  format: RoomFormat;
+  status: "open" | "playing";
+  maxPlayers: number;
+  playerCount: number;
+  hostName: string;
+  expiresAt: number;
+  isHost?: boolean;
+};
+
+export type RoomPlayer = {
   userId: string;
   name: string;
   seat: number;
+  ready: boolean;
   online: boolean;
-  handCount: number;
-  libraryCount: number;
-  /** Nur bei der eigenen Sicht vorhanden. */
-  hand?: string[];
+  isHost: boolean;
+  deck: { id: string; name: string; cardCount: number };
 };
 
-export type GameView = {
-  roomCode: string;
+export type RoomView = {
+  code: string;
+  format: RoomFormat;
+  status: "open" | "playing";
+  maxPlayers: number;
+  expiresAt: number;
+  hostId: string;
   you: string;
-  events: number;
-  players: GamePlayerView[];
+  players: RoomPlayer[];
 };
 
 export type ServerMessage =
-  | { type: "welcome"; userId: string; roomCode: string }
-  | { type: "view"; view: GameView; instance?: string }
+  | { type: "welcome"; userId: string; code: string }
+  | { type: "room"; room: RoomView; instance?: string }
   | { type: "chat"; from: string; userId: string; text: string }
+  | { type: "system"; text: string }
+  | { type: "closed"; reason: string }
   | { type: "error"; message: string };
 
-export type ClientMessage = { type: "chat"; text: string } | { type: "draw" };
+export type ClientMessage = { type: "chat"; text: string } | { type: "ready"; ready: boolean } | { type: "start" };
 
 export type ConnectionStatus =
   | { state: "connecting" }
@@ -80,15 +107,15 @@ export function parseServerMessage(raw: unknown): ServerMessage | null {
 
   switch (message.type) {
     case "welcome":
-      return typeof message.userId === "string" && typeof message.roomCode === "string"
-        ? { type: "welcome", userId: message.userId, roomCode: message.roomCode }
+      return typeof message.userId === "string" && typeof message.code === "string"
+        ? { type: "welcome", userId: message.userId, code: message.code }
         : null;
-    case "view": {
-      const view = message.view as Partial<GameView> | undefined;
-      return view && typeof view.roomCode === "string" && Array.isArray(view.players)
+    case "room": {
+      const room = message.room as Partial<RoomView> | undefined;
+      return room && typeof room.code === "string" && Array.isArray(room.players)
         ? {
-            type: "view",
-            view: view as GameView,
+            type: "room",
+            room: room as RoomView,
             ...(typeof message.instance === "string" ? { instance: message.instance } : {})
           }
         : null;
@@ -97,6 +124,10 @@ export function parseServerMessage(raw: unknown): ServerMessage | null {
       return typeof message.from === "string" && typeof message.text === "string"
         ? { type: "chat", from: message.from, userId: String(message.userId ?? ""), text: message.text }
         : null;
+    case "system":
+      return typeof message.text === "string" ? { type: "system", text: message.text } : null;
+    case "closed":
+      return typeof message.reason === "string" ? { type: "closed", reason: message.reason } : null;
     case "error":
       return typeof message.message === "string" ? { type: "error", message: message.message } : null;
     default:
@@ -109,7 +140,10 @@ const CLOSE_TEXTS: Record<number, string> = {
   4000: "Du hast dich an anderer Stelle neu verbunden.",
   4001: "Anmeldung abgelehnt oder zu spät.",
   4002: "Der Raum ist voll.",
-  4003: "Ungültige Nachricht."
+  4003: "Ungültige Nachricht.",
+  4004: "Du bist kein Mitglied dieses Raums.",
+  4005: "Du bist nicht mehr im Raum.",
+  4006: "Der Raum wurde geschlossen."
 };
 
 export function describeClose(code: number, reason: string): string {
@@ -185,5 +219,68 @@ export function connectGame(options: {
     close() {
       if (!finished) socket.close(1000, "Beendet");
     }
+  };
+}
+
+// ---------------------------------------------------------------------------
+// HTTP-Schnittstelle des Spiel-Workers
+// ---------------------------------------------------------------------------
+
+/** Fehler der Schnittstelle; `errors` enthält bei ungültigen Decks die einzelnen Hinweise. */
+export class GameApiError extends Error {
+  constructor(
+    message: string,
+    public status: number,
+    public errors: DeckIssue[] = [],
+    public code?: string
+  ) {
+    super(message);
+    this.name = "GameApiError";
+  }
+}
+
+export type GameApi = ReturnType<typeof createGameApi>;
+
+export function createGameApi(options: {
+  baseUrl: string;
+  getToken: () => Promise<string | null>;
+  fetchImpl?: typeof fetch;
+}) {
+  const base = options.baseUrl.trim().replace(/\/+$/, "").replace(/^wss:/, "https:").replace(/^ws:/, "http:");
+  const doFetch = options.fetchImpl ?? ((input: RequestInfo | URL, init?: RequestInit) => fetch(input, init));
+
+  async function call<T>(method: "GET" | "POST", path: string, body?: unknown): Promise<T> {
+    const token = await options.getToken();
+    if (!token) throw new GameApiError("Du bist nicht angemeldet.", 401);
+
+    let response: Response;
+    try {
+      response = await doFetch(`${base}${path}`, {
+        method,
+        headers: { Authorization: `Bearer ${token}`, ...(body ? { "Content-Type": "application/json" } : {}) },
+        body: body ? JSON.stringify(body) : undefined
+      });
+    } catch {
+      throw new GameApiError("Der Spiel-Server ist nicht erreichbar.", 0);
+    }
+
+    const data = (await response.json().catch(() => null)) as
+      | (T & { error?: string; errors?: DeckIssue[]; code?: string })
+      | null;
+    if (!response.ok) {
+      throw new GameApiError(data?.error ?? `Anfrage fehlgeschlagen (${response.status}).`, response.status, data?.errors ?? [], data?.code);
+    }
+    return data as T;
+  }
+
+  return {
+    checkDeck: (deckId: string, format: RoomFormat) => call<DeckCheck>("POST", "/api/decks/check", { deckId, format }),
+    getMyRoom: async () => (await call<{ room: RoomInfo | null }>("GET", "/api/rooms/mine")).room,
+    getRoomInfo: async (code: string) => (await call<{ room: RoomInfo }>("GET", `/api/rooms/${encodeURIComponent(code)}`)).room,
+    createRoom: (input: { format: RoomFormat; deckId: string; maxPlayers?: number }) =>
+      call<{ code: string; expiresAt: number }>("POST", "/api/rooms", input),
+    joinRoom: (input: { code: string; deckId: string }) => call<{ code: string }>("POST", "/api/rooms/join", input),
+    leaveRoom: () => call<{ ok: true }>("POST", "/api/rooms/leave", {}),
+    kickPlayer: (userId: string) => call<{ ok: true }>("POST", "/api/rooms/kick", { userId })
   };
 }

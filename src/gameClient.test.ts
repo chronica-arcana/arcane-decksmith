@@ -68,12 +68,12 @@ describe("Hilfsfunktionen", () => {
 
 describe("parseServerMessage", () => {
   it("liest bekannte Nachrichten und ignoriert Unbekanntes", () => {
-    const view = { roomCode: "ABCD", you: "a", events: 1, players: [] };
-    expect(parseServerMessage(JSON.stringify({ type: "welcome", userId: "a", roomCode: "ABCD" }))).toEqual({ type: "welcome", userId: "a", roomCode: "ABCD" });
-    expect(parseServerMessage(JSON.stringify({ type: "view", view, instance: "x1" }))).toEqual({ type: "view", view, instance: "x1" });
+    const room = { code: "ABCD", you: "a", players: [] };
+    expect(parseServerMessage(JSON.stringify({ type: "welcome", userId: "a", code: "ABCD" }))).toEqual({ type: "welcome", userId: "a", code: "ABCD" });
+    expect(parseServerMessage(JSON.stringify({ type: "room", room, instance: "x1" }))).toMatchObject({ type: "room", instance: "x1" });
     expect(parseServerMessage(JSON.stringify({ type: "chat", from: "bob", userId: "b", text: "hi" }))).toMatchObject({ type: "chat", text: "hi" });
     expect(parseServerMessage(JSON.stringify({ type: "error", message: "nein" }))).toEqual({ type: "error", message: "nein" });
-    for (const bad of ["pong", "{", "null", '{"type":"view"}', '{"type":"welcome"}', '{"type":"x"}', 5, undefined]) {
+    for (const bad of ["pong", "{", "null", '{"type":"room"}', '{"type":"welcome"}', '{"type":"x"}', 5, undefined]) {
       expect(parseServerMessage(bad)).toBeNull();
     }
   });
@@ -124,12 +124,12 @@ describe("connectGame", () => {
     socket.emit("message", { data: JSON.stringify({ type: "error", message: "nein" }) });
     expect(messages).toEqual([{ type: "error", message: "nein" }]);
 
-    connection.send({ type: "draw" });
-    expect(socket.sent.at(-1)).toBe('{"type":"draw"}');
+    connection.send({ type: "start" });
+    expect(socket.sent.at(-1)).toBe('{"type":"start"}');
 
     socket.readyState = 3;
     const before = socket.sent.length;
-    connection.send({ type: "draw" });
+    connection.send({ type: "start" });
     expect(socket.sent).toHaveLength(before);
   });
 
