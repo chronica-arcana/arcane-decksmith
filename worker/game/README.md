@@ -45,6 +45,14 @@ Cloudflare Worker mit einem **Durable Object je Raum**. Er ist die Grundlage fü
 - **Verlauf:** Durable Object `History` je Konto (letzte 50 Spiele, auch abgebrochene), ohne zusätzliche Datenbank-Einrichtung.
 - Keine Rückgängig-Funktion (sie würde Mogeln ermöglichen: ansehen, dann zurücknehmen).
 
+## Bedienung am Spieltisch
+- Gegner sitzen oben (gespiegelt), du unten; Friedhof, Exil und Kommandozone liegen links, die Bibliothek rechts, der Stapel rechts am Tisch.
+- **Klick** = Hauptaktion: spielbare Handkarte (grün) spielen oder wirken, Land/Manaquelle für Mana tappen, Kreatur tappen; im Angriffsschritt
+  Angreifer wählen, beim Blocken Blocker und dann Angreifer. **Ziehen** einer Karte auf den Tisch spielt sie, auf einen Stapel legt sie dorthin.
+- **Bibliothek anklicken** zieht eine Karte. **Rechtsklick oder langes Drücken** auf eine Karte (oder die Bibliothek) zeigt nur die gerade möglichen Aktionen.
+- Leben ändert sich automatisch (Kampf, Lebensverbindung, Kosten); eine manuelle Korrektur steht hinter einem Klick auf die eigene Lebenszahl.
+- Hintergrund und Kartenrückseite liegen in `src/assets/game`.
+
 ## Einrichtung ohne Terminal (GitHub-Workflow)
 1. **Cloudflare-Token erzeugen:** Cloudflare Dashboard → *My Profile → API Tokens → Create Token* → Vorlage
    **„Edit Cloudflare Workers“** → Account und Zonen auswählen → Token kopieren (wird nur einmal angezeigt).

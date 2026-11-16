@@ -690,6 +690,7 @@ function cardView(game, id, viewerId, { hideFace = false } = {}) {
     power: creature ? (def.powerText !== null && def.power === null ? null : powerOf(game, card)) : null,
     toughness: creature ? (def.toughnessText !== null && def.toughness === null ? null : toughnessOf(game, card)) : null,
     mana: Boolean(def.mana),
+    manaColors: def.mana ? [...new Set(def.mana.flat())] : [],
     ...(card.owner === viewerId ? { play: playOptions(game, viewerId, id) } : {})
   };
 }

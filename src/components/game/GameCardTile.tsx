@@ -1,9 +1,19 @@
-import type { DragEvent } from "react";
+import { useRef } from "react";
+import type { DragEvent, MouseEvent, PointerEvent } from "react";
 import type { GameCard } from "../../gameClient";
+import cardBack from "../../assets/game/cardback.webp";
 
-export type TileSize = "sm" | "md" | "lg";
+export type TileSize = "sm" | "md" | "lg" | "fill";
 
-/** Eine Karte auf dem Tisch: Bild, Stärke/Widerstandskraft, Marker, Zustände (getappt, beschwörungsmüde, Angriff, Block). */
+/** Rückseite einer Karte (Bibliothek, Hand der Gegner, verdeckte Karten). */
+export function CardBack({ className = "" }: { className?: string }) {
+  return <img className={`gc-backimg ${className}`} src={cardBack} alt="" draggable={false} />;
+}
+
+/**
+ * Eine Karte auf dem Tisch. Klick = Hauptaktion, Rechtsklick oder langes Drücken = Menü, Ziehen = Karte bewegen,
+ * Darüberfahren = große Vorschau.
+ */
 export default function GameCardTile({
   card,
   size = "md",
@@ -12,6 +22,7 @@ export default function GameCardTile({
   marked,
   onSelect,
   onHover,
+  onMenu,
   onDragStart
 }: {
   card: GameCard;
@@ -19,15 +30,17 @@ export default function GameCardTile({
   selected?: boolean;
   /** Spielbar/zahlbar: grüner Schein. */
   glow?: boolean;
-  /** Zusätzliche Markierung (z. B. gewählter Angreifer oder Blocker). */
   marked?: "attack" | "block" | "pick" | null;
-  onSelect?: (card: GameCard) => void;
+  onSelect?: (card: GameCard, event: MouseEvent) => void;
   onHover?: (card: GameCard | null) => void;
+  onMenu?: (card: GameCard, x: number, y: number) => void;
   onDragStart?: (card: GameCard, event: DragEvent) => void;
 }) {
+  const press = useRef<{ timer: number; fired: boolean } | null>(null);
   const counters = Object.entries(card.counters);
   const hidden = card.name === undefined;
   const hasStats = card.power !== undefined && card.power !== null && card.toughness !== undefined && card.toughness !== null;
+
   const classes = [
     "gc",
     size,
@@ -42,23 +55,51 @@ export default function GameCardTile({
     .filter(Boolean)
     .join(" ");
 
+  const startPress = (event: PointerEvent) => {
+    if (!onMenu || event.pointerType === "mouse") return;
+    const { clientX, clientY } = event;
+    press.current = {
+      fired: false,
+      timer: window.setTimeout(() => {
+        if (press.current) press.current.fired = true;
+        onMenu(card, clientX, clientY);
+      }, 500)
+    };
+  };
+  const endPress = () => {
+    if (press.current) window.clearTimeout(press.current.timer);
+  };
+
   return (
     <button
       type="button"
       className={classes}
       draggable={Boolean(onDragStart)}
       onDragStart={event => onDragStart?.(card, event)}
-      onClick={() => onSelect?.(card)}
+      onClick={event => {
+        if (press.current?.fired) {
+          press.current = null;
+          return;
+        }
+        onSelect?.(card, event);
+      }}
+      onContextMenu={event => {
+        event.preventDefault();
+        onMenu?.(card, event.clientX, event.clientY);
+      }}
+      onPointerDown={startPress}
+      onPointerUp={endPress}
+      onPointerLeave={endPress}
+      onPointerCancel={endPress}
       onMouseEnter={() => onHover?.(card)}
       onMouseLeave={() => onHover?.(null)}
       onFocus={() => onHover?.(card)}
       onBlur={() => onHover?.(null)}
       aria-label={`${card.name ?? "Verdeckte Karte"}${card.tapped ? ", getappt" : ""}${card.sick && card.kind === "creature" ? ", beschwörungsmüde" : ""}${card.attacking ? ", greift an" : ""}`}
-      aria-pressed={selected}
       title={card.name ?? "Verdeckte Karte"}
     >
       {hidden ? (
-        <span className="gc-back">Verdeckt</span>
+        <CardBack />
       ) : card.imageUri ? (
         <img src={card.imageUri} alt="" loading="lazy" draggable={false} />
       ) : (

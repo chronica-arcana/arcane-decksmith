@@ -9,7 +9,7 @@ afterEach(cleanup);
 const card = (id: string, name: string, extra: Partial<GameCard> = {}): GameCard => ({
   id, owner: "me", tapped: false, counters: {}, token: false, faceDown: false, damage: 0, sick: false, cmd: false, kind: "other",
   attacking: false, blocking: null, name, typeLine: "Creature", manaValue: 2, manaCost: "", imageUri: null, keywords: [], power: null,
-  toughness: null, mana: false, ...extra
+  toughness: null, mana: false, manaColors: [], ...extra
 });
 const creature = (id: string, name: string, owner = "me", extra: Partial<GameCard> = {}) =>
   card(id, name, { owner, kind: "creature", power: 2, toughness: 2, ...extra });
@@ -37,9 +37,10 @@ const setup = (game: GameView, hostId = "me") => {
   const utils = render(<GameTable game={game} hostId={hostId} send={send} onRematch={vi.fn()} onLeave={vi.fn()} />);
   return { send, ...utils };
 };
+const handArea = () => screen.getByLabelText("Deine Hand");
 
 describe("GameTable", () => {
-  it("Mulligan: Behalten und Mulligan", () => {
+  it("Starthand: Behalten und Mulligan", () => {
     const hand = [card("h1", "Karte Eins"), card("h2", "Karte Zwei")];
     const { send } = setup(view({ phase: "mulligan" }, { hand }));
     fireEvent.click(screen.getByRole("button", { name: "Behalten" }));
@@ -48,7 +49,7 @@ describe("GameTable", () => {
     expect(send).toHaveBeenCalledWith({ type: "mulligan" });
   });
 
-  it("Mulligan: nach einem Mulligan Karten unten ablegen", () => {
+  it("Starthand: nach einem Mulligan Karten unten ablegen", () => {
     const hand = [card("h1", "Karte Eins"), card("h2", "Karte Zwei")];
     const { send } = setup(view({ phase: "mulligan" }, { hand, mulligans: 1 }));
     const keep = screen.getByRole("button", { name: "Behalten" });
@@ -58,67 +59,108 @@ describe("GameTable", () => {
     expect(send).toHaveBeenCalledWith({ type: "keep", bottom: ["h2"] });
   });
 
-  it("Hand: Land spielen und Zauber wirken über die Aktionsleiste", () => {
-    const hand = [card("l1", "Wald", { kind: "land", play: { kind: "land", ok: true } }), card("z1", "Bär", { play: { kind: "spell", ok: true }, manaCost: "{1}{G}" })];
+  it("Klick auf eine spielbare Handkarte spielt sie, eine nicht spielbare tut nichts", () => {
+    const hand = [
+      card("l1", "Wald", { kind: "land", play: { kind: "land", ok: true } }),
+      card("z1", "Bär", { play: { kind: "spell", ok: true }, manaCost: "{1}{G}" }),
+      card("z2", "Flut", { play: { kind: "spell", ok: false } })
+    ];
     const { send } = setup(view({}, { hand }));
-    const handArea = screen.getByLabelText("Deine Hand");
-    fireEvent.click(within(handArea).getByRole("button", { name: "Wald" }));
-    fireEvent.click(screen.getByRole("button", { name: "Land spielen" }));
-    expect(send).toHaveBeenCalledWith({ type: "playLand", id: "l1" });
-    fireEvent.click(within(handArea).getByRole("button", { name: "Bär" }));
-    fireEvent.click(screen.getByRole("button", { name: "Wirken" }));
-    expect(send).toHaveBeenCalledWith({ type: "cast", id: "z1" });
-    fireEvent.click(screen.getByRole("button", { name: "Ohne Kosten wirken" }));
-    expect(send).toHaveBeenCalledWith({ type: "cast", id: "z1", free: true });
+    fireEvent.click(within(handArea()).getByRole("button", { name: "Wald" }));
+    expect(send).toHaveBeenLastCalledWith({ type: "playLand", id: "l1" });
+    fireEvent.click(within(handArea()).getByRole("button", { name: "Bär" }));
+    expect(send).toHaveBeenLastCalledWith({ type: "cast", id: "z1" });
+    send.mockClear();
+    fireEvent.click(within(handArea()).getByRole("button", { name: "Flut" }));
+    expect(send).not.toHaveBeenCalled();
   });
 
-  it("nicht spielbare Karten haben deaktivierte Aktion; X-Zauber fragt nach X", () => {
-    const hand = [card("z1", "Flut", { play: { kind: "spell", ok: false } }), card("z2", "Welle", { play: { kind: "spell", ok: true }, manaCost: "{X}{U}" })];
+  it("X-Zauber fragt nach X", () => {
+    const hand = [card("z2", "Welle", { play: { kind: "spell", ok: true }, manaCost: "{X}{U}" })];
     const { send } = setup(view({}, { hand }));
-    const handArea = screen.getByLabelText("Deine Hand");
-    fireEvent.click(within(handArea).getByRole("button", { name: "Flut" }));
-    expect(screen.getByRole("button", { name: "Wirken" })).toHaveProperty("disabled", true);
-    fireEvent.click(within(handArea).getByRole("button", { name: "Welle" }));
-    fireEvent.click(screen.getByRole("button", { name: "Wirken" }));
+    fireEvent.click(within(handArea()).getByRole("button", { name: "Welle" }));
     fireEvent.change(screen.getByLabelText("Wert für X"), { target: { value: "3" } });
     fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Wirken" }));
     expect(send).toHaveBeenCalledWith({ type: "cast", id: "z2", x: 3 });
   });
 
-  it("Priorität: Weiter-Knopf passt; ohne Priorität gesperrt", () => {
+  it("Ziehen auf den Tisch spielt die Karte", () => {
+    const hand = [card("l1", "Wald", { kind: "land", play: { kind: "land", ok: true } })];
+    const { send } = setup(view({}, { hand }));
+    fireEvent.drop(screen.getByLabelText("Platz von Ich"), { dataTransfer: { getData: () => "l1" } });
+    expect(send).toHaveBeenCalledWith({ type: "playLand", id: "l1" });
+  });
+
+  it("Bibliothek anklicken zieht eine Karte", () => {
+    const { send } = setup(view());
+    fireEvent.click(screen.getByRole("button", { name: /Bibliothek: 40 Karten/ }));
+    expect(send).toHaveBeenCalledWith({ type: "draw" });
+  });
+
+  it("Aktionsleiste zeigt nur das Mögliche: Weiter-Knopf nur mit Priorität", () => {
     const { send, rerender } = setup(view());
     fireEvent.click(screen.getByRole("button", { name: "Weiter zum Kampf" }));
     expect(send).toHaveBeenCalledWith({ type: "pass" });
     rerender(<GameTable game={view({ priority: "they" })} hostId="me" send={send} onRematch={vi.fn()} onLeave={vi.fn()} />);
-    expect(screen.getByRole("button", { name: "Warte auf Gegner" })).toHaveProperty("disabled", true);
+    expect(screen.queryByRole("button", { name: "Weiter zum Kampf" })).toBeNull();
+    expect(screen.getByText("Gegner hat Priorität …")).toBeTruthy();
   });
 
-  it("Stapel: zeigt Zauber, Passen und Neutralisieren", () => {
+  it("Leben hat keine ständigen Knöpfe; manuelle Korrektur per Klick auf die Zahl", () => {
+    const { send } = setup(view());
+    expect(screen.queryByRole("button", { name: "Leben plus 1" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /Leben: 20/ }));
+    fireEvent.click(within(screen.getByRole("group", { name: "Leben manuell anpassen" })).getByRole("button", { name: "−1" }));
+    expect(send).toHaveBeenCalledWith({ type: "life", delta: -1 });
+  });
+
+  it("Stapel: Zauber sichtbar, Neutralisieren im Menü der Karte", () => {
     const game = view({ stack: [{ sid: "s1", controller: "they", kind: "spell", text: "", card: card("x1", "Blitz", { owner: "they" }) }] });
     const { send } = setup(game);
-    expect(screen.getByLabelText("Stapel")).toBeTruthy();
+    const stack = screen.getByLabelText("Stapel");
     expect(screen.getByRole("button", { name: "Passen – Stapel auflösen" })).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Neutralisieren" }));
+    fireEvent.contextMenu(within(stack).getByRole("button", { name: "Blitz" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Neutralisieren" }));
     expect(send).toHaveBeenCalledWith({ type: "counterSpell", sid: "s1" });
   });
 
-  it("Auto-Passen lässt sich umschalten", () => {
-    const { send } = setup(view());
-    fireEvent.click(screen.getByLabelText(/automatisch passen/));
-    expect(send).toHaveBeenCalledWith({ type: "autoPass", value: false });
+  it("Mana: Klick auf ein Land tappt es; bei mehreren Farben erscheint eine Auswahl", () => {
+    const forest = card("l1", "Wald", { kind: "land", mana: true, manaColors: ["G"] });
+    const dual = card("l2", "Doppelland", { kind: "land", mana: true, manaColors: ["R", "G"] });
+    const { send } = setup(view({}, { battlefield: [forest, dual] }));
+    fireEvent.click(screen.getByRole("button", { name: "Wald" }));
+    expect(send).toHaveBeenLastCalledWith({ type: "tapMana", id: "l1" });
+    fireEvent.click(screen.getByRole("button", { name: "Doppelland" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Rot" }));
+    expect(send).toHaveBeenLastCalledWith({ type: "tapMana", id: "l2", color: "R" });
   });
 
-  it("Angriff: Kreaturen wählen und bestätigen; beschwörungsmüde sind nicht wählbar", () => {
+  it("Klick auf eine Kreatur tappt sie; das Menü bietet nur Passendes", () => {
+    const wolf = creature("c1", "Wolf", "me", { tapped: true });
+    const { send } = setup(view({}, { battlefield: [wolf] }));
+    fireEvent.click(screen.getByRole("button", { name: /Wolf/ }));
+    expect(send).toHaveBeenLastCalledWith({ type: "tap", id: "c1" });
+    fireEvent.contextMenu(screen.getByRole("button", { name: /Wolf/ }));
+    expect(screen.getByRole("menuitem", { name: "Enttappen" })).toBeTruthy();
+    expect(screen.queryByRole("menuitem", { name: "Tappen" })).toBeNull();
+    expect(screen.queryByRole("menuitem", { name: "Land spielen" })).toBeNull();
+    fireEvent.click(screen.getByRole("menuitem", { name: "→ Friedhof" }));
+    expect(send).toHaveBeenLastCalledWith({ type: "move", id: "c1", to: "graveyard" });
+  });
+
+  it("Angriff: Kreaturen anklicken, bestätigen; beschwörungsmüde sind nicht wählbar", () => {
     const game = view({ turn: { number: 3, active: "me", phase: "attackers", first: "me", landsPlayed: 0 } }, {
       battlefield: [creature("c1", "Wolf"), creature("c2", "Welpe", "me", { sick: true })]
     });
     const { send } = setup(game);
-    expect(screen.getByRole("button", { name: "Angriff bestätigen" })).toHaveProperty("disabled", true);
+    expect(screen.queryByRole("button", { name: "Angriff bestätigen" })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: /^Welpe/ }));
-    expect(screen.getByRole("button", { name: "Angriff bestätigen" })).toHaveProperty("disabled", true);
+    expect(screen.queryByRole("button", { name: "Angriff bestätigen" })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Wolf" }));
     fireEvent.click(screen.getByRole("button", { name: "Angriff bestätigen" }));
     expect(send).toHaveBeenCalledWith({ type: "declareAttackers", attackers: [{ id: "c1", target: "they" }] });
+    fireEvent.click(screen.getByRole("button", { name: "Kein Angriff" }));
+    expect(send).toHaveBeenLastCalledWith({ type: "pass" });
   });
 
   it("Blocken: Blocker wählen, Angreifer zuweisen, bestätigen", () => {
@@ -145,35 +187,28 @@ describe("GameTable", () => {
     const { send } = setup(view({ pendingDiscard: { userId: "me", count: 1 }, priority: null }, { hand }));
     const discard = screen.getByRole("button", { name: "Abwerfen" });
     expect(discard).toHaveProperty("disabled", true);
-    fireEvent.click(within(screen.getByLabelText("Deine Hand")).getByRole("button", { name: "B" }));
+    fireEvent.click(within(handArea()).getByRole("button", { name: "B" }));
     fireEvent.click(discard);
     expect(send).toHaveBeenCalledWith({ type: "discard", ids: ["h2"] });
   });
 
-  it("Kommandanten-Rückkehr wird angeboten", () => {
-    const game = view({ format: "commander" }, { prompts: [{ type: "commander", id: "k1" }], graveyard: [card("k1", "Heldin", { cmd: true })] });
+  it("Kommandanten-Rückkehr wird angeboten; Steuer wird angezeigt", () => {
+    const game = view({ format: "commander" }, { prompts: [{ type: "commander", id: "k1" }], graveyard: [card("k1", "Heldin", { cmd: true })], command: [card("k2", "Heldin", { cmd: true })], cmdCasts: { k2: 2 } });
     const { send } = setup(game);
+    expect(screen.getByText(/Steuer \+4/)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: /Ja, in die Kommandozone/ }));
     expect(send).toHaveBeenCalledWith({ type: "commanderZone", id: "k1", yes: true });
   });
 
-  it("Mana: Quelle tappen mit Farbwahl; Pool wird angezeigt", () => {
-    const land = card("l1", "Berg", { kind: "land", mana: true });
-    const { send } = setup(view({}, { battlefield: [land], pool: { W: 0, U: 0, B: 0, R: 2, G: 0, C: 0 } }));
-    expect(screen.getByLabelText("Manapool")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Berg" }));
-    fireEvent.click(screen.getByRole("button", { name: "Mana R" }));
-    expect(send).toHaveBeenCalledWith({ type: "tapMana", id: "l1", color: "R" });
-  });
-
-  it("Leben und Commander-Anzeige", () => {
-    const game = view({ format: "commander" }, { life: 40, cmdDamage: { they: 5 }, command: [card("k1", "Heldin", { cmd: true })], cmdCasts: { k1: 2 } });
-    const { send } = setup(game);
-    expect(screen.getByText(/Steuer \+4/)).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Leben minus 1" }));
-    expect(send).toHaveBeenCalledWith({ type: "life", delta: -1 });
-    fireEvent.click(screen.getByRole("button", { name: "Kommandantenschaden von Gegner plus" }));
-    expect(send).toHaveBeenCalledWith({ type: "cmddmg", from: "they", delta: 1 });
+  it("Zusatzmenü bietet Werkzeuge; Aufgeben nur nach Bestätigung", () => {
+    const { send } = setup(view());
+    fireEvent.click(screen.getByRole("button", { name: "Weitere Aktionen" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Münze werfen" }));
+    expect(send).toHaveBeenCalledWith({ type: "coin" });
+    vi.spyOn(window, "confirm").mockReturnValue(false);
+    fireEvent.click(screen.getByRole("button", { name: "Weitere Aktionen" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Aufgeben" }));
+    expect(send).not.toHaveBeenCalledWith({ type: "concede" });
   });
 
   it("Spielende: Sieger, Revanche nur für den Gastgeber", () => {

@@ -74,6 +74,8 @@ export type GameCard = {
   power?: number | null;
   toughness?: number | null;
   mana?: boolean;
+  /** Farben, die diese Manaquelle erzeugen kann. */
+  manaColors?: string[];
   /** Nur für eigene Karten: Was ist jetzt möglich? */
   play?: { kind: "land" | "spell"; ok: boolean; timingOk?: boolean } | null;
 };
