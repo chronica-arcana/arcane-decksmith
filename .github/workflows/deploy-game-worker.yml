@@ -49,17 +49,4 @@ jobs:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           ALLOWED_ORIGINS: ${{ vars.GAME_ALLOWED_ORIGINS || vars.SITE_URL }}
           SUPABASE_JWT_SECRET: ${{ secrets.SUPABASE_JWT_SECRET }}
-        run: |
-          set -euo pipefail
-          for name in CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID SUPABASE_URL ALLOWED_ORIGINS; do
-            if [ -z "${!name:-}" ]; then
-              echo "::error::${name} fehlt (Secret bzw. Variable in den Repo-Einstellungen anlegen)."
-              exit 1
-            fi
-          done
-          npx wrangler deploy \
-            --var "SUPABASE_URL:${SUPABASE_URL%/}" \
-            --var "ALLOWED_ORIGINS:${ALLOWED_ORIGINS}"
-          if [ -n "${SUPABASE_JWT_SECRET:-}" ]; then
-            printf '%s' "${SUPABASE_JWT_SECRET}" | npx wrangler secret put SUPABASE_JWT_SECRET
-          fi
+        run: bash scripts/deploy.sh
