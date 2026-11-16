@@ -105,7 +105,7 @@ const CardScanner = lazy(() => import("./components/CardScanner"));
 const ExternalImportDialog = lazy(() => import("./components/ExternalImportDialog"));
 const PreconImportDialog = lazy(() => import("./components/PreconImportDialog"));
 const Markdown = lazy(() => import("./components/Markdown"));
-const GameTestPage = lazy(() => import("./pages/GameTestPage"));
+const GamePage = lazy(() => import("./pages/GamePage"));
 import { useAppNavigation } from "./navigation";
 
 function errorMessage(error: unknown): string {
@@ -1234,10 +1234,10 @@ function Main({
                       onRemoveListing={removeMyListing}
                     />
                   )
-                : page === "gametest"
+                : page === "game"
                   ? (
-                    <Suspense fallback={<div className="loading">Spieltest wird geladen…</div>}>
-                      <GameTestPage />
+                    <Suspense fallback={<div className="loading">Spielbereich wird geladen…</div>}>
+                      <GamePage uid={uid} />
                     </Suspense>
                   )
                 : (

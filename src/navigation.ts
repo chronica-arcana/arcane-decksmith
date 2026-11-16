@@ -7,7 +7,7 @@ export type AppPage =
   | "builder"
   | "decks"
   | "marketplace"
-  | "gametest";
+  | "game";
 
 export const APP_PAGE_HASHES: Record<AppPage, string> = {
   home: "#/",
@@ -16,8 +16,8 @@ export const APP_PAGE_HASHES: Record<AppPage, string> = {
   builder: "#/build",
   decks: "#/decks",
   marketplace: "#/marketplace",
-  // Versteckt: nicht im Menü, nur über die Adresse erreichbar (Machbarkeitstest Online-Spiel).
-  gametest: "#/spieltest"
+  // Versteckt: nicht im Menü, nur über die Adresse erreichbar (Online-Spiel, bis der Spieltisch fertig ist).
+  game: "#/spielen"
 };
 
 export const APP_NAV_ITEMS: Array<{
@@ -39,7 +39,7 @@ const PAGE_TITLES: Record<AppPage, string> = {
   builder: "Deck bauen · Arcane Decksmith",
   decks: "Decks · Arcane Decksmith",
   marketplace: "Marketplace · Arcane Decksmith",
-  gametest: "Spieltest · Arcane Decksmith"
+  game: "Spielen · Arcane Decksmith"
 };
 
 export type AppLocation = {

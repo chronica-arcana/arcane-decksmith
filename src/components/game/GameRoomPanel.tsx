@@ -1,0 +1,248 @@
+import { useEffect, useRef, useState } from "react";
+import { getSession } from "../../auth";
+import {
+  GameApiError,
+  connectGame,
+  gameSocketUrl,
+  type ConnectionStatus,
+  type GameApi,
+  type GameConnection,
+  type RoomView
+} from "../../gameClient";
+
+const FORMAT_LABELS = { standard: "Standard", commander: "Commander" } as const;
+
+type LogLine = { id: number; text: string };
+
+/** Raumansicht: Einladungscode, Spielerliste, „bereit“, Start (Gastgeber), Entfernen, Chat. */
+export default function GameRoomPanel({
+  code,
+  baseUrl,
+  api,
+  onLeft
+}: {
+  code: string;
+  baseUrl: string;
+  api: GameApi;
+  /** Der Raum ist nicht mehr nutzbar (verlassen, entfernt, geschlossen). */
+  onLeft: (notice?: string) => void;
+}) {
+  const [status, setStatus] = useState<ConnectionStatus>({ state: "connecting" });
+  const [room, setRoom] = useState<RoomView | null>(null);
+  const [log, setLog] = useState<LogLine[]>([]);
+  const [chat, setChat] = useState("");
+  const [error, setError] = useState("");
+  const [copied, setCopied] = useState(false);
+  const [disconnected, setDisconnected] = useState(false);
+  const connection = useRef<GameConnection | null>(null);
+  const lineId = useRef(0);
+  const finished = useRef(false);
+
+  const addLog = (text: string) => setLog(current => [...current.slice(-49), { id: (lineId.current += 1), text }]);
+
+  useEffect(() => {
+    const url = gameSocketUrl(baseUrl, code);
+    if (!url) {
+      setError("Der Raumcode oder die Adresse des Spiel-Servers ist ungültig.");
+      return undefined;
+    }
+    finished.current = false;
+    connection.current = connectGame({
+      url,
+      getToken: async () => (await getSession())?.accessToken ?? null,
+      onStatus: next => {
+        setStatus(next);
+        if (next.state === "closed" && !finished.current) {
+          finished.current = true;
+          setDisconnected(true);
+          // 4005 = entfernt/verlassen, 4006 = Raum geschlossen, 4004 = kein Mitglied
+          if (next.code === 4004 || next.code === 4005 || next.code === 4006) onLeft(next.detail);
+        }
+      },
+      onMessage: message => {
+        if (message.type === "room") setRoom(message.room);
+        if (message.type === "chat") addLog(`${message.from}: ${message.text}`);
+        if (message.type === "system") addLog(message.text);
+        if (message.type === "error") addLog(`Hinweis: ${message.message}`);
+        if (message.type === "closed" && !finished.current) {
+          finished.current = true;
+          onLeft(message.reason);
+        }
+      }
+    });
+    return () => {
+      finished.current = true;
+      connection.current?.close();
+      connection.current = null;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [code, baseUrl]);
+
+  const run = async (action: () => Promise<unknown>) => {
+    setError("");
+    try {
+      await action();
+    } catch (failure) {
+      setError(failure instanceof GameApiError ? failure.message : "Die Aktion ist fehlgeschlagen.");
+    }
+  };
+
+  const copyCode = async () => {
+    try {
+      await navigator.clipboard.writeText(code);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      setError("Der Code konnte nicht kopiert werden. Bitte markieren und kopieren.");
+    }
+  };
+
+  const me = room?.players.find(player => player.userId === room.you);
+  const isHost = Boolean(room && room.you === room.hostId);
+  const open = room?.status === "open";
+  const everyoneReady = Boolean(room && room.players.length >= 2 && room.players.every(player => player.ready));
+  const connected = status.state === "open";
+
+  return (
+    <section>
+      <div className="pagehead">
+        <div>
+          <h2>Dein Spielraum</h2>
+          <p className="muted">
+            Teile den Einladungscode mit deinen Mitspielern. Sie brauchen ein Konto und ein gültiges Deck.
+          </p>
+        </div>
+      </div>
+
+      <div className="panel">
+        <div className="game-room-code">
+          <span className="muted">Einladungscode</span>
+          <strong aria-label="Einladungscode">{code}</strong>
+          <button type="button" className="secondary" onClick={() => void copyCode()}>
+            {copied ? "Kopiert" : "Kopieren"}
+          </button>
+        </div>
+        {room && (
+          <p className="muted">
+            {FORMAT_LABELS[room.format]} · {room.players.length} von {room.maxPlayers} Plätzen ·{" "}
+            {open ? "wartet auf den Start" : "Spiel gestartet"} · gültig bis {new Date(room.expiresAt).toLocaleString("de-DE")}
+          </p>
+        )}
+        <p className="muted" role="status">
+          {status.state === "open" ? "Verbunden" : status.state === "connecting" ? "Verbinde …" : status.detail}
+        </p>
+        {disconnected && (
+          <button type="button" className="secondary" onClick={() => onLeft()}>
+            Zurück zur Lobby
+          </button>
+        )}
+      </div>
+
+      {room && (
+        <div className="panel">
+          <h3>Spieler</h3>
+          <ul className="game-player-list">
+            {room.players.map(player => (
+              <li key={player.userId}>
+                <strong>{player.name}</strong>
+                {player.isHost && <span className="muted"> · Gastgeber</span>}
+                {player.userId === room.you && <span className="muted"> · du</span>}
+                <span className="muted">
+                  {" "}
+                  · Deck: {player.deck.name} ({player.deck.cardCount} Karten) · {player.online ? "online" : "offline"} ·{" "}
+                </span>
+                <span>{player.ready ? "bereit" : "nicht bereit"}</span>
+                {isHost && open && player.userId !== room.you && (
+                  <button
+                    type="button"
+                    className="secondary"
+                    onClick={() => void run(() => api.kickPlayer(player.userId))}
+                    aria-label={`${player.name} entfernen`}
+                  >
+                    Entfernen
+                  </button>
+                )}
+              </li>
+            ))}
+          </ul>
+
+          {open && me && (
+            <div className="row">
+              <button
+                type="button"
+                className={me.ready ? "secondary" : "primary"}
+                disabled={!connected}
+                onClick={() => connection.current?.send({ type: "ready", ready: !me.ready })}
+              >
+                {me.ready ? "Nicht mehr bereit" : "Bereit"}
+              </button>
+              {isHost && (
+                <button
+                  type="button"
+                  className="primary"
+                  disabled={!connected || !everyoneReady}
+                  title={everyoneReady ? undefined : "Es braucht mindestens 2 Spieler, und alle müssen bereit sein."}
+                  onClick={() => connection.current?.send({ type: "start" })}
+                >
+                  Spiel starten
+                </button>
+              )}
+            </div>
+          )}
+
+          {open && isHost && !everyoneReady && (
+            <p className="muted">Zum Starten brauchst du mindestens 2 Spieler, und alle müssen „bereit“ sein.</p>
+          )}
+          {!open && (
+            <div className="notice" role="status">
+              Das Spiel wurde gestartet. Der Spieltisch selbst folgt mit dem nächsten Meilenstein.
+            </div>
+          )}
+        </div>
+      )}
+
+      <div className="panel">
+        <h3>Chat</h3>
+        <form
+          className="row"
+          onSubmit={event => {
+            event.preventDefault();
+            if (!chat.trim()) return;
+            connection.current?.send({ type: "chat", text: chat });
+            setChat("");
+          }}
+        >
+          <input value={chat} onChange={event => setChat(event.target.value)} placeholder="Nachricht" aria-label="Chat-Nachricht" />
+          <button type="submit" className="secondary" disabled={!connected}>
+            Senden
+          </button>
+        </form>
+        {log.length > 0 && (
+          <ul>
+            {log.map(line => (
+              <li key={line.id}>{line.text}</li>
+            ))}
+          </ul>
+        )}
+      </div>
+
+      {error && <div className="error" role="alert">{error}</div>}
+
+      <div className="row">
+        <button
+          type="button"
+          className="secondary"
+          onClick={() =>
+            void run(async () => {
+              await api.leaveRoom();
+              finished.current = true;
+              onLeft(isHost ? "Du hast den Raum geschlossen." : "Du hast den Raum verlassen.");
+            })
+          }
+        >
+          {isHost ? "Raum schließen" : "Raum verlassen"}
+        </button>
+      </div>
+    </section>
+  );
+}

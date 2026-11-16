@@ -5,7 +5,7 @@
 # frisch angelegter Worker für Folgeaufrufe noch nicht sichtbar ist). Versuch 3: ältere Wrangler-Version.
 # Schlägt alles fehl, gibt das Skript eine Diagnose aus (ohne Token, Konto-ID oder Nutzdaten).
 #
-# Umgebung: CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID, SUPABASE_URL, ALLOWED_ORIGINS
+# Umgebung: CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID, SUPABASE_URL, SUPABASE_ANON_KEY, ALLOWED_ORIGINS
 # Nur für Tests überschreibbar: WRANGLER (Befehl), FALLBACK_WRANGLER, RETRY_WAIT, CF_API_BASE
 set -uo pipefail
 
@@ -15,14 +15,14 @@ FALLBACK_WRANGLER="${FALLBACK_WRANGLER:-npx --yes wrangler@4.20.0}"
 RETRY_WAIT="${RETRY_WAIT:-20}"
 CF_API_BASE="${CF_API_BASE:-https://api.cloudflare.com/client/v4}"
 
-for name in CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID SUPABASE_URL ALLOWED_ORIGINS; do
+for name in CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID SUPABASE_URL SUPABASE_ANON_KEY ALLOWED_ORIGINS; do
   if [ -z "${!name:-}" ]; then
     echo "::error::${name} fehlt (Secret bzw. Variable in den Repo-Einstellungen anlegen)."
     exit 1
   fi
 done
 
-VARS=(--var "SUPABASE_URL:${SUPABASE_URL%/}" --var "ALLOWED_ORIGINS:${ALLOWED_ORIGINS}")
+VARS=(--var "SUPABASE_URL:${SUPABASE_URL%/}" --var "SUPABASE_ANON_KEY:${SUPABASE_ANON_KEY}" --var "ALLOWED_ORIGINS:${ALLOWED_ORIGINS}")
 
 # Cloudflare-Abfrage; gibt nur ausgewählte Felder aus (nie Token, Konto-ID oder Namen anderer Worker).
 api() {

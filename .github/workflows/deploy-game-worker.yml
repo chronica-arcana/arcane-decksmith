@@ -6,6 +6,7 @@ name: Deploy Spiel-Worker
 #   Secrets:    CLOUDFLARE_API_TOKEN   (Cloudflare-Token mit der Vorlage "Edit Cloudflare Workers")
 #               CLOUDFLARE_ACCOUNT_ID  (Cloudflare Dashboard → Workers & Pages → rechte Seitenleiste)
 #               SUPABASE_URL           (bereits für den Keep-alive vorhanden)
+#               SUPABASE_ANON_KEY      (bereits vorhanden; der öffentliche anon-Schlüssel)
 #   Variables:  SITE_URL               (bereits vorhanden, z. B. https://arcane-decksmith.vercel.app)
 #               GAME_ALLOWED_ORIGINS   (optional: kommagetrennte Liste statt SITE_URL, z. B. zusätzlich http://localhost:5173)
 #   Optional:   SUPABASE_JWT_SECRET    (Secret, nur bei einem Supabase-Projekt mit altem HS256-Schlüssel)
@@ -47,6 +48,7 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
           ALLOWED_ORIGINS: ${{ vars.GAME_ALLOWED_ORIGINS || vars.SITE_URL }}
           SUPABASE_JWT_SECRET: ${{ secrets.SUPABASE_JWT_SECRET }}
         run: bash scripts/deploy.sh

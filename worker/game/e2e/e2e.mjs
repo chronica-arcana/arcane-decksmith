@@ -1,23 +1,24 @@
 /**
- * Ende-zu-Ende-Test gegen `wrangler dev` (echte Worker-Laufzeit mit Durable Objects).
- * Start: in worker/game `npx wrangler dev --port 8788`, dann `node e2e/e2e.mjs`.
- * Benötigt die Werte aus .dev.vars (SUPABASE_URL, SUPABASE_JWT_SECRET).
+ * Ende-zu-Ende-Test gegen `wrangler dev` (echte Worker-Laufzeit mit Durable Objects) und einen
+ * Schein-Supabase-Server mit nachgebauten Zugriffsregeln.
+ *
+ * Start: in worker/game `npx wrangler dev --port 8788`, dann `node e2e/e2e.mjs`
+ * (Werte in .dev.vars: SUPABASE_URL=http://127.0.0.1:8797, SUPABASE_ANON_KEY=anon-test-key, SUPABASE_JWT_SECRET=lokales-testgeheimnis).
  */
 import { createHmac } from "node:crypto";
-import http from "node:http";
+import { USERS, startMockSupabase } from "./fixtures.mjs";
 
-const BASE = process.env.GAME_URL ?? "ws://127.0.0.1:8788";
+const HTTP = process.env.GAME_HTTP ?? "http://127.0.0.1:8788";
+const WS = HTTP.replace(/^http/, "ws");
 const SECRET = process.env.SUPABASE_JWT_SECRET ?? "lokales-testgeheimnis";
-const SUPABASE_URL = process.env.SUPABASE_URL ?? "https://test.supabase.co";
-const HIBERNATION_WAIT_MS = Number(process.env.HIBERNATION_WAIT_MS ?? 35000);
+const SUPABASE_URL = process.env.SUPABASE_URL ?? "http://127.0.0.1:8797";
+const ORIGIN = "https://arcane-decksmith.vercel.app";
+const IDLE_WAIT_MS = Number(process.env.IDLE_WAIT_MS ?? 35000);
 
-const b64 = (value) => Buffer.from(typeof value === "string" ? value : JSON.stringify(value)).toString("base64url");
-function token(sub, email, overrides = {}) {
+const b64 = value => Buffer.from(typeof value === "string" ? value : JSON.stringify(value)).toString("base64url");
+function token(user, overrides = {}) {
   const head = b64({ alg: "HS256", typ: "JWT" });
-  const body = b64({
-    iss: `${SUPABASE_URL}/auth/v1`, aud: "authenticated", sub, email,
-    exp: Math.floor(Date.now() / 1000) + 600, ...overrides
-  });
+  const body = b64({ iss: `${SUPABASE_URL}/auth/v1`, aud: "authenticated", sub: user.id, email: user.email, exp: Math.floor(Date.now() / 1000) + 600, ...overrides });
   return `${head}.${body}.${createHmac("sha256", SECRET).update(`${head}.${body}`).digest("base64url")}`;
 }
 
@@ -26,135 +27,191 @@ function check(label, condition, detail = "") {
   console.log(`${condition ? "OK  " : "FAIL"} ${label}${detail ? ` – ${detail}` : ""}`);
   if (!condition) failures += 1;
 }
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-
-/** Verbindet und sammelt alle Nachrichten. */
-function connect(room) {
-  return new Promise((resolve, reject) => {
-    const ws = new WebSocket(`${BASE}/room/${room}`);
-    const client = { ws, messages: [], closed: null };
-    ws.addEventListener("message", (event) => client.messages.push(JSON.parse(event.data)));
-    ws.addEventListener("close", (event) => { client.closed = { code: event.code, reason: event.reason }; });
-    ws.addEventListener("open", () => resolve(client));
-    ws.addEventListener("error", () => reject(new Error("Verbindung fehlgeschlagen")));
-  });
-}
-const send = (client, data) => client.ws.send(typeof data === "string" ? data : JSON.stringify(data));
-async function waitFor(fn, ms = 3000) {
+const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+async function waitFor(fn, ms = 4000) {
   const end = Date.now() + ms;
   while (Date.now() < end) { const value = fn(); if (value) return value; await sleep(25); }
   return null;
 }
-const lastView = (client) => [...client.messages].reverse().find((m) => m.type === "view");
 
-const room = `T${Date.now().toString(36).toUpperCase()}`.slice(0, 10);
-const A = { id: "11111111-1111-1111-1111-111111111111", email: "alice@example.com" };
-const B = { id: "22222222-2222-2222-2222-222222222222", email: "bob@example.com" };
-
-// 1) Health und Zugriffsschutz
-const health = await fetch(`http://127.0.0.1:8788/health`).then((r) => r.json());
-check("Health-Endpunkt antwortet", health.ok === true);
-const noUpgrade = await fetch(`http://127.0.0.1:8788/room/${room}`);
-check("Ohne WebSocket-Upgrade: 426", noUpgrade.status === 426, String(noUpgrade.status));
-// Node-fetch darf keinen Upgrade-Header senden, daher ein normales HTTP-Request.
-const badOriginStatus = await new Promise((resolve, reject) => {
-  const request = http.request(
-    { host: "127.0.0.1", port: 8788, path: `/room/${room}`, headers: { Origin: "https://evil.example", Upgrade: "websocket", Connection: "Upgrade" } },
-    (response) => { response.resume(); resolve(response.statusCode); }
-  );
-  request.on("error", reject);
-  request.end();
-});
-check("Fremde Origin: 403", badOriginStatus === 403, String(badOriginStatus));
-
-// 2) Anmeldung
-const wrong = await connect(room);
-send(wrong, { type: "auth", token: token(A.id, A.email).slice(0, -3) + "xyz" });
-await waitFor(() => wrong.closed);
-check("Falsch signiertes Token: Verbindung geschlossen (4001)", wrong.closed?.code === 4001, JSON.stringify(wrong.closed));
-
-const noAuth = await connect(room);
-send(noAuth, { type: "chat", text: "ohne Anmeldung" });
-await waitFor(() => noAuth.closed);
-check("Nachricht ohne Anmeldung: geschlossen", noAuth.closed !== null, JSON.stringify(noAuth.closed));
-
-const expired = await connect(room);
-send(expired, { type: "auth", token: token(A.id, A.email, { exp: 1 }) });
-await waitFor(() => expired.closed);
-check("Abgelaufenes Token: geschlossen", expired.closed?.code === 4001);
-
-// 3) Zwei Spieler, versteckte Informationen
-const a = await connect(room);
-send(a, { type: "auth", token: token(A.id, A.email) });
-const welcomeA = await waitFor(() => a.messages.find((m) => m.type === "welcome"));
-check("Alice erhält 'welcome'", Boolean(welcomeA));
-const b = await connect(room);
-send(b, { type: "auth", token: token(B.id, B.email) });
-await waitFor(() => b.messages.find((m) => m.type === "welcome"));
-await waitFor(() => lastView(a)?.view.players.length === 2);
-check("Alice sieht beide Spieler (Name nur Vorderteil der E-Mail)", lastView(a).view.players.map((p) => p.name).join() === "alice,bob");
-
-send(a, { type: "draw" });
-send(a, { type: "draw" });
-await waitFor(() => lastView(a)?.view.players.find((p) => p.userId === A.id)?.handCount === 2);
-const viewA = lastView(a).view;
-const viewB = lastView(b).view;
-const aliceForA = viewA.players.find((p) => p.userId === A.id);
-const aliceForB = viewB.players.find((p) => p.userId === A.id);
-check("Alice sieht ihre eigene Hand (2 Karten)", aliceForA.hand?.length === 2, JSON.stringify(aliceForA.hand));
-check("Bob sieht von Alice nur die Anzahl", aliceForB.handCount === 2 && aliceForB.hand === undefined);
-const everythingBobReceived = JSON.stringify(b.messages);
-check("Alices Karten kommen in keiner Nachricht an Bob vor", aliceForA.hand.every((card) => !everythingBobReceived.includes(card)));
-check("Die Bibliothek wird nie übertragen", !JSON.stringify(a.messages).includes('"library"') && !everythingBobReceived.includes('"library"'));
-check("Bibliothek: nur Anzahl (18)", aliceForA.libraryCount === 18);
-
-// 4) Chat
-send(b, { type: "chat", text: "Hallo Alice" });
-const chat = await waitFor(() => a.messages.find((m) => m.type === "chat"));
-check("Chat kommt bei Alice an", chat?.text === "Hallo Alice" && chat.from === "bob");
-
-// 5) Ungültige Eingaben und Ratenbegrenzung
-send(a, "kein json");
-const err = await waitFor(() => a.messages.find((m) => m.type === "error" && /JSON/.test(m.message)));
-check("Ungültiges JSON wird abgelehnt", Boolean(err));
-send(a, { type: "give-me-bobs-hand" });
-const err2 = await waitFor(() => a.messages.find((m) => m.type === "error" && /Unbekannt/.test(m.message)));
-check("Unbekannter Nachrichtentyp wird abgelehnt", Boolean(err2));
-for (let i = 0; i < 60; i += 1) send(b, { type: "chat", text: `Flut ${i}` });
-const limited = await waitFor(() => b.messages.find((m) => m.type === "error" && /Zu viele/.test(m.message)));
-check("Nachrichtenflut wird gebremst", Boolean(limited));
-
-// 6) Raum voll (4 Spieler)
-const extra = [];
-for (let i = 3; i <= 5; i += 1) {
-  const client = await connect(room);
-  send(client, { type: "auth", token: token(`${i}${i}${i}${i}${i}${i}${i}${i}-1111-1111-1111-111111111111`, `spieler${i}@example.com`) });
-  extra.push(client);
-  await sleep(150);
+/** HTTP-Aufruf der Schnittstelle als Nutzer (oder ohne Token). */
+async function api(method, path, user, body, headers = {}) {
+  const response = await fetch(`${HTTP}${path}`, {
+    method,
+    headers: { ...(user ? { Authorization: `Bearer ${token(user)}` } : {}), ...(body ? { "Content-Type": "application/json" } : {}), ...headers },
+    body: body ? JSON.stringify(body) : undefined
+  });
+  return { status: response.status, body: await response.json().catch(() => null), headers: response.headers };
 }
-await waitFor(() => extra[2].closed);
-check("Spieler 3 und 4 werden aufgenommen", !extra[0].closed && !extra[1].closed);
-check("Spieler 5 wird abgewiesen (Raum voll)", extra[2].closed?.code === 4002, JSON.stringify(extra[2].closed));
 
-// 7) Wiederverbinden: alte Verbindung wird ersetzt, Hand bleibt erhalten
-const a2 = await connect(room);
-send(a2, { type: "auth", token: token(A.id, A.email) });
-await waitFor(() => a.closed);
-check("Alte Verbindung von Alice wird ersetzt (4000)", a.closed?.code === 4000, JSON.stringify(a.closed));
-await waitFor(() => lastView(a2));
-check("Nach dem Wiederverbinden ist Alices Hand noch da", lastView(a2).view.players.find((p) => p.userId === A.id).hand.length === 2);
+/** WebSocket-Verbindung eines Nutzers; sammelt Nachrichten. */
+function connect(code, user, { auth = true } = {}) {
+  return new Promise((resolve, reject) => {
+    const ws = new WebSocket(`${WS}/room/${code}`);
+    const client = { ws, messages: [], closed: null };
+    ws.addEventListener("message", event => client.messages.push(JSON.parse(event.data)));
+    ws.addEventListener("close", event => { client.closed = { code: event.code, reason: event.reason }; });
+    ws.addEventListener("open", () => {
+      if (auth && user) ws.send(JSON.stringify({ type: "auth", token: token(user) }));
+      resolve(client);
+    });
+    ws.addEventListener("error", () => reject(new Error("Verbindung fehlgeschlagen")));
+  });
+}
+const send = (client, data) => client.ws.send(JSON.stringify(data));
+const lastRoom = client => [...client.messages].reverse().find(m => m.type === "room");
+const hasType = (client, type) => client.messages.find(m => m.type === type);
 
-// 8) Hibernation: nach Ruhe wacht das Objekt mit neuem Speicher-Zustand auf, Verbindungen und Daten bleiben
-const before = lastView(a2).instance;
-console.log(`... warte ${HIBERNATION_WAIT_MS / 1000} s auf Hibernation`);
-await sleep(HIBERNATION_WAIT_MS);
-send(a2, { type: "draw" });
-await waitFor(() => lastView(a2).view.players.find((p) => p.userId === A.id).handCount === 3);
-const after = lastView(a2);
-check("Nach der Ruhephase funktioniert dieselbe Verbindung weiter (Hand = 3)", after.view.players.find((p) => p.userId === A.id).handCount === 3);
-check("Objekt ist zwischenzeitlich hibernierte (neue Instanz)", after.instance !== before, `${before} -> ${after.instance}`);
-check("Zustand blieb über die Hibernation erhalten (3 Karten, Reihenfolge ohne Duplikate)", new Set(after.view.players.find((p) => p.userId === A.id).hand).size === 3);
+const { alice, bob, carol, dave } = USERS;
+const mock = await startMockSupabase();
 
-for (const client of [a, a2, b, noAuth, wrong, expired, ...extra]) { try { client.ws.close(); } catch {} }
+// ---------------------------------------------------------------- 1) Grundlagen und Zugriffsschutz
+console.log("\n== Grundlagen");
+check("Health-Endpunkt antwortet", (await api("GET", "/health")).body?.ok === true);
+check("API ohne Token: 401", (await api("GET", "/api/rooms/mine", null, null, { Origin: ORIGIN })).status === 401);
+check("API mit fremder Origin: 403", (await api("GET", "/api/rooms/mine", alice, null, { Origin: "https://evil.example" })).status === 403);
+const preflight = await api("OPTIONS", "/api/rooms", null, null, { Origin: ORIGIN, "Access-Control-Request-Method": "POST" });
+check("Preflight für erlaubte Origin: 204 mit CORS-Header", preflight.status === 204 && preflight.headers.get("access-control-allow-origin") === ORIGIN);
+const badToken = await fetch(`${HTTP}/api/rooms/mine`, { headers: { Authorization: `Bearer ${token(alice).slice(0, -3)}xyz` } });
+check("API mit gefälschtem Token: 401", badToken.status === 401);
+check("Unbekannter Pfad: 404", (await api("GET", "/api/gibt-es-nicht", alice)).status === 404);
+
+// ---------------------------------------------------------------- 2) Deck prüfen
+console.log("\n== Deck-Prüfung (serverseitig, gegen die Datenbank)");
+const okDeck = await api("POST", "/api/decks/check", alice, { deckId: "A-std", format: "standard" });
+check("Gültiges Standard-Deck wird akzeptiert", okDeck.body.ok === true && okDeck.body.summary.totalCards === 60, JSON.stringify(okDeck.body.summary));
+check("Gültiges Commander-Deck wird akzeptiert", (await api("POST", "/api/decks/check", alice, { deckId: "A-cmd", format: "commander" })).body.ok === true);
+const wrongFormat = await api("POST", "/api/decks/check", alice, { deckId: "A-std", format: "commander" });
+check("Standard-Deck im Commander-Raum: Formatfehler", wrongFormat.body.errors.some(e => e.code === "format_mismatch"));
+const badDeck = await api("POST", "/api/decks/check", bob, { deckId: "B-bad", format: "standard" });
+check("Unvollständiges Deck wird mit Fehlerliste abgelehnt", badDeck.body.ok === false && badDeck.body.errors.some(e => e.code === "not_in_collection"), badDeck.body.errors?.[0]?.message);
+const foreign = await api("POST", "/api/decks/check", bob, { deckId: "A-std", format: "standard" });
+check("Fremdes Deck ist nicht abrufbar (Zugriffsregeln)", foreign.body.ok === false && foreign.body.errors[0].code === "deck_missing");
+check("Ungültige Anfrage: 400", (await api("POST", "/api/decks/check", alice, { format: "standard" })).status === 400);
+check("Datenbankabfragen tragen anon-Schlüssel und Nutzer-Token", mock.requests.length > 0 && mock.requests.every(r => r.apikey === "anon-test-key" && r.hasToken));
+
+// ---------------------------------------------------------------- 3) Standard-Raum
+console.log("\n== Standard-Raum (2 Spieler)");
+const missingDeck = await api("POST", "/api/rooms", alice, { format: "standard", deckId: "A-gibt-es-nicht" });
+check("Raum mit nicht existierendem Deck: 422", missingDeck.status === 422);
+const created = await api("POST", "/api/rooms", alice, { format: "standard", deckId: "A-std" });
+const code = created.body?.code;
+check("Alice erstellt einen Raum (201, Code mit 6 Zeichen)", created.status === 201 && /^[A-Z2-9]{6}$/.test(code ?? ""), code);
+const again = await api("POST", "/api/rooms", alice, { format: "standard", deckId: "A-std" });
+check("Alice kann keinen zweiten Raum erstellen (409)", again.status === 409 && again.body.code === code);
+const mine = await api("GET", "/api/rooms/mine", alice);
+check("'Mein Raum' zeigt Code, Format und Gastgeber-Rolle", mine.body.room?.code === code && mine.body.room.format === "standard" && mine.body.room.isHost === true);
+const info = await api("GET", `/api/rooms/${code}`, bob);
+check("Bob sieht die Rauminfo (Gastgebername aus dem Profil, kein Deck)", info.body.room?.hostName === "Alice Profil" && info.body.room.playerCount === 1 && !JSON.stringify(info.body).includes("A-s0"));
+check("Unbekannter Raumcode: 404", (await api("GET", "/api/rooms/ZZZZZZ", bob)).status === 404);
+
+const outsider = await connect(code, bob);
+await waitFor(() => outsider.closed);
+check("Nicht-Mitglied wird per WebSocket abgewiesen (4004)", outsider.closed?.code === 4004, JSON.stringify(outsider.closed));
+
+const bobBad = await api("POST", "/api/rooms/join", bob, { code, deckId: "B-bad" });
+check("Bob mit ungültigem Deck kann nicht beitreten (422 mit Hinweisen)", bobBad.status === 422 && bobBad.body.errors.length > 0, bobBad.body.errors?.[0]?.message);
+check("… und ist danach in keinem Raum", (await api("GET", "/api/rooms/mine", bob)).body.room === null);
+const bobJoin = await api("POST", "/api/rooms/join", bob, { code: code.toLowerCase(), deckId: "B-std" });
+check("Bob mit gültigem Deck tritt bei (Code auch in Kleinbuchstaben)", bobJoin.status === 200 && bobJoin.body.code === code);
+check("Erneutes Beitreten ist unschädlich", (await api("POST", "/api/rooms/join", bob, { code, deckId: "B-std" })).status === 200);
+check("Dritter Spieler: Raum ist voll (409)", (await api("POST", "/api/rooms/join", carol, { code, deckId: "C-std" })).status === 409);
+
+const a = await connect(code, alice);
+const b = await connect(code, bob);
+await waitFor(() => lastRoom(a)?.room.players.length === 2 && lastRoom(b)?.room.players.length === 2);
+const roomA = lastRoom(a).room;
+check("Beide sehen beide Spieler (Alice mit Profilnamen, Bob mit E-Mail-Vorderteil)", roomA.players.map(p => p.name).join() === "Alice Profil,bob");
+check("Gastgeber und Platzreihenfolge stimmen", roomA.hostId === alice.id && roomA.players[0].isHost && roomA.players[1].seat === 1);
+check("Decks sind nur als Name und Kartenzahl sichtbar", roomA.players[1].deck.name === "B Standard" && roomA.players[1].deck.cardCount === 60);
+const everythingAliceGot = JSON.stringify(a.messages);
+check("Keine Kartenliste von Bobs Deck in Alices Nachrichten", !everythingAliceGot.includes("B-s0") && !everythingAliceGot.includes("Standardkarte"));
+
+send(b, { type: "start" });
+const notHost = await waitFor(() => b.messages.find(m => m.type === "error" && /Gastgeber/.test(m.message)));
+check("Nur der Gastgeber kann starten", Boolean(notHost));
+send(a, { type: "start" });
+await waitFor(() => a.messages.find(m => m.type === "error" && /bereit/.test(m.message)));
+check("Start ohne Bereitschaft wird abgelehnt", Boolean(a.messages.find(m => m.type === "error" && /bereit/.test(m.message))));
+send(a, { type: "ready", ready: true }); send(b, { type: "ready", ready: true });
+await waitFor(() => lastRoom(a)?.room.players.every(p => p.ready));
+check("Beide sind bereit", lastRoom(a).room.players.every(p => p.ready));
+send(a, { type: "start" });
+await waitFor(() => lastRoom(b)?.room.status === "playing");
+check("Spiel startet (Status 'playing', Systemmeldung bei beiden)", lastRoom(b).room.status === "playing" && Boolean(hasType(a, "system")) && Boolean(hasType(b, "system")));
+check("Nach dem Start kann niemand mehr beitreten (409)", (await api("POST", "/api/rooms/join", carol, { code, deckId: "C-std" })).status === 409);
+send(b, { type: "chat", text: "Hallo Alice" });
+check("Chat kommt an", Boolean(await waitFor(() => a.messages.find(m => m.type === "chat" && m.text === "Hallo Alice" && m.from === "bob"))));
+send(a, { type: "draw" });
+check("Alte Spiel-Demo-Nachrichten sind nicht mehr erlaubt", Boolean(await waitFor(() => a.messages.find(m => m.type === "error" && /Unbekannt/.test(m.message)))));
+
+// ---------------------------------------------------------------- 4) Ein Raum je Konto, Verlassen
+console.log("\n== Ein Raum zugleich, Verlassen, Entfernen (Commander)");
+const carolRoom = await api("POST", "/api/rooms", carol, { format: "commander", deckId: "C-cmd", maxPlayers: 3 });
+const ccode = carolRoom.body?.code;
+check("Carol erstellt einen Commander-Raum für 3 Spieler", carolRoom.status === 201);
+const bobElsewhere = await api("POST", "/api/rooms/join", bob, { code: ccode, deckId: "B-cmd" });
+check("Bob ist schon in einem Raum und kann nicht in einen zweiten (409)", bobElsewhere.status === 409 && bobElsewhere.body.code === code);
+await api("POST", "/api/rooms/leave", bob, {});
+await waitFor(() => b.closed);
+check("Bob verlässt den Raum: seine Verbindung wird getrennt (4005)", b.closed?.code === 4005, JSON.stringify(b.closed));
+await waitFor(() => lastRoom(a)?.room.players.length === 1);
+check("Alice sieht, dass Bob weg ist", lastRoom(a).room.players.length === 1);
+check("Bob ist danach in keinem Raum", (await api("GET", "/api/rooms/mine", bob)).body.room === null);
+
+check("Bob tritt dem Commander-Raum bei", (await api("POST", "/api/rooms/join", bob, { code: ccode, deckId: "B-cmd" })).status === 200);
+check("Dave tritt dem Commander-Raum bei", (await api("POST", "/api/rooms/join", dave, { code: ccode, deckId: "D-cmd" })).status === 200);
+const standardInCommander = await api("POST", "/api/rooms/join", USERS.alice, { code: ccode, deckId: "A-cmd" });
+check("Alice (in einem anderen Raum) kann nicht beitreten (409)", standardInCommander.status === 409);
+
+const cb = await connect(ccode, bob);
+const cd = await connect(ccode, dave);
+const cc = await connect(ccode, carol);
+await waitFor(() => lastRoom(cc)?.room.players.length === 3);
+check("Commander-Raum: 3 Spieler, Format Commander", lastRoom(cc).room.players.length === 3 && lastRoom(cc).room.format === "commander");
+const kickByNonHost = await api("POST", "/api/rooms/kick", dave, { userId: bob.id });
+check("Nur der Gastgeber kann Spieler entfernen (403)", kickByNonHost.status === 403);
+check("Der Gastgeber kann sich nicht selbst entfernen", (await api("POST", "/api/rooms/kick", carol, { userId: carol.id })).status === 403);
+const kicked = await api("POST", "/api/rooms/kick", carol, { userId: bob.id });
+await waitFor(() => cb.closed);
+check("Gastgeber entfernt Bob: Verbindung getrennt (4005) mit Hinweis", kicked.status === 200 && cb.closed?.code === 4005 && Boolean(hasType(cb, "closed")));
+await waitFor(() => lastRoom(cc)?.room.players.length === 2);
+check("Carol und Dave sehen: Bob ist weg", lastRoom(cc).room.players.length === 2);
+const bobNew = await api("POST", "/api/rooms", bob, { format: "standard", deckId: "B-std" });
+check("Bob ist frei und kann einen eigenen Raum erstellen", bobNew.status === 201);
+await api("POST", "/api/rooms/leave", bob, {});
+
+await api("POST", "/api/rooms/leave", carol, {});
+await waitFor(() => cd.closed && cc.closed);
+check("Verlässt der Gastgeber den Raum, wird der Raum geschlossen (4006 bei allen)", cd.closed?.code === 4006 && cc.closed?.code === 4006 && Boolean(hasType(cd, "closed")));
+check("Der geschlossene Raum existiert nicht mehr (404)", (await api("GET", `/api/rooms/${ccode}`, dave)).status === 404);
+check("Dave ist frei (kann einen Raum erstellen)", (await api("POST", "/api/rooms", dave, { format: "commander", deckId: "D-cmd" })).status === 201);
+
+// ---------------------------------------------------------------- 5) Anmelde-Timeout und Hibernation
+console.log("\n== Anmelde-Timeout und Hibernation");
+const idleRoom = await api("POST", "/api/rooms", carol, { format: "standard", deckId: "C-std" });
+const idleCode = idleRoom.body?.code;
+const silent = await connect(idleCode, null, { auth: false });
+// Der Server beendet die Verbindung nach 10 s (Meldung kommt sofort). Das close-Ereignis des Node-Clients
+// folgt lokal erst ca. 10 s später (er wartet auf das Ende der TCP-Verbindung), daher wird die Meldung geprüft.
+const timeoutMessage = await waitFor(() => silent.messages.find(m => m.type === "error" && /Anmeldung erforderlich/.test(m.message)), 14000);
+check("Wer sich nicht anmeldet, wird nach 10 Sekunden abgewiesen", Boolean(timeoutMessage));
+await waitFor(() => silent.closed, 14000);
+check("… und die Verbindung wird beendet (4001)", silent.closed?.code === 4001, JSON.stringify(silent.closed));
+
+const c1 = await connect(idleCode, carol);
+await waitFor(() => lastRoom(c1));
+const before = lastRoom(c1).instance;
+console.log(`... warte ${IDLE_WAIT_MS / 1000} s auf Hibernation`);
+await sleep(IDLE_WAIT_MS);
+send(c1, { type: "ready", ready: true });
+await waitFor(() => lastRoom(c1)?.room.players[0].ready);
+const after = lastRoom(c1);
+check("Nach der Ruhephase funktioniert dieselbe Verbindung weiter", after.room.players[0].ready === true);
+check("Das Raumobjekt war zwischenzeitlich hibernierte (neue Instanz)", after.instance !== before, `${before} -> ${after.instance}`);
+check("Der Raumzustand blieb erhalten (Spieler, Deck, Format)", after.room.players[0].deck.name === "C Standard" && after.room.format === "standard");
+
+for (const client of [a, b, cb, cd, cc, c1, silent, outsider]) { try { client.ws.close(); } catch {} }
+await mock.close();
 console.log(failures === 0 ? "\nALLE PRÜFUNGEN BESTANDEN" : `\n${failures} PRÜFUNG(EN) FEHLGESCHLAGEN`);
 process.exit(failures === 0 ? 0 : 1);
