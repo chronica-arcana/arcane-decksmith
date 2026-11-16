@@ -16,7 +16,6 @@ export const APP_PAGE_HASHES: Record<AppPage, string> = {
   builder: "#/build",
   decks: "#/decks",
   marketplace: "#/marketplace",
-  // Versteckt: nicht im Menü, nur über die Adresse erreichbar (Online-Spiel, bis der Spieltisch fertig ist).
   game: "#/spielen"
 };
 
@@ -29,7 +28,8 @@ export const APP_NAV_ITEMS: Array<{
   { page: "search", label: "Kartensuche" },
   { page: "builder", label: "Deck bauen" },
   { page: "decks", label: "Decks" },
-  { page: "marketplace", label: "Marketplace" }
+  { page: "marketplace", label: "Marketplace" },
+  { page: "game", label: "Spielen" }
 ];
 
 const PAGE_TITLES: Record<AppPage, string> = {
