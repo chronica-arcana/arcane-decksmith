@@ -40,6 +40,8 @@ function snapshotCard(record, count) {
     count,
     typeLine: record.typeLine ?? "",
     manaValue: record.manaValue ?? 0,
+    manaCost: String(record.manaCost ?? "").slice(0, 60),
+    oracleText: String(record.oracleText ?? "").slice(0, 700),
     imageUri: imageOf(record)
   };
 }

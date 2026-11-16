@@ -16,7 +16,8 @@
 import { DurableObject } from "cloudflare:workers";
 import { AuthError, authenticate, verifySupabaseJwt } from "../../supabase-auth.js";
 import { validateDeckForRoom } from "./deckValidation.js";
-import { abortGame, applyAction, createGame, gameView, playerLeft } from "./gameLogic.js";
+import { fetchScryfallFacts } from "./cardFacts.js";
+import { GAME_VERSION, abortGame, applyAction, createGame, gameView, joinGame, playerLeft, splitGame } from "./gameLogic.js";
 import {
   RateLimiter,
   allowedOrigins,
@@ -117,7 +118,9 @@ export class GameRoom extends DurableObject {
     this.ctx.blockConcurrencyWhile(async () => {
       const stored = await this.ctx.storage.get("room");
       this.room = stored?.version === ROOM_VERSION ? stored : null;
-      this.game = this.room ? ((await this.ctx.storage.get("game")) ?? null) : null;
+      const dynamic = this.room ? await this.ctx.storage.get("game") : null;
+      const defs = dynamic ? await this.ctx.storage.get("defs") : null;
+      this.game = dynamic?.version === GAME_VERSION ? joinGame(dynamic, defs) : null;
     });
 
     // Keepalive: "ping" wird beantwortet, ohne das Objekt aufzuwecken.
@@ -225,9 +228,20 @@ export class GameRoom extends DurableObject {
   /** Speichert das Spiel, trägt ein beendetes Spiel in den Verlauf ein und schickt allen ihre Sicht. */
   async afterGameChange() {
     if (!this.game) return;
-    await this.ctx.storage.put("game", this.game);
+    await this.ctx.storage.put("game", splitGame(this.game).dynamic);
     if (this.game.phase === "ended") await this.recordHistory();
     this.broadcastGame();
+  }
+
+  /** Neues Spiel aus dem Raum: Kartenwerte (Stärke, Schlüsselwörter) best effort von Scryfall, dann mischen und ziehen. */
+  async newGame() {
+    const ids = [];
+    for (const player of Object.values(this.room.players)) {
+      for (const card of [...(player.deck.commanders ?? []), ...player.deck.main]) ids.push(card.id);
+    }
+    const facts = await fetchScryfallFacts(ids, { base: this.env.SCRYFALL_BASE || undefined });
+    this.game = createGame({ room: this.room, random: randomUnit, facts });
+    await this.ctx.storage.put("defs", splitGame(this.game).defs);
   }
 
   async recordHistory() {
@@ -352,7 +366,7 @@ export class GameRoom extends DurableObject {
           this.send(socket, { type: "error", message: result.error });
           break;
         }
-        this.game = createGame({ room: this.room, random: randomUnit });
+        await this.newGame();
         await this.persist();
         this.broadcast({ type: "system", text: "Das Spiel wurde gestartet." });
         this.broadcastRoom();
@@ -386,7 +400,7 @@ export class GameRoom extends DurableObject {
           this.send(socket, { type: "error", message: "Für eine Revanche braucht es mindestens 2 Spieler." });
           break;
         }
-        this.game = createGame({ room: this.room, random: randomUnit });
+        await this.newGame();
         this.broadcast({ type: "system", text: "Revanche: ein neues Spiel beginnt." });
         await this.afterGameChange();
         break;

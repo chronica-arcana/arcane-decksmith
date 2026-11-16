@@ -28,17 +28,20 @@ Cloudflare Worker mit einem **Durable Object je Raum**. Er ist die Grundlage fü
 - Dateien: `src/index.js` (Worker, `Lobby`, `GameRoom`), `roomLogic.js`, `deckValidation.js`, `supabaseData.js`, `protocol.js` (alle mit Tests).
 - Die App-Seite ist versteckt unter **`#/spielen`**.
 
-## Spieltisch (Meilensteine 2 bis 5)
+## Spieltisch und Regelautomatik
 - **Server-geführter Spielstand** (`gameLogic.js`): Bibliotheken werden auf dem Server mit `crypto.getRandomValues` gemischt. Jeder Spieler
   bekommt nur seine Sicht: eigene Hand, bei anderen nur Kartenzahlen; Bibliotheken und verdeckte Karten sieht nie jemand.
-- **Keine Regelautomatik.** Spieler bewegen ihre eigenen Karten selbst (Zonen: Bibliothek, Hand, Schlachtfeld, Friedhof, Exil, Kommandozone).
-  Automatisch sind nur Komfortfunktionen: Starthand und London-Mulligan (bei Commander der erste kostenlos), Startspieler per Zufall,
-  Zugwechsel mit Enttappen und Ziehen (im 2-Spieler-Spiel zieht der Startspieler im ersten Zug nicht), Ausscheiden bei 0 Leben,
-  10 Giftmarken oder 21 Kommandantenschaden, Sieger bei einem verbleibenden Spieler.
-- **Aktionen:** ziehen, mahlen, mischen, Bibliothek ansehen/durchsuchen, bewegen (auch verdeckt), tappen, umdrehen, Karte zeigen,
-  Marker auf Karten, Spielsteine, Leben, Gift/Energie/Erfahrung, Kommandantenschaden und -steuer, Würfel, Münze, Phase/Zug, Aufgeben.
-- **Öffentlicher Spielverlauf:** nennt Karten nur, wenn sie öffentlich werden (z. B. Bibliothek → Hand bleibt „eine Karte“).
-- **Commander mit bis zu 4 Spielern**, Revanche (Gastgeber), Verlassen mitten im Spiel zählt als Aufgabe.
+- **Kartendaten:** Beim Spielstart holt der Worker Stärke, Widerstandskraft, Loyalität und Schlüsselwörter bei Scryfall (best effort; ohne
+  Antwort läuft das Spiel ohne diese Werte). Manakosten und Regeltext kommen aus der Sammlung.
+- **Automatisiert:** Zugstruktur (Enttappen, Ziehen, Schritte: Hauptphase 1, Angriff, Blocker, Kampfschaden, Hauptphase 2, Zugende), Priorität und
+  Stapel (Zauber wirken, Passen, Auflösen, Neutralisieren, Fähigkeiten auf den Stapel), Mana (Manapool, Quellen werden beim Wirken automatisch
+  getappt; Hybrid, X, Phyrexian, Kommandantensteuer), ein Land pro Zug, Beschwörungsmüdigkeit, Kampf (Angreifer, Blocker, Erstschlag,
+  Doppelschlag, Todesberührung, Lebensverbindung, Trampeln, Flug/Reichweite, Drohung, Verteidiger, Wachsamkeit, Eile, unzerstörbar),
+  Sterben bei tödlichem Schaden, Handkartenlimit 7, Kommandantenschaden aus dem Kampf, Rückfrage zur Kommandozone, Ausscheiden und Spielende.
+- **Nicht automatisiert:** Kartentexte (Fähigkeiten, Auslöser, Ziele, Ersatzeffekte). Das klären die Spieler; Hilfen dafür sind „Fähigkeit auf
+  den Stapel“, Marker, Spielsteine, Leben/Zähler und das manuelle Bewegen von Karten.
+- **Manuelle Wege bleiben:** Wer eine Karte trotz Regeln legen muss (z. B. Effekte, die ein zweites Land erlauben), nutzt „Manuell auslegen“.
+- **Commander mit 2 bis 4 Spielern**, Revanche (Gastgeber), Verlassen mitten im Spiel zählt als Aufgabe.
 - **Verlauf:** Durable Object `History` je Konto (letzte 50 Spiele, auch abgebrochene), ohne zusätzliche Datenbank-Einrichtung.
 - Keine Rückgängig-Funktion (sie würde Mogeln ermöglichen: ansehen, dann zurücknehmen).
 

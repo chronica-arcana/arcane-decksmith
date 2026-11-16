@@ -56,12 +56,29 @@ export type GameCard = {
   counters: Record<string, number>;
   token: boolean;
   faceDown: boolean;
-  /** Fehlt bei verdeckten Karten anderer Spieler. */
+  damage: number;
+  /** Beschwörungsmüde: kann noch nicht angreifen oder {T}-Fähigkeiten nutzen. */
+  sick: boolean;
+  cmd: boolean;
+  kind: "land" | "creature" | "other";
+  attacking: boolean;
+  /** ID des angegriffenen Angreifers, den diese Karte blockt. */
+  blocking: string | null;
+  /** Fehlen bei verdeckten Karten anderer Spieler. */
   name?: string;
   typeLine?: string;
   manaValue?: number;
+  manaCost?: string;
   imageUri?: string | null;
+  keywords?: string[];
+  power?: number | null;
+  toughness?: number | null;
+  mana?: boolean;
+  /** Nur für eigene Karten: Was ist jetzt möglich? */
+  play?: { kind: "land" | "spell"; ok: boolean; timingOk?: boolean } | null;
 };
+
+export type ManaPool = Record<"W" | "U" | "B" | "R" | "G" | "C", number>;
 
 export type GamePlayer = {
   userId: string;
@@ -74,6 +91,9 @@ export type GamePlayer = {
   eliminated: string | null;
   mulligans: number;
   kept: boolean;
+  pool: ManaPool;
+  autoPass?: boolean;
+  prompts: { type: "commander"; id: string }[];
   counts: Record<GameZone, number>;
   /** Eigene Hand komplett, bei anderen nur gezeigte Karten. */
   hand: GameCard[];
@@ -89,11 +109,19 @@ export type GamePlayer = {
 
 export type GameLogLine = { n: number; text: string };
 
+export type StackItem = { sid: string; controller: string; kind: "spell" | "ability"; text: string; card: GameCard | null };
+
+export type GameStep = "main1" | "attackers" | "blockers" | "damage" | "main2" | "end";
+
 export type GameView = {
   format: RoomFormat;
   phase: "mulligan" | "playing" | "ended";
   you: string;
-  turn: { number: number; active: string | null; phase: string; first: string | null };
+  turn: { number: number; active: string | null; phase: GameStep; first: string | null; landsPlayed: number };
+  priority: string | null;
+  stack: StackItem[];
+  combat: { attackers: { id: string; target: string }[]; blocks: { blocker: string; attacker: string }[]; awaiting: string[] } | null;
+  pendingDiscard: { userId: string; count: number } | null;
   winner: string | null;
   startedAt: number;
   endedAt: number | null;
@@ -121,8 +149,18 @@ export type GameAction =
   | { type: "cmddmg"; from: string; delta: number }
   | { type: "dice"; sides: number }
   | { type: "coin" }
-  | { type: "nextPhase" }
+  | { type: "autoPass"; value: boolean }
+  | { type: "tapMana"; id: string; color?: string }
+  | { type: "playLand"; id: string }
+  | { type: "cast"; id: string; x?: number; free?: boolean }
+  | { type: "ability"; text: string }
+  | { type: "pass" }
+  | { type: "counterSpell"; sid: string }
+  | { type: "declareAttackers"; attackers: { id: string; target?: string }[] }
+  | { type: "declareBlockers"; blocks: { blocker: string; attacker: string }[] }
   | { type: "endTurn" }
+  | { type: "discard"; ids: string[] }
+  | { type: "commanderZone"; id: string; yes: boolean }
   | { type: "concede" };
 
 export type HistoryEntry = {
