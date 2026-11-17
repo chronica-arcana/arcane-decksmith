@@ -49,6 +49,11 @@ export type RoomView = {
 export type GameZone = "library" | "hand" | "battlefield" | "graveyard" | "exile" | "command";
 export type PlayerCounterKind = "poison" | "energy" | "experience";
 
+/** Gültige Ziele für eine Zielangabe eines Zaubers oder einer Fähigkeit (Karten-, Spieler- oder Stapel-IDs). */
+export type TargetOption = { kind: string; options: string[] };
+
+export type CardAbility = { index: number; text: string; ok: boolean; targets: TargetOption[]; manual: boolean };
+
 export type GameCard = {
   id: string;
   owner: string;
@@ -77,7 +82,11 @@ export type GameCard = {
   /** Farben, die diese Manaquelle erzeugen kann. */
   manaColors?: string[];
   /** Nur für eigene Karten: Was ist jetzt möglich? */
-  play?: { kind: "land" | "spell"; ok: boolean; timingOk?: boolean } | null;
+  play?: { kind: "land" | "spell"; ok: boolean; timingOk?: boolean; targets?: TargetOption[]; manual?: boolean } | null;
+  /** Nur eigene Karten auf dem Schlachtfeld: aktivierbare Fähigkeiten laut Kartentext. */
+  abilities?: CardAbility[];
+  /** Textteile, die das Spiel nicht automatisch behandelt (z. B. Dauereffekte). */
+  rulesNotes?: string[];
 };
 
 export type ManaPool = Record<"W" | "U" | "B" | "R" | "G" | "C", number>;
@@ -124,6 +133,17 @@ export type GameView = {
   stack: StackItem[];
   combat: { attackers: { id: string; target: string }[]; blocks: { blocker: string; attacker: string }[]; awaiting: string[] } | null;
   pendingDiscard: { userId: string; count: number } | null;
+  /** Offene Auswahl (Ziel, Karten abwerfen/suchen/wühlen). Die Optionen sieht nur, wer wählt. */
+  choice: {
+    userId: string;
+    kind: "targets" | "cards";
+    prompt: string;
+    min: number;
+    max: number;
+    options: { id: string; card?: GameCard | null; player?: { userId: string; name: string }; spell?: boolean }[];
+  } | null;
+  /** Ein Kartentext, den das Spiel nicht umsetzen kann: Nur dieser Spieler darf jetzt von Hand eingreifen. */
+  manual: { userId: string; text: string; source: string } | null;
   winner: string | null;
   startedAt: number;
   endedAt: number | null;
@@ -155,7 +175,10 @@ export type GameAction =
   | { type: "tapMana"; id: string; color?: string }
   | { type: "pool"; color: "W" | "U" | "B" | "R" | "G" | "C"; delta: number }
   | { type: "playLand"; id: string }
-  | { type: "cast"; id: string; x?: number; free?: boolean }
+  | { type: "cast"; id: string; x?: number; free?: boolean; targets?: string[] }
+  | { type: "activate"; id: string; index: number; targets?: string[] }
+  | { type: "choose"; ids: string[] }
+  | { type: "manualDone" }
   | { type: "ability"; text: string }
   | { type: "pass" }
   | { type: "counterSpell"; sid: string }

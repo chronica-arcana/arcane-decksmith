@@ -29,11 +29,20 @@ export type ActionBarProps = {
   resetBlocks: () => void;
   discardPick: string[];
   clearDiscardPick: () => void;
+  targeting: { name: string; specs: { kind: string }[]; picked: string[] } | null;
+  cancelTargeting: () => void;
   onRematch: () => void;
   onLeave: () => void;
 };
 
-/** Die einzige Schaltflächenleiste: zeigt nur, was im aktuellen Moment wirklich möglich ist. */
+const TARGET_LABELS: Record<string, string> = {
+  any: "ein beliebiges Ziel", player: "einen Spieler", opponent: "einen Gegner", creature: "eine Kreatur", planeswalker: "einen Planeswalker",
+  artifact: "ein Artefakt", enchantment: "eine Verzauberung", land: "ein Land", permanent: "einen Permanent", nonland: "einen Nichtland-Permanent",
+  creatureOrPlaneswalker: "eine Kreatur oder einen Planeswalker", artifactOrEnchantment: "ein Artefakt oder eine Verzauberung",
+  spell: "einen Zauber", creatureSpell: "einen Kreaturenzauber", noncreatureSpell: "einen Nichtkreaturenzauber", instantOrSorcerySpell: "einen Spontan- oder Hexereizauber"
+};
+
+/** Die einzige Schaltflächenleiste: zeigt nur, was im aktuellen Moment wirklich möglich ist. Prioritäts-Hinweise gibt es bewusst nicht. */
 export default function ActionBar(props: ActionBarProps) {
   const { game, me, act, nameOf } = props;
   const step: GameStep = game.turn.phase;
@@ -49,6 +58,26 @@ export default function ActionBar(props: ActionBarProps) {
           <span className="muted">Der Gastgeber ({nameOf(props.hostId)}) kann eine Revanche starten.</span>
         )}
         <button type="button" className="secondary" onClick={props.onLeave}>Raum verlassen</button>
+      </div>
+    );
+  }
+
+  if (props.targeting) {
+    const spec = props.targeting.specs[props.targeting.picked.length];
+    return (
+      <div className="action-bar" role="status">
+        <strong>{props.targeting.name}: Wähle {TARGET_LABELS[spec?.kind ?? ""] ?? "ein Ziel"} (leuchtet auf).</strong>
+        <button type="button" className="secondary" onClick={props.cancelTargeting}>Abbrechen</button>
+      </div>
+    );
+  }
+
+  if (game.manual?.userId === game.you) {
+    return (
+      <div className="action-bar" role="alert">
+        <strong>Dieser Kartentext lässt sich nicht automatisch umsetzen: {game.manual.text}</strong>
+        <span className="muted">Du darfst jetzt von Hand eingreifen (Rechtsklick auf Karten, Bibliothek, ⋯-Menü).</span>
+        <button type="button" className="primary" onClick={() => act({ type: "manualDone" })}>Fertig</button>
       </div>
     );
   }
@@ -151,23 +180,25 @@ export default function ActionBar(props: ActionBarProps) {
     const label = game.stack.length > 0 ? "Passen – Stapel auflösen" : (GO_LABELS[step] ?? (props.isActive ? "Zug beenden" : "Passen"));
     return (
       <div className="action-bar" role="status">
-        <span className="chip prio">Du hast Priorität</span>
         <button type="button" className="primary go" onClick={() => act({ type: "pass" })}>{label}</button>
       </div>
     );
   }
 
-  return (
+  const waiting = game.manual
+    ? `${nameOf(game.manual.userId)} setzt einen Kartentext um …`
+    : game.choice
+      ? `${nameOf(game.choice.userId)} trifft eine Auswahl …`
+      : game.combat?.awaiting.length
+        ? `${game.combat.awaiting.map(nameOf).join(", ")} bestimmt Blocker …`
+        : game.pendingDiscard
+          ? `${nameOf(game.pendingDiscard.userId)} wirft Karten ab …`
+          : game.priority
+            ? `${nameOf(game.priority)} überlegt …`
+            : "";
+  return waiting ? (
     <div className="action-bar" role="status">
-      <span className="muted">
-        {game.priority
-          ? `${nameOf(game.priority)} hat Priorität …`
-          : game.combat?.awaiting.length
-            ? `${game.combat.awaiting.map(nameOf).join(", ")} bestimmt Blocker …`
-            : game.pendingDiscard
-              ? `${nameOf(game.pendingDiscard.userId)} wirft Karten ab …`
-              : "Warten …"}
-      </span>
+      <span className="muted">{waiting}</span>
     </div>
-  );
+  ) : null;
 }

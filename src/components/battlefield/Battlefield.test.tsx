@@ -9,7 +9,7 @@ afterEach(cleanup);
 const card = (id: string, name: string, extra: Partial<GameCard> = {}): GameCard => ({
   id, owner: "me", tapped: false, counters: {}, token: false, faceDown: false, damage: 0, sick: false, cmd: false, kind: "other",
   attacking: false, blocking: null, name, typeLine: "Creature", manaValue: 2, manaCost: "", imageUri: null, keywords: [], power: null,
-  toughness: null, mana: false, manaColors: [], ...extra
+  toughness: null, mana: false, manaColors: [], abilities: [], rulesNotes: [], ...extra
 });
 const creature = (id: string, name: string, owner = "me", extra: Partial<GameCard> = {}) =>
   card(id, name, { owner, kind: "creature", power: 2, toughness: 2, ...extra });
@@ -27,43 +27,69 @@ function view(extra: Partial<GameView> = {}, mine: Partial<GamePlayer> = {}, oth
   return {
     format: "standard", phase: "playing", you: "me", winner: null, startedAt: 0, endedAt: null, log: [{ n: 1, text: "Los geht's" }],
     turn: { number: 3, active: "me", phase: "main1", first: "me", landsPlayed: 0 },
-    priority: "me", stack: [], combat: null, pendingDiscard: null,
+    priority: "me", stack: [], combat: null, pendingDiscard: null, choice: null, manual: null,
     players: [player("me", "Ich", mine), player("they", "Gegner", other)], ...extra
   };
 }
 
-const setup = (game: GameView, hostId = "me") => {
+const setup = (game: GameView, props: Partial<Parameters<typeof Battlefield>[0]> = {}) => {
   const send = vi.fn();
-  const utils = render(<Battlefield game={game} hostId={hostId} send={send} onRematch={vi.fn()} onLeave={vi.fn()} />);
-  return { send, ...utils };
+  const onLeave = vi.fn();
+  const utils = render(<Battlefield game={game} hostId="me" send={send} onRematch={vi.fn()} onLeave={onLeave} {...props} />);
+  return { send, onLeave, ...utils };
 };
 const handArea = () => screen.getByLabelText("Deine Hand");
 
-describe("Battlefield", () => {
-  it("Starthand: Behalten und Mulligan", () => {
+describe("Spielraum", () => {
+  it("ist ein Vollbild-Raum mit Knopf zum Verlassen, Chat und Verlauf nur auf Wunsch in der Seitenleiste", () => {
+    const onSend = vi.fn();
+    const { onLeave } = setup(view(), { chat: { lines: [{ id: 1, text: "Ana: hi" }], onSend, connected: true } });
+    expect(screen.getByRole("region", { name: "Spieltisch" })).toBeTruthy();
+    expect(screen.queryByLabelText("Seitenleiste")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Chat" }));
+    const drawer = screen.getByLabelText("Seitenleiste");
+    expect(within(drawer).getByText("Ana: hi")).toBeTruthy();
+    fireEvent.change(within(drawer).getByLabelText("Chat-Nachricht"), { target: { value: "Hallo" } });
+    fireEvent.click(within(drawer).getByRole("button", { name: "Senden" }));
+    expect(onSend).toHaveBeenCalledWith("Hallo");
+    fireEvent.click(screen.getByRole("button", { name: "Verlauf" }));
+    expect(within(screen.getByLabelText("Seitenleiste")).getByLabelText("Spielverlauf")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "← Raum verlassen" }));
+    expect(onLeave).toHaveBeenCalled();
+  });
+
+  it("zeigt keine Priorität, sondern blendet kurz ein, wer am Zug ist; die Phasen stehen unter der eigenen Hand", () => {
+    setup(view());
+    expect(screen.getByText("Du bist am Zug")).toBeTruthy();
+    expect(screen.queryByText(/Priorität/)).toBeNull();
+    const nav = screen.getByRole("navigation", { name: "Phasen" });
+    const mine = screen.getByLabelText("Platz von Ich");
+    expect(mine.compareDocumentPosition(nav) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    for (const label of ["Enttappen", "Versorgung", "Ziehen", "Hauptphase 1", "Kampf", "Hauptphase 2", "Zugende"]) expect(within(nav).getByText(label)).toBeTruthy();
+    expect(within(nav).getByText("Hauptphase 1").closest("li")?.getAttribute("aria-current")).toBe("step");
+  });
+
+  it("Starthand: Behalten, Mulligan und Karten unten ablegen", () => {
     const hand = [card("h1", "Karte Eins"), card("h2", "Karte Zwei")];
     const { send } = setup(view({ phase: "mulligan" }, { hand }));
     fireEvent.click(screen.getByRole("button", { name: "Behalten" }));
     expect(send).toHaveBeenCalledWith({ type: "keep", bottom: [] });
     fireEvent.click(screen.getByRole("button", { name: /Mulligan/ }));
     expect(send).toHaveBeenCalledWith({ type: "mulligan" });
-  });
-
-  it("Starthand: nach einem Mulligan Karten unten ablegen", () => {
-    const hand = [card("h1", "Karte Eins"), card("h2", "Karte Zwei")];
-    const { send } = setup(view({ phase: "mulligan" }, { hand, mulligans: 1 }));
+    cleanup();
+    const second = setup(view({ phase: "mulligan" }, { hand, mulligans: 1 }));
     const keep = screen.getByRole("button", { name: "Behalten" });
     expect(keep).toHaveProperty("disabled", true);
     fireEvent.click(screen.getByRole("button", { name: "Karte Zwei" }));
     fireEvent.click(keep);
-    expect(send).toHaveBeenCalledWith({ type: "keep", bottom: ["h2"] });
+    expect(second.send).toHaveBeenCalledWith({ type: "keep", bottom: ["h2"] });
   });
 
   it("Klick auf eine spielbare Handkarte spielt sie, eine nicht spielbare tut nichts", () => {
     const hand = [
       card("l1", "Wald", { kind: "land", play: { kind: "land", ok: true } }),
-      card("z1", "Bär", { play: { kind: "spell", ok: true }, manaCost: "{1}{G}" }),
-      card("z2", "Flut", { play: { kind: "spell", ok: false } })
+      card("z1", "Bär", { play: { kind: "spell", ok: true, targets: [] }, manaCost: "{1}{G}" }),
+      card("z2", "Flut", { play: { kind: "spell", ok: false, targets: [] } })
     ];
     const { send } = setup(view({}, { hand }));
     fireEvent.click(within(handArea()).getByRole("button", { name: "Wald" }));
@@ -75,8 +101,25 @@ describe("Battlefield", () => {
     expect(send).not.toHaveBeenCalled();
   });
 
+  it("Zauber mit Ziel: Ziel leuchtet, Klick auf den Spieler wirkt mit Ziel, Abbrechen geht", () => {
+    const bolt = card("z1", "Blitz", { play: { kind: "spell", ok: true, targets: [{ kind: "any", options: ["they", "e1"] }] } });
+    const { send } = setup(view({}, { hand: [bolt] }, { battlefield: [creature("e1", "Ork", "they")] }));
+    fireEvent.click(within(handArea()).getByRole("button", { name: "Blitz" }));
+    expect(send).not.toHaveBeenCalled();
+    expect(screen.getByText(/Blitz: Wähle ein beliebiges Ziel/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Gegner als Ziel wählen" }));
+    expect(send).toHaveBeenCalledWith({ type: "cast", id: "z1", targets: ["they"] });
+    send.mockClear();
+    fireEvent.click(within(handArea()).getByRole("button", { name: "Blitz" }));
+    fireEvent.click(screen.getByRole("button", { name: "Abbrechen" }));
+    expect(screen.queryByText(/Wähle ein beliebiges Ziel/)).toBeNull();
+    fireEvent.click(within(handArea()).getByRole("button", { name: "Blitz" }));
+    fireEvent.click(screen.getByRole("button", { name: /Ork/ }));
+    expect(send).toHaveBeenCalledWith({ type: "cast", id: "z1", targets: ["e1"] });
+  });
+
   it("X-Zauber fragt nach X", () => {
-    const hand = [card("z2", "Welle", { play: { kind: "spell", ok: true }, manaCost: "{X}{U}" })];
+    const hand = [card("z2", "Welle", { play: { kind: "spell", ok: true, targets: [] }, manaCost: "{X}{U}" })];
     const { send } = setup(view({}, { hand }));
     fireEvent.click(within(handArea()).getByRole("button", { name: "Welle" }));
     fireEvent.change(screen.getByLabelText("Wert für X"), { target: { value: "3" } });
@@ -84,44 +127,64 @@ describe("Battlefield", () => {
     expect(send).toHaveBeenCalledWith({ type: "cast", id: "z2", x: 3 });
   });
 
-  it("Ziehen auf den Tisch spielt die Karte", () => {
-    const hand = [card("l1", "Wald", { kind: "land", play: { kind: "land", ok: true } })];
+  it("Ziehen auf den Tisch spielt nur, was die Regeln erlauben", () => {
+    const hand = [card("l1", "Wald", { kind: "land", play: { kind: "land", ok: true } }), card("l2", "Zweitland", { kind: "land", play: { kind: "land", ok: false } })];
     const { send } = setup(view({}, { hand }));
     fireEvent.drop(screen.getByLabelText("Platz von Ich"), { dataTransfer: { getData: () => "l1" } });
     expect(send).toHaveBeenCalledWith({ type: "playLand", id: "l1" });
+    send.mockClear();
+    fireEvent.drop(screen.getByLabelText("Platz von Ich"), { dataTransfer: { getData: () => "l2" } });
+    expect(send).not.toHaveBeenCalled();
   });
 
-  it("Bibliothek anklicken zieht eine Karte", () => {
+  it("Karten ziehen, Leben ändern oder Manapool anpassen geht nicht von Hand", () => {
     const { send } = setup(view());
-    fireEvent.click(screen.getByRole("button", { name: /Bibliothek: 40 Karten/ }));
-    expect(send).toHaveBeenCalledWith({ type: "draw" });
+    const library = screen.getByLabelText(/Bibliothek: 40 Karten/);
+    fireEvent.click(library);
+    fireEvent.contextMenu(library);
+    expect(send).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: /Leben: 20/ })).toHaveProperty("disabled", true);
+    fireEvent.click(screen.getByRole("button", { name: "Weitere Aktionen" }));
+    expect(screen.queryByRole("menuitem", { name: "Karte ziehen" })).toBeNull();
+    expect(screen.queryByRole("menuitem", { name: "Spielstein erzeugen …" })).toBeNull();
   });
 
-  it("Aktionsleiste zeigt nur das Mögliche: Weiter-Knopf nur mit Priorität", () => {
+  it("nur im manuellen Fenster: Bibliothek zieht, Menüs bieten Handarbeit, „Fertig“ schließt es", () => {
+    const wolf = creature("c1", "Wolf");
+    const game = view({ manual: { userId: "me", text: "Each player sacrifices a creature", source: "Rätsel" } }, { battlefield: [wolf] });
+    const { send } = setup(game);
+    expect(screen.getByText(/lässt sich nicht automatisch umsetzen/)).toBeTruthy();
+    fireEvent.click(screen.getByLabelText(/Bibliothek: 40 Karten/));
+    expect(send).toHaveBeenLastCalledWith({ type: "draw" });
+    fireEvent.contextMenu(screen.getByRole("button", { name: "Wolf" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "→ Friedhof" }));
+    expect(send).toHaveBeenLastCalledWith({ type: "move", id: "c1", to: "graveyard" });
+    fireEvent.click(screen.getByRole("button", { name: "Fertig" }));
+    expect(send).toHaveBeenLastCalledWith({ type: "manualDone" });
+  });
+
+  it("andere sehen nur, dass jemand einen Kartentext umsetzt", () => {
+    setup(view({ priority: null, manual: { userId: "they", text: "x", source: "y" } }));
+    expect(screen.getByText("Gegner setzt einen Kartentext um …")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Fertig" })).toBeNull();
+  });
+
+  it("Weiter-Knopf nur, wenn du handeln darfst", () => {
     const { send, rerender } = setup(view());
     fireEvent.click(screen.getByRole("button", { name: "Weiter zum Kampf" }));
     expect(send).toHaveBeenCalledWith({ type: "pass" });
     rerender(<Battlefield game={view({ priority: "they" })} hostId="me" send={send} onRematch={vi.fn()} onLeave={vi.fn()} />);
     expect(screen.queryByRole("button", { name: "Weiter zum Kampf" })).toBeNull();
-    expect(screen.getByText("Gegner hat Priorität …")).toBeTruthy();
+    expect(screen.getByText("Gegner überlegt …")).toBeTruthy();
   });
 
-  it("Leben hat keine ständigen Knöpfe; manuelle Korrektur per Klick auf die Zahl", () => {
-    const { send } = setup(view());
-    expect(screen.queryByRole("button", { name: "Leben plus 1" })).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: /Leben: 20/ }));
-    fireEvent.click(within(screen.getByRole("group", { name: "Leben manuell anpassen" })).getByRole("button", { name: "−1" }));
-    expect(send).toHaveBeenCalledWith({ type: "life", delta: -1 });
-  });
-
-  it("Stapel: Zauber sichtbar, Neutralisieren im Menü der Karte", () => {
+  it("Stapel: Zauber sichtbar, Menü bietet nur das Ansehen", () => {
     const game = view({ stack: [{ sid: "s1", controller: "they", kind: "spell", text: "", card: card("x1", "Blitz", { owner: "they" }) }] });
-    const { send } = setup(game);
+    setup(game);
     const stack = screen.getByLabelText("Stapel");
     expect(screen.getByRole("button", { name: "Passen – Stapel auflösen" })).toBeTruthy();
     fireEvent.contextMenu(within(stack).getByRole("button", { name: "Blitz" }));
-    fireEvent.click(screen.getByRole("menuitem", { name: "Neutralisieren" }));
-    expect(send).toHaveBeenCalledWith({ type: "counterSpell", sid: "s1" });
+    expect(screen.getAllByRole("menuitem").map(item => item.textContent)).toEqual(["Groß ansehen"]);
   });
 
   it("Mana: Klick auf ein Land tappt es; bei mehreren Farben erscheint eine Auswahl", () => {
@@ -135,17 +198,26 @@ describe("Battlefield", () => {
     expect(send).toHaveBeenLastCalledWith({ type: "tapMana", id: "l2", color: "R" });
   });
 
-  it("Klick auf eine Kreatur tappt sie; das Menü bietet nur Passendes", () => {
-    const wolf = creature("c1", "Wolf", "me", { tapped: true });
-    const { send } = setup(view({}, { battlefield: [wolf] }));
-    fireEvent.click(screen.getByRole("button", { name: /Wolf/ }));
-    expect(send).toHaveBeenLastCalledWith({ type: "tap", id: "c1" });
-    fireEvent.contextMenu(screen.getByRole("button", { name: /Wolf/ }));
-    expect(screen.getByRole("menuitem", { name: "Enttappen" })).toBeTruthy();
-    expect(screen.queryByRole("menuitem", { name: "Tappen" })).toBeNull();
-    expect(screen.queryByRole("menuitem", { name: "Land spielen" })).toBeNull();
-    fireEvent.click(screen.getByRole("menuitem", { name: "→ Friedhof" }));
-    expect(send).toHaveBeenLastCalledWith({ type: "move", id: "c1", to: "graveyard" });
+  it("Aktivierte Fähigkeit: Klick auf die Karte, Ziel wählen, aktivieren", () => {
+    const mage = creature("c1", "Magier", "me", {
+      abilities: [{ index: 0, text: "{T}: Magier deals 1 damage to any target.", ok: true, manual: false, targets: [{ kind: "any", options: ["they", "me"] }] }]
+    });
+    const { send } = setup(view({}, { battlefield: [mage] }));
+    fireEvent.click(screen.getByRole("button", { name: "Magier" }));
+    fireEvent.click(screen.getByRole("button", { name: "Gegner als Ziel wählen" }));
+    expect(send).toHaveBeenCalledWith({ type: "activate", id: "c1", index: 0, targets: ["they"] });
+  });
+
+  it("Kartenmenü: nur mögliche Einträge, gesperrte Fähigkeiten sind ausgegraut, keine freien Verschiebungen", () => {
+    const mage = creature("c1", "Magier", "me", {
+      tapped: true,
+      abilities: [{ index: 0, text: "{T}: Ping.", ok: false, manual: false, targets: [] }]
+    });
+    setup(view({}, { battlefield: [mage] }));
+    fireEvent.contextMenu(screen.getByRole("button", { name: /Magier/ }));
+    const items = screen.getAllByRole("menuitem").map(item => item.textContent);
+    expect(items).toEqual(["Groß ansehen", "Fähigkeit: {T}: Ping."]);
+    expect(screen.getByRole("menuitem", { name: /Fähigkeit/ })).toHaveProperty("disabled", true);
   });
 
   it("Angriff: Kreaturen anklicken, bestätigen; beschwörungsmüde sind nicht wählbar", () => {
@@ -182,70 +254,14 @@ describe("Battlefield", () => {
     expect(send).toHaveBeenLastCalledWith({ type: "declareBlockers", blocks: [{ blocker: "b1", attacker: "a1" }] });
   });
 
-  it("Handkartenlimit: Karten wählen und abwerfen", () => {
-    const hand = [card("h1", "A"), card("h2", "B")];
-    const { send } = setup(view({ pendingDiscard: { userId: "me", count: 1 }, priority: null }, { hand }));
-    const discard = screen.getByRole("button", { name: "Abwerfen" });
-    expect(discard).toHaveProperty("disabled", true);
-    fireEvent.click(within(handArea()).getByRole("button", { name: "B" }));
-    fireEvent.click(discard);
-    expect(send).toHaveBeenCalledWith({ type: "discard", ids: ["h2"] });
-  });
-
-  it("Kommandanten-Rückkehr wird angeboten; Steuer wird angezeigt", () => {
-    const game = view({ format: "commander" }, { prompts: [{ type: "commander", id: "k1" }], graveyard: [card("k1", "Heldin", { cmd: true })], command: [card("k2", "Heldin", { cmd: true })], cmdCasts: { k2: 2 } });
-    const { send } = setup(game);
-    expect(screen.getByText(/2× gewirkt/)).toBeTruthy();
-    expect(screen.getByAltText("4")).toBeTruthy(); // Steuer als Scryfall-Symbol {4}
-    fireEvent.click(screen.getByRole("button", { name: /Ja, in die Kommandozone/ }));
-    expect(send).toHaveBeenCalledWith({ type: "commanderZone", id: "k1", yes: true });
-  });
-
-  it("Zusatzmenü bietet Werkzeuge; Aufgeben nur nach Bestätigung", () => {
-    const { send } = setup(view());
-    fireEvent.click(screen.getByRole("button", { name: "Weitere Aktionen" }));
-    fireEvent.click(screen.getByRole("menuitem", { name: "Münze werfen" }));
-    expect(send).toHaveBeenCalledWith({ type: "coin" });
-    vi.spyOn(window, "confirm").mockReturnValue(false);
-    fireEvent.click(screen.getByRole("button", { name: "Weitere Aktionen" }));
-    fireEvent.click(screen.getByRole("menuitem", { name: "Aufgeben" }));
-    expect(send).not.toHaveBeenCalledWith({ type: "concede" });
-  });
-
-  it("Phasenleiste zeigt Zug, automatische Schritte und die Kampf-Unterschritte", () => {
-    setup(view({ turn: { number: 5, active: "me", phase: "blockers", first: "me", landsPlayed: 0 } }));
-    const bar = screen.getByRole("navigation", { name: "Phasen" });
-    expect(within(bar).getByText("Zug 5")).toBeTruthy();
-    for (const label of ["Enttappen", "Versorgung", "Ziehen", "Hauptphase 1", "Kampf", "Hauptphase 2", "Zugende"]) {
-      expect(within(bar).getByText(label)).toBeTruthy();
-    }
-    expect(within(bar).getByText("Kampf").closest("li")?.getAttribute("aria-current")).toBe("step");
-    expect(within(bar).getByText("Blocker")).toBeTruthy();
-  });
-
-  it("Manapool: Symbole, Klick addiert Mana, Rechtsklick nimmt es weg", () => {
-    const { send } = setup(view({}, { pool: { W: 0, U: 0, B: 0, R: 2, G: 0, C: 0 } }));
-    const pool = screen.getByRole("group", { name: "Manapool", hidden: false });
-    const red = within(pool).getByRole("button", { name: /Rot: 2/ });
-    expect(within(red).getByAltText("Rot")).toBeTruthy();
-    fireEvent.click(red);
-    expect(send).toHaveBeenLastCalledWith({ type: "pool", color: "R", delta: 1 });
-    fireEvent.contextMenu(red);
-    expect(send).toHaveBeenLastCalledWith({ type: "pool", color: "R", delta: -1 });
-    fireEvent.contextMenu(within(pool).getByRole("button", { name: /Blau: 0/ }));
-    expect(send).toHaveBeenCalledTimes(2); // bei 0 gibt es nichts abzuziehen
-  });
-
   it("Kampfbahnen: Angreifer und Blocker liegen in der Mitte, nicht mehr auf dem Feld", () => {
-    const attacker = creature("a1", "Räuber", "they", { attacking: true });
-    const blocker = creature("b1", "Wächter", "me", { blocking: "a1" });
     const game = view(
       {
         turn: { number: 3, active: "they", phase: "damage", first: "me", landsPlayed: 0 },
         combat: { attackers: [{ id: "a1", target: "me" }], blocks: [{ blocker: "b1", attacker: "a1" }], awaiting: [] }
       },
-      { battlefield: [blocker, creature("b2", "Reserve")] },
-      { battlefield: [attacker] }
+      { battlefield: [creature("b1", "Wächter", "me", { blocking: "a1" }), creature("b2", "Reserve")] },
+      { battlefield: [creature("a1", "Räuber", "they", { attacking: true })] }
     );
     setup(game);
     const combat = screen.getByLabelText("Kampf");
@@ -256,17 +272,54 @@ describe("Battlefield", () => {
     expect(within(mine).getByRole("button", { name: /Reserve/ })).toBeTruthy();
   });
 
-  it("Vorschau zeigt beim Darüberfahren das große Scryfall-Bild und die Kosten als Symbole", () => {
-    const wolf = creature("c1", "Wolf", "me", { manaCost: "{1}{G}", imageUri: "https://cards.scryfall.io/normal/front/a/b/x.jpg" });
+  it("Auswahl durch einen Kartentext: Karten wählen und bestätigen; andere warten", () => {
+    const options = [{ id: "k1", card: card("k1", "Alpha") }, { id: "k2", card: card("k2", "Beta") }];
+    const game = view({ priority: null, choice: { userId: "me", kind: "cards", prompt: "Wirf 1 Karte ab (Qual).", min: 1, max: 1, options } });
+    const { send } = setup(game);
+    const dialog = screen.getByRole("dialog", { name: "Auswahl" });
+    expect(within(dialog).getByText("Wirf 1 Karte ab (Qual).")).toBeTruthy();
+    const confirm = within(dialog).getByRole("button", { name: "Bestätigen" });
+    expect(confirm).toHaveProperty("disabled", true);
+    fireEvent.click(within(dialog).getByRole("button", { name: "Beta" }));
+    fireEvent.click(confirm);
+    expect(send).toHaveBeenCalledWith({ type: "choose", ids: ["k2"] });
+    cleanup();
+    setup(view({ priority: null, choice: { userId: "they", kind: "cards", prompt: "x", min: 1, max: 1, options: [] } }));
+    expect(screen.queryByRole("dialog", { name: "Auswahl" })).toBeNull();
+    expect(screen.getByText("Gegner trifft eine Auswahl …")).toBeTruthy();
+  });
+
+  it("Handkartenlimit und Kommandanten-Frage", () => {
+    const hand = [card("h1", "A"), card("h2", "B")];
+    const first = setup(view({ pendingDiscard: { userId: "me", count: 1 }, priority: null }, { hand }));
+    const discard = screen.getByRole("button", { name: "Abwerfen" });
+    expect(discard).toHaveProperty("disabled", true);
+    fireEvent.click(within(handArea()).getByRole("button", { name: "B" }));
+    fireEvent.click(discard);
+    expect(first.send).toHaveBeenCalledWith({ type: "discard", ids: ["h2"] });
+    cleanup();
+    const game = view({ format: "commander" }, { prompts: [{ type: "commander", id: "k1" }], graveyard: [card("k1", "Heldin", { cmd: true })], command: [card("k2", "Heldin", { cmd: true })], cmdCasts: { k2: 2 } });
+    const second = setup(game);
+    expect(screen.getByText(/2× gewirkt/)).toBeTruthy();
+    expect(screen.getByAltText("4")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /Ja, in die Kommandozone/ }));
+    expect(second.send).toHaveBeenCalledWith({ type: "commanderZone", id: "k1", yes: true });
+  });
+
+  it("Vorschau erscheint beim Darüberfahren verzögert und stabil, mit großem Scryfall-Bild und Hinweisen", async () => {
+    const wolf = creature("c1", "Wolf", "me", {
+      manaCost: "{1}{G}", imageUri: "https://cards.scryfall.io/normal/front/a/b/x.jpg", rulesNotes: ["Creatures you control get +1/+1."]
+    });
     setup(view({}, { battlefield: [wolf] }));
     fireEvent.mouseEnter(screen.getByRole("button", { name: "Wolf" }));
-    const preview = screen.getByLabelText("Kartenvorschau");
+    const preview = await screen.findByLabelText("Kartenvorschau");
     expect(within(preview).getByAltText("Wolf").getAttribute("src")).toBe("https://cards.scryfall.io/large/front/a/b/x.jpg");
     expect(within(preview).getByAltText("Grün")).toBeTruthy();
+    expect(within(preview).getByText(/Wird nicht automatisch berücksichtigt/)).toBeTruthy();
   });
 
   it("Spielende: Sieger, Revanche nur für den Gastgeber", () => {
-    const ended = view({ phase: "ended", winner: "they" });
+    const ended = view({ phase: "ended", winner: "they", priority: null });
     const onRematch = vi.fn();
     const { rerender } = render(<Battlefield game={ended} hostId="they" send={vi.fn()} onRematch={onRematch} onLeave={vi.fn()} />);
     expect(screen.getByText(/Gegner gewinnt/)).toBeTruthy();

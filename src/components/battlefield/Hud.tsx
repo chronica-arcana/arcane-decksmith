@@ -10,10 +10,11 @@ const initials = (name: string) =>
     .slice(0, 2)
     .toUpperCase() || "?";
 
-/** Avatar, Lebenspunkte, Handkartenzahl, Manapool und Zähler eines Spielers (wie das HUD in MTG Arena). */
+/** Avatar, Lebenspunkte, Handkartenzahl, Manapool und Zähler eines Spielers. Der Avatar ist anklickbar, wenn der Spieler ein Ziel sein kann. */
 export default function Hud({ player, own }: { player: GamePlayer; own: boolean }) {
-  const { game, canAct, act, nameOf, lifeOpen, toggleLife } = useBattlefield();
+  const { game, act, manualMine, lifeOpen, toggleLife, isTarget, pickTarget } = useBattlefield();
   const active = game.turn.active === player.userId && game.phase === "playing";
+  const targetable = isTarget(player.userId);
   const chips: string[] = [];
   if (player.poison > 0) chips.push(`Gift ${player.poison}`);
   if (player.energy > 0) chips.push(`Energie ${player.energy}`);
@@ -23,26 +24,30 @@ export default function Hud({ player, own }: { player: GamePlayer; own: boolean 
       chips.push(`Kommandantenschaden von ${other.name}: ${player.cmdDamage[other.userId]}/21`);
     }
   }
-  void nameOf;
 
   return (
     <div className={`hud${own ? " own" : ""}${active ? " active" : ""}`}>
-      <span className="hud-avatar" aria-hidden="true">{initials(player.name)}</span>
+      <button
+        type="button"
+        className={`hud-avatar${targetable ? " targetable" : ""}`}
+        aria-label={targetable ? `${player.name} als Ziel wählen` : `Spieler ${player.name}`}
+        disabled={!targetable}
+        onClick={() => pickTarget(player.userId)}
+      >
+        {initials(player.name)}
+      </button>
       <div className="hud-body">
         <div className="hud-line">
           <span className="hud-name">{player.name}{own ? " (du)" : ""}</span>
-          {active && <span className="chip">am Zug</span>}
-          {game.priority === player.userId && <span className="chip prio">Priorität</span>}
           {player.eliminated && <span className="chip out">ausgeschieden: {player.eliminated}</span>}
         </div>
         <div className="hud-line">
           <button
             type="button"
             className="life"
-            aria-label={own ? `Leben: ${player.life}. Anklicken zum Anpassen` : `Leben von ${player.name}: ${player.life}`}
-            disabled={!own || !canAct}
+            aria-label={`Leben${own ? "" : ` von ${player.name}`}: ${player.life}`}
+            disabled={!(own && manualMine)}
             onClick={toggleLife}
-            title={own ? "Leben ändert sich automatisch (Kampf, Lebensverbindung). Anklicken für manuelle Korrektur." : undefined}
           >
             <span className="life-heart" aria-hidden="true">♥</span>
             {player.life}
@@ -52,7 +57,7 @@ export default function Hud({ player, own }: { player: GamePlayer; own: boolean 
               ✋ {player.counts.hand}
             </span>
           )}
-          <ManaPool player={player} own={own} />
+          <ManaPool player={player} />
         </div>
         {chips.length > 0 && (
           <div className="hud-line">
@@ -61,7 +66,7 @@ export default function Hud({ player, own }: { player: GamePlayer; own: boolean 
             ))}
           </div>
         )}
-        {own && lifeOpen && (
+        {own && manualMine && lifeOpen && (
           <div className="life-pop" role="group" aria-label="Leben manuell anpassen">
             <button type="button" onClick={() => act({ type: "life", delta: -5 })}>−5</button>
             <button type="button" onClick={() => act({ type: "life", delta: -1 })}>−1</button>

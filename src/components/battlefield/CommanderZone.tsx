@@ -5,18 +5,17 @@ import { ManaSymbol } from "./ManaSymbol";
 
 /** Kommandozone: Kommandant(en) mit Wirk-Zähler und Kommandantensteuer ({2} je früherem Wirken). */
 export default function CommanderZone({ player }: { player: GamePlayer }) {
-  const { game, clickCard, cardMenu, setHover, onDragStart, markOf, dropProps, dropKey, moveCard, dropOnTable } = useBattlefield();
+  const { game, clickCard, cardMenu, setHover, onDragStart, markOf, dropProps, dropKey, moveCard, manualMine } = useBattlefield();
   if (game.format !== "commander") return null;
   const own = player.userId === game.you;
   const key = `${player.userId}:command`;
   const casts = Object.values(player.cmdCasts).reduce((sum, n) => sum + n, 0);
   const tax = Math.min(2 * Math.max(0, ...Object.values(player.cmdCasts), 0), 40);
-  void dropOnTable;
   return (
     <div
       className={`command-zone${dropKey === key ? " drop" : ""}`}
       aria-label={`Kommandozone von ${player.name}`}
-      {...(own ? dropProps(key, card => moveCard(card, "command")) : {})}
+      {...(own && manualMine ? dropProps(key, card => moveCard(card, "command")) : {})}
     >
       <span className="command-title">Kommandozone</span>
       <div className="command-cards">

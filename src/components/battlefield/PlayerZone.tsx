@@ -7,8 +7,8 @@ import Hud from "./Hud";
 import { LibraryPile, ZonePile } from "./Pile";
 
 /**
- * Platz eines Spielers. Eigener Platz unten (Feld oben, darunter Hand und Ablagen), gegnerischer oben und gespiegelt
- * (Ablagen und Hand oben, Länder vor Kreaturen zur Mitte hin).
+ * Platz eines Spielers auf der gemeinsamen Matte. Dein Platz liegt unten (Feld oben, darunter HUD, Hand und Ablagen),
+ * der gegnerische oben und gespiegelt (HUD, Hand und Ablagen am oberen Rand, Länder vor Kreaturen zur Mitte hin).
  */
 export default function PlayerZone({ player }: { player: GamePlayer }) {
   const { game, canAct, dropProps, dropKey, dropOnTable, clickCard, cardMenu, setHover, onDragStart, markOf, inCombat } = useBattlefield();
@@ -44,38 +44,54 @@ export default function PlayerZone({ player }: { player: GamePlayer }) {
     </div>
   );
 
+  const field = (
+    <div className="zone-field">
+      {own ? (
+        <>
+          {creatureRow}
+          {landRow}
+        </>
+      ) : (
+        <>
+          {landRow}
+          {creatureRow}
+        </>
+      )}
+      {player.battlefield.length === 0 && <span className="muted field-empty">Keine Karten im Spiel.</span>}
+    </div>
+  );
+  const dock = (
+    <div className="zone-dock">
+      <div className="dock-left">
+        <Hud player={player} own={own} />
+      </div>
+      <div className="dock-center">{own ? <HandFan player={player} /> : <OpponentHand player={player} />}</div>
+      <div className="dock-right">
+        <ZonePile player={player} zone="graveyard" />
+        <ZonePile player={player} zone="exile" />
+        <LibraryPile player={player} />
+        <CommanderZone player={player} />
+      </div>
+    </div>
+  );
+
   return (
     <section
       className={`zone ${own ? "zone-me" : "zone-opp"}${active ? " active" : ""}${player.eliminated ? " out" : ""}${own && dropKey === "table" ? " drop" : ""}`}
       aria-label={`Platz von ${player.name}`}
       {...(own && canAct ? dropProps("table", dropOnTable) : {})}
     >
-      <div className="zone-dock">
-        <div className="dock-left">
-          <Hud player={player} own={own} />
-        </div>
-        <div className="dock-center">{own ? <HandFan player={player} /> : <OpponentHand player={player} />}</div>
-        <div className="dock-right">
-          <ZonePile player={player} zone="graveyard" />
-          <ZonePile player={player} zone="exile" />
-          <LibraryPile player={player} />
-          <CommanderZone player={player} />
-        </div>
-      </div>
-      <div className="zone-field">
-        {own ? (
-          <>
-            {creatureRow}
-            {landRow}
-          </>
-        ) : (
-          <>
-            {landRow}
-            {creatureRow}
-          </>
-        )}
-        {player.battlefield.length === 0 && <span className="muted field-empty">Keine Karten im Spiel.</span>}
-      </div>
+      {own ? (
+        <>
+          {field}
+          {dock}
+        </>
+      ) : (
+        <>
+          {dock}
+          {field}
+        </>
+      )}
     </section>
   );
 }

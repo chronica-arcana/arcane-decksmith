@@ -32,26 +32,30 @@ export function ZonePile({ player, zone }: { player: GamePlayer; zone: "graveyar
   );
 }
 
-/** Bibliothek mit Restkartenzähler. Anklicken zieht eine Karte, Rechtsklick öffnet Ansehen/Durchsuchen/Mischen. */
+/**
+ * Bibliothek mit Restkartenzähler. Karten zieht das Spiel selbst (Zugbeginn, Kartentexte). Nur wenn ein Kartentext manuell
+ * umgesetzt werden muss, zieht ein Klick eine Karte und ein Rechtsklick öffnet Ansehen, Durchsuchen und Mischen.
+ */
 export function LibraryPile({ player }: { player: GamePlayer }) {
-  const { game, canAct, act, libraryMenu, dropProps, dropKey, moveCard } = useBattlefield();
+  const { game, canAct, act, libraryMenu, dropProps, dropKey, moveCard, manualMine } = useBattlefield();
   const own = player.userId === game.you;
   const key = `${player.userId}:library`;
+  const manual = own && manualMine && canAct;
   return (
     <div
-      role={own ? "button" : undefined}
-      tabIndex={own ? 0 : undefined}
-      className={`pile library${dropKey === key ? " drop" : ""}${own ? " clickable" : ""}`}
-      aria-label={own ? `Bibliothek: ${player.counts.library} Karten. Anklicken zum Ziehen` : `Bibliothek von ${player.name}: ${player.counts.library}`}
-      title={own ? "Anklicken: Karte ziehen · Rechtsklick: ansehen, durchsuchen, mischen" : undefined}
-      onClick={() => own && canAct && act({ type: "draw" })}
-      onKeyDown={event => own && canAct && (event.key === "Enter" || event.key === " ") && act({ type: "draw" })}
+      role={manual ? "button" : undefined}
+      tabIndex={manual ? 0 : undefined}
+      className={`pile library${dropKey === key ? " drop" : ""}${manual ? " clickable" : ""}`}
+      aria-label={own ? `Bibliothek: ${player.counts.library} Karten` : `Bibliothek von ${player.name}: ${player.counts.library}`}
+      title={manual ? "Manuell: anklicken zieht eine Karte, Rechtsklick für mehr" : undefined}
+      onClick={() => manual && act({ type: "draw" })}
+      onKeyDown={event => manual && (event.key === "Enter" || event.key === " ") && act({ type: "draw" })}
       onContextMenu={event => {
-        if (!own) return;
+        if (!manual) return;
         event.preventDefault();
         libraryMenu(event);
       }}
-      {...(own ? dropProps(key, (card: GameCard) => moveCard(card, "library", { position: "top" })) : {})}
+      {...(manual ? dropProps(key, (card: GameCard) => moveCard(card, "library", { position: "top" })) : {})}
     >
       <span className="gc sm library-card">
         <CardBack />

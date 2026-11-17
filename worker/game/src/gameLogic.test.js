@@ -17,17 +17,31 @@ const LIB = [
   ["bat", "Fledermaus", "Creature — Bat", "{G}", 2, { power: "2", toughness: "2", keywords: ["Lifelink"] }],
   ["wall", "Mauer", "Creature — Wall", "{G}", 2, { power: "0", toughness: "4", keywords: ["Defender"] }],
   ["ogre", "Oger", "Creature — Ogre", "{G}", 2, { power: "3", toughness: "3", keywords: ["Menace", "Haste"] }],
-  ["bolt", "Blitz", "Instant", "{R}", 2, {}],
+  ["bolt", "Blitz", "Instant", "{R}", 2, {}, "Blitz deals 3 damage to any target."],
   ["sorcery", "Zauberspruch", "Sorcery", "{G}{G}", 2, {}],
-  ["xspell", "Flut", "Sorcery", "{X}{G}", 2, {}]
+  ["xspell", "Flut", "Sorcery", "{X}{G}", 2, {}],
+  ["seer", "Seher", "Creature — Elf", "{G}", 2, { power: "1", toughness: "1" }, "When Seher enters the battlefield, draw a card."],
+  ["heal", "Heilung", "Instant", "{G}", 2, {}, "You gain 4 life."],
+  ["study", "Studium", "Sorcery", "{G}", 2, {}, "Draw two cards."],
+  ["kill", "Zerstörer", "Instant", "{R}", 2, {}, "Destroy target creature."],
+  ["counter", "Gegenzauber", "Instant", "{R}", 2, {}, "Counter target spell."],
+  ["growth", "Wachstum", "Sorcery", "{G}", 2, {}, "Search your library for a basic land card, put that card onto the battlefield tapped, then shuffle."],
+  ["mage", "Magier", "Creature — Wizard", "{G}", 2, { power: "1", toughness: "1" }, "{T}: Magier deals 1 damage to any target."],
+  ["ritual", "Ritual", "Instant", "{G}", 2, {}, "Add {R}{R}{R}."],
+  ["alarm", "Alarm", "Instant", "{G}", 2, {}, "Create two 1/1 white Soldier creature tokens."],
+  ["mystery", "Rätsel", "Sorcery", "{G}", 2, {}, "Each player sacrifices a creature."],
+  ["kavu", "Kavu", "Creature — Kavu", "{G}", 2, { power: "4", toughness: "2" }, "When Kavu enters the battlefield, it deals 2 damage to target creature."],
+  ["scrier", "Seherin", "Sorcery", "{G}", 2, {}, "Scry 2."],
+  ["pain", "Qual", "Sorcery", "{G}", 2, {}, "Each opponent discards a card."],
+  ["shroud", "Schleier", "Creature — Spirit", "{G}", 2, { power: "1", toughness: "1", keywords: ["Hexproof"] }]
 ];
 const facts = new Map();
 
 function deck(prefix, { commander = false } = {}) {
-  const main = LIB.map(([key, name, typeLine, manaCost, count, extra]) => {
+  const main = LIB.map(([key, name, typeLine, manaCost, count, extra, oracleText]) => {
     const id = `${prefix}-${key}`;
     facts.set(id, extra);
-    return { id, name, count, typeLine, manaCost, manaValue: 2, imageUri: null };
+    return { id, name, count, typeLine, manaCost, manaValue: 2, imageUri: null, oracleText: oracleText ?? "" };
   });
   const commanders = commander
     ? [{ id: `${prefix}-cmd`, name: `Boss ${prefix}`, count: 1, typeLine: "Legendary Creature — Dragon", manaCost: "{1}{G}", manaValue: 2, imageUri: null }]
@@ -57,9 +71,9 @@ function started(format = "standard", count = 2, seed = 7) {
 }
 
 /** Legt die erste Karte mit diesem Namen aus der Bibliothek/Hand in die Zone (schnelles Aufstellen). */
-function put(game, uid, name, zone, { sick = false } = {}) {
+function put(game, uid, name, zone, { sick = false, only } = {}) {
   const player = game.players[uid];
-  for (const from of ["hand", "library", "command", "battlefield", "graveyard"]) {
+  for (const from of only ? [only] : ["hand", "library", "command", "battlefield", "graveyard"]) {
     const id = player[from].find(cardId => game.defs[game.cards[cardId].def].name === name);
     if (!id) continue;
     player[from].splice(player[from].indexOf(id), 1);
@@ -71,6 +85,19 @@ function put(game, uid, name, zone, { sick = false } = {}) {
 }
 
 const act = (game, uid, action, random) => applyAction(game, uid, action, { random });
+/** Öffnet das manuelle Fenster (wie nach einem Kartentext, den das Spiel nicht umsetzen kann). */
+const openManual = (game, uid) => {
+  game.manual = { userId: uid, text: "Test", source: "Test" };
+};
+const forest = (game, uid, count) => Array.from({ length: count }, () => put(game, uid, "Forest", "battlefield"));
+/** Wirkt eine Karte aus der Hand (Mana wird automatisch bezahlt) und lässt beide Spieler passen, bis der Stapel leer ist. */
+function castAndResolve(game, uid, name, random, targets = []) {
+  const id = put(game, uid, name, "hand");
+  const result = act(game, uid, { type: "cast", id, targets }, random);
+  expect(result).toEqual({ ok: true });
+  for (let i = 0; i < 6 && game.stack.length > 0 && !game.choice && !game.manual; i += 1) act(game, game.priority, { type: "pass" }, random);
+  return id;
+}
 const view = (game, uid) => gameView(game, uid);
 
 describe("createGame", () => {
@@ -176,7 +203,7 @@ describe("Länder, Mana und Zaubern", () => {
     const bear = put(game, "u0", "Bär", "hand");
     expect(act(game, "u0", { type: "cast", id: bear }, random).error).toMatch(/Nicht genug Mana/);
     const bolt = put(game, "u0", "Blitz", "hand");
-    expect(act(game, "u0", { type: "cast", id: bolt }, random).error).toMatch(/Nicht genug Mana/);
+    expect(act(game, "u0", { type: "cast", id: bolt, targets: ["u1"] }, random).error).toMatch(/Nicht genug Mana/);
     put(game, "u0", "Forest", "battlefield");
     expect(act(game, "u0", { type: "cast", id: bear, free: true }, random).ok).toBe(true);
     // Hexerei außerhalb der eigenen Hauptphase
@@ -193,16 +220,15 @@ describe("Länder, Mana und Zaubern", () => {
     act(game, "u0", { type: "cast", id: bear }, random);
     act(game, "u0", { type: "pass" }, random);
     put(game, "u1", "Mountain", "battlefield");
-    const bolt = put(game, "u1", "Blitz", "hand");
-    expect(act(game, "u1", { type: "cast", id: bolt }, random).ok).toBe(true);
-    expect(game.stack).toHaveLength(2);
-    // u1 neutralisiert den Bären (oberster Eintrag ist der Blitz, Bär liegt darunter)
+    const counter = put(game, "u1", "Gegenzauber", "hand");
     const sid = game.stack[0].sid;
-    expect(act(game, "u1", { type: "counterSpell", sid }, random).ok).toBe(true);
-    expect(game.players.u0.graveyard).toContain(bear);
+    expect(act(game, "u1", { type: "cast", id: counter }, random).ok).toBe(false); // ohne Ziel
+    expect(act(game, "u1", { type: "cast", id: counter, targets: [sid] }, random).ok).toBe(true);
+    expect(game.stack).toHaveLength(2);
     act(game, "u1", { type: "pass" }, random);
     act(game, "u0", { type: "pass" }, random);
-    expect(game.players.u1.graveyard).toContain(bolt);
+    expect(game.players.u0.graveyard).toContain(bear); // neutralisiert
+    expect(game.players.u1.graveyard).toContain(counter);
     expect(game.stack).toHaveLength(0);
   });
 
@@ -218,14 +244,12 @@ describe("Länder, Mana und Zaubern", () => {
     expect(f.every(id => game.cards[id].tapped)).toBe(true);
   });
 
-  it("Manapool lässt sich von Hand anpassen (Effekte, die Mana erzeugen)", () => {
+  it("Manapool lässt sich nicht von Hand ändern; Ritual füllt ihn über den Kartentext", () => {
     const { game, random } = started();
-    expect(act(game, "u0", { type: "pool", color: "R", delta: 2 }, random).ok).toBe(true);
-    expect(game.players.u0.pool.R).toBe(2);
-    act(game, "u0", { type: "pool", color: "R", delta: -5 }, random);
-    expect(game.players.u0.pool.R).toBe(0);
-    expect(act(game, "u0", { type: "pool", color: "X", delta: 1 }, random).ok).toBe(false);
-    expect(act(game, "u0", { type: "pool", color: "G", delta: 9 }, random).ok).toBe(false);
+    expect(act(game, "u0", { type: "pool", color: "R", delta: 2 }, random).ok).toBe(false);
+    forest(game, "u0", 1);
+    castAndResolve(game, "u0", "Ritual", random);
+    expect(game.players.u0.pool.R).toBe(3);
   });
 
   it("Beschwörungsmüdigkeit: frische Kreaturen können weder angreifen noch Mana erzeugen", () => {
@@ -267,7 +291,7 @@ describe("Zugstruktur", () => {
 
   it("Handkartenlimit: erst abwerfen, dann beginnt der nächste Zug", () => {
     const { game, random } = started();
-    for (let i = 0; i < 3; i += 1) act(game, "u0", { type: "draw" }, random);
+    for (let i = 0; i < 3; i += 1) put(game, "u0", "Forest", "hand", { only: "library" });
     expect(game.players.u0.hand).toHaveLength(10);
     act(game, "u0", { type: "endTurn" }, random);
     expect(game.pendingDiscard).toMatchObject({ userId: "u0", count: 3 });
@@ -416,7 +440,8 @@ describe("Kampf", () => {
     act(game, "u1", { type: "pass" }, random);
     expect(game.players.u0.battlefield).toContain(cmd);
     // stirbt: Frage erscheint
-    act(game, "u0", { type: "counter", id: cmd, kind: "-1/-1", delta: 5 }, random);
+    game.cards[cmd].counters["-1/-1"] = 5;
+    act(game, "u1", { type: "coin" }, random); // jede Aktion prüft die zustandsbasierten Regeln
     expect(game.players.u0.graveyard).toContain(cmd);
     expect(game.players.u0.prompts).toEqual([{ type: "commander", id: cmd }]);
     expect(view(game, "u1").players[0].prompts).toEqual([]);
@@ -435,6 +460,8 @@ describe("Weitere Aktionen", () => {
   it("manuelles Bewegen, Marker (+1/+1 und -1/-1 heben sich auf), Spielsteine", () => {
     const { game, random } = started();
     const bear = put(game, "u0", "Bär", "battlefield");
+    expect(act(game, "u0", { type: "counter", id: bear, kind: "+1/+1", delta: 2 }, random).ok).toBe(false); // nur im manuellen Fenster
+    openManual(game, "u0");
     act(game, "u0", { type: "counter", id: bear, kind: "+1/+1", delta: 2 }, random);
     act(game, "u0", { type: "counter", id: bear, kind: "-1/-1", delta: 1 }, random);
     expect(game.cards[bear].counters).toEqual({ "+1/+1": 1 });
@@ -450,6 +477,7 @@ describe("Weitere Aktionen", () => {
   it("fremde Karten sind tabu; Bibliothek ansehen ist privat", () => {
     const { game, random } = started();
     const foreign = game.players.u1.hand[0];
+    openManual(game, "u0");
     expect(act(game, "u0", { type: "move", id: foreign, to: "graveyard" }, random).ok).toBe(false);
     act(game, "u0", { type: "look", count: 3 }, random);
     expect(view(game, "u0").players[0].looking).toHaveLength(3);
@@ -460,6 +488,7 @@ describe("Weitere Aktionen", () => {
     const { game, random } = started();
     const hidden = game.players.u1.hand[0];
     const name = game.defs[game.cards[hidden].def].name;
+    openManual(game, "u1");
     act(game, "u1", { type: "move", id: hidden, to: "battlefield", faceDown: true }, random);
     const v = view(game, "u0");
     const p1 = v.players.find(p => p.userId === "u1");
@@ -488,7 +517,9 @@ describe("Weitere Aktionen", () => {
 
   it("Fähigkeiten auf den Stapel, Abbruch, Verlassen", () => {
     const { game, random } = started("commander", 3);
+    openManual(game, "u0");
     expect(act(game, "u0", { type: "ability", text: "Auslöser: ziehe eine Karte" }, random).ok).toBe(true);
+    game.manual = null;
     expect(game.stack).toHaveLength(1);
     playerLeft(game, "u2", { random });
     expect(game.players.u2.eliminated).toBe("hat den Raum verlassen");
@@ -507,5 +538,166 @@ describe("Weitere Aktionen", () => {
     expect(act(game, "fremd", { type: "draw" }, random).ok).toBe(false);
     expect(act(game, "u0", { type: "life", delta: "viel" }, random).ok).toBe(false);
     expect(act(game, "u0", { type: "cast", id: "gibtsnicht" }, random).ok).toBe(false);
+  });
+});
+
+describe("Kartentext-Engine", () => {
+  it("Blitz auf einen Spieler und auf eine Kreatur; Ziele werden geprüft", () => {
+    const { game, random } = started();
+    forest(game, "u0", 1);
+    put(game, "u0", "Mountain", "battlefield");
+    put(game, "u0", "Mountain", "battlefield");
+    const bear = put(game, "u1", "Bär", "battlefield");
+    const id = put(game, "u0", "Blitz", "hand");
+    expect(act(game, "u0", { type: "cast", id }, random).ok).toBe(false);
+    expect(act(game, "u0", { type: "cast", id, targets: ["unbekannt"] }, random).ok).toBe(false);
+    expect(view(game, "u0").players[0].hand.find(c => c.id === id).play.targets[0].options).toContain("u1");
+    act(game, "u0", { type: "cast", id, targets: ["u1"] }, random);
+    act(game, "u0", { type: "pass" }, random);
+    act(game, "u1", { type: "pass" }, random);
+    expect(game.players.u1.life).toBe(17);
+    castAndResolve(game, "u0", "Blitz", random, [bear]);
+    // zweiter Blitz: Mana reicht nicht (nur ein Berg und ein Wald) → Fehler wäre früher gekommen; hier genügt der Schaden
+  });
+
+  it("Karten ziehen und Leben gewinnen laufen über den Text", () => {
+    const { game, random } = started();
+    forest(game, "u0", 3);
+    const hand = game.players.u0.hand.length;
+    castAndResolve(game, "u0", "Studium", random);
+    expect(game.players.u0.hand.length).toBe(hand + 2);
+    castAndResolve(game, "u0", "Heilung", random);
+    expect(game.players.u0.life).toBe(24);
+  });
+
+  it("Zerstören: nur gültige Ziele, Hexproof ist tabu", () => {
+    const { game, random } = started();
+    put(game, "u0", "Mountain", "battlefield");
+    const veil = put(game, "u1", "Schleier", "battlefield");
+    const bear = put(game, "u1", "Bär", "battlefield");
+    const id = put(game, "u0", "Zerstörer", "hand");
+    const options = view(game, "u0").players[0].hand.find(c => c.id === id).play.targets[0].options;
+    expect(options).toContain(bear);
+    expect(options).not.toContain(veil);
+    expect(act(game, "u0", { type: "cast", id, targets: [veil] }, random).ok).toBe(false);
+    act(game, "u0", { type: "cast", id, targets: [bear] }, random);
+    act(game, "u0", { type: "pass" }, random);
+    act(game, "u1", { type: "pass" }, random);
+    expect(game.players.u1.graveyard).toContain(bear);
+  });
+
+  it("Auslöser beim Betreten: Seher zieht eine Karte", () => {
+    const { game, random } = started();
+    forest(game, "u0", 1);
+    const hand = game.players.u0.hand.length;
+    const seer = put(game, "u0", "Seher", "hand");
+    act(game, "u0", { type: "cast", id: seer }, random);
+    act(game, "u0", { type: "pass" }, random);
+    act(game, "u1", { type: "pass" }, random);
+    expect(game.players.u0.battlefield).toContain(seer);
+    expect(game.stack).toHaveLength(1); // Auslöser
+    expect(game.stack[0].kind).toBe("ability");
+    act(game, "u0", { type: "pass" }, random);
+    act(game, "u1", { type: "pass" }, random);
+    expect(game.players.u0.hand.length).toBe(hand + 1); // +1 (Seher) −1 (gespielt) +1 (gezogen)
+  });
+
+  it("Auslöser mit Ziel öffnet eine Auswahl: Kavu schadet einer Kreatur", () => {
+    const { game, random } = started();
+    forest(game, "u0", 1);
+    const victim = put(game, "u1", "Bär", "battlefield");
+    const kavu = put(game, "u0", "Kavu", "hand");
+    act(game, "u0", { type: "cast", id: kavu }, random);
+    act(game, "u0", { type: "pass" }, random);
+    act(game, "u1", { type: "pass" }, random);
+    expect(game.choice).toMatchObject({ userId: "u0", kind: "targets" });
+    expect(act(game, "u0", { type: "pass" }, random).ok).toBe(false); // erst auswählen
+    expect(act(game, "u0", { type: "choose", ids: ["gibtsnicht"] }, random).ok).toBe(false);
+    expect(view(game, "u0").choice.options.map(o => o.id)).toContain(victim);
+    expect(view(game, "u1").choice.options).toEqual([]);
+    act(game, "u0", { type: "choose", ids: [victim] }, random);
+    act(game, "u0", { type: "pass" }, random);
+    act(game, "u1", { type: "pass" }, random);
+    expect(game.players.u1.graveyard).toContain(victim);
+  });
+
+  it("Suchen: Wachstum legt ein Basic Land getappt aufs Feld und mischt", () => {
+    const { game, random } = started();
+    forest(game, "u0", 1);
+    castAndResolve(game, "u0", "Wachstum", random);
+    expect(game.choice).toMatchObject({ kind: "cards" });
+    const options = game.choice.options;
+    expect(options.length).toBeGreaterThan(0);
+    expect(options.every(id => game.defs[game.cards[id].def].types.basicLand)).toBe(true);
+    const land = options[0];
+    act(game, "u0", { type: "choose", ids: [land] }, random);
+    expect(game.players.u0.battlefield).toContain(land);
+    expect(game.cards[land].tapped).toBe(true);
+    expect(game.choice).toBeNull();
+  });
+
+  it("Aktivierte Fähigkeit: Magier tappt und trifft den Gegner", () => {
+    const { game, random } = started();
+    const mage = put(game, "u0", "Magier", "battlefield");
+    const options = view(game, "u0").players[0].battlefield.find(c => c.id === mage).abilities;
+    expect(options[0]).toMatchObject({ index: 0, ok: true });
+    expect(act(game, "u0", { type: "activate", id: mage, index: 0 }, random).ok).toBe(false); // Ziel fehlt
+    act(game, "u0", { type: "activate", id: mage, index: 0, targets: ["u1"] }, random);
+    expect(game.cards[mage].tapped).toBe(true);
+    expect(act(game, "u0", { type: "activate", id: mage, index: 0, targets: ["u1"] }, random).ok).toBe(false);
+    act(game, "u0", { type: "pass" }, random);
+    act(game, "u1", { type: "pass" }, random);
+    expect(game.players.u1.life).toBe(19);
+  });
+
+  it("Spielsteine entstehen über den Text", () => {
+    const { game, random } = started();
+    forest(game, "u0", 1);
+    castAndResolve(game, "u0", "Alarm", random);
+    const tokens = game.players.u0.battlefield.filter(id => game.cards[id].token);
+    expect(tokens).toHaveLength(2);
+    expect(view(game, "u0").players[0].battlefield.find(c => c.id === tokens[0])).toMatchObject({ power: 1, toughness: 1, name: "Soldier" });
+  });
+
+  it("Wühlen und Abwerfen verlangen eine Auswahl des Betroffenen", () => {
+    const { game, random } = started();
+    forest(game, "u0", 2);
+    castAndResolve(game, "u0", "Seherin", random);
+    expect(game.choice).toMatchObject({ userId: "u0", max: 2, min: 0 });
+    const top = game.choice.options[0];
+    act(game, "u0", { type: "choose", ids: [top] }, random);
+    expect(game.players.u0.library[0]).toBe(top);
+    castAndResolve(game, "u0", "Qual", random);
+    expect(game.choice).toMatchObject({ userId: "u1", min: 1, max: 1 });
+    const chosen = game.choice.options[2];
+    act(game, "u1", { type: "choose", ids: [chosen] }, random);
+    expect(game.players.u1.graveyard).toContain(chosen);
+  });
+
+  it("Unverstandene Texte öffnen ein manuelles Fenster nur für den Spieler", () => {
+    const { game, random } = started();
+    forest(game, "u0", 1);
+    castAndResolve(game, "u0", "Rätsel", random);
+    expect(game.manual).toMatchObject({ userId: "u0" });
+    expect(act(game, "u1", { type: "draw" }, random).ok).toBe(false);
+    expect(act(game, "u0", { type: "pass" }, random).ok).toBe(false);
+    const hand = game.players.u0.hand.length;
+    expect(act(game, "u0", { type: "draw" }, random).ok).toBe(true);
+    expect(game.players.u0.hand.length).toBe(hand + 1);
+    expect(act(game, "u1", { type: "manualDone" }, random).ok).toBe(false);
+    expect(act(game, "u0", { type: "manualDone" }, random).ok).toBe(true);
+    expect(game.manual).toBeNull();
+    expect(act(game, "u0", { type: "draw" }, random).ok).toBe(false); // wieder gesperrt
+  });
+
+  it("wahllos ziehen, Leben ändern oder Karten verschieben ist nicht möglich", () => {
+    const { game, random } = started();
+    const card = game.players.u0.hand[0];
+    for (const action of [
+      { type: "draw" }, { type: "mill" }, { type: "life", delta: 5 }, { type: "pool", color: "G", delta: 1 }, { type: "untapAll" },
+      { type: "move", id: card, to: "battlefield" }, { type: "token", name: "Drache 9/9" }, { type: "shuffle" }
+    ]) {
+      expect(act(game, "u0", action, random).ok).toBe(false);
+    }
   });
 });

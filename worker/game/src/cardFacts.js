@@ -8,7 +8,7 @@ const COLOR_LETTERS = new Set(MANA_COLORS);
 
 export const KEYWORDS = [
   "flying", "reach", "first strike", "double strike", "deathtouch", "lifelink", "trample", "vigilance",
-  "haste", "menace", "defender", "indestructible", "flash"
+  "haste", "menace", "defender", "indestructible", "flash", "hexproof", "shroud"
 ];
 
 const BASIC_LAND_COLORS = { plains: "W", island: "U", swamp: "B", mountain: "R", forest: "G", wastes: "C" };
@@ -107,15 +107,16 @@ const numeric = value => {
 
 /** Baut die unveränderlichen Kartendaten (Definition) aus Schnappschuss und optionalen Scryfall-Fakten. */
 export function buildDef(card, facts = {}) {
-  const typeLine = card.typeLine ?? facts.typeLine ?? "";
-  const oracleText = card.oracleText ?? facts.oracleText ?? "";
+  const typeLine = card.typeLine || facts.typeLine || "";
+  const oracleText = card.oracleText || facts.oracleText || "";
   const types = typesOf(typeLine);
   return {
     name: card.name,
     typeLine,
     manaValue: card.manaValue ?? 0,
     imageUri: card.imageUri ?? null,
-    manaCost: card.manaCost ?? facts.manaCost ?? "",
+    manaCost: card.manaCost || facts.manaCost || "",
+    oracleText,
     types,
     power: numeric(facts.power),
     toughness: numeric(facts.toughness),
@@ -151,6 +152,7 @@ export async function fetchScryfallFacts(ids, { fetchImpl = fetch, base = "https
           keywords: card.keywords ?? [],
           produced_mana: card.produced_mana ?? [],
           manaCost: card.mana_cost ?? face?.mana_cost,
+          typeLine: card.type_line ?? face?.type_line,
           oracleText: card.oracle_text ?? face?.oracle_text
         });
       }
