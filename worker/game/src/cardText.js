@@ -142,6 +142,7 @@ function parseSentence(raw, specs) {
     const t = addTarget(specs, m[1]);
     return t === null ? null : [{ type: "bounce", t }];
   }
+  if (lower === "return a land you control to its owner's hand") return [{ type: "bounceOwnLand" }];
   if ((m = lower.match(/^(tap|untap) (target .+)$/))) {
     const t = addTarget(specs, m[2]);
     return t === null ? null : [{ type: m[1], t }];
@@ -210,6 +211,7 @@ export function describeEffect(effect) {
     case "destroyAll": return `Zerstört alle ${{ creature: "Kreaturen", land: "Länder", artifact: "Artefakte", enchantment: "Verzauberungen" }[effect.what] ?? "Permanents"}.`;
     case "exile": return "Schickt das Ziel ins Exil.";
     case "bounce": return "Das Ziel geht zurück auf die Hand seines Besitzers.";
+    case "bounceOwnLand": return "Du legst ein eigenes Land zurück auf die Hand.";
     case "tap": return "Tappt das Ziel.";
     case "untap": return "Enttappt das Ziel.";
     case "counterSpell": return "Neutralisiert den Zielzauber.";
@@ -265,6 +267,35 @@ function parseEffectText(text) {
   return { effects, specs, unparsed, summary: summarize({ effects, unparsed }) };
 }
 
+const BASIC_TYPES = ["plains", "island", "swamp", "mountain", "forest"];
+const COUNT_WORDS = { one: 1, two: 2, three: 3, four: 4, five: 5 };
+
+/** „a Forest or an Island“ → ["forest", "island"] (nur Standard-Landtypen, sonst `null`). */
+function basicTypes(text) {
+  const words = text
+    .toLowerCase()
+    .split(/,| or /)
+    .map(part => part.replace(/^\s*(an?|the)\s+/, "").trim())
+    .filter(Boolean);
+  return words.length > 0 && words.every(word => BASIC_TYPES.includes(word)) ? words : null;
+}
+
+/** Bedingung von „enters tapped unless …“ (`null`, wenn nicht unterstützt). */
+function parseEntryCondition(text) {
+  const lower = text.toLowerCase().trim();
+  let m;
+  if ((m = lower.match(/^you control (one|two|three|four|five|\d+) or (more|fewer) (other lands|basic lands)$/))) {
+    const n = /^\d+$/.test(m[1]) ? Number(m[1]) : COUNT_WORDS[m[1]];
+    return { kind: "lands", n, op: m[2] === "more" ? "gte" : "lte", basic: m[3] === "basic lands" };
+  }
+  if ((m = lower.match(/^a player has (\d+) or less life$/))) return { kind: "lowLife", n: Number(m[1]) };
+  if ((m = lower.match(/^you control (.+)$/))) {
+    const types = basicTypes(m[1]);
+    if (types) return { kind: "types", types };
+  }
+  return null;
+}
+
 /** Bedingung eines Auslösers → Ereignis (`null`, wenn nicht unterstützt). */
 function triggerEvent(word, condition) {
   if (/^~ enters( the battlefield)?$/.test(condition)) return { event: "etb" };
@@ -293,7 +324,7 @@ const stripPrefix = line => line.replace(/^[•*]\s*/, "");
 export function parseCardText({ name, typeLine, oracleText }) {
   const types = typesOf(typeLine);
   const lines = normalizeText(oracleText, name).map(stripPrefix);
-  const result = { spell: null, triggers: [], activated: [], notes: [], statics: [], flashback: null, entersTapped: false };
+  const result = { spell: null, triggers: [], activated: [], notes: [], statics: [], flashback: null, entersTapped: false, entersTappedUnless: null, shock: null, reveal: null };
 
   if (types.instant || types.sorcery) {
     const body = [];
@@ -344,10 +375,31 @@ export function parseCardText({ name, typeLine, oracleText }) {
       continue;
     }
 
-    // Ersatzeffekt: kommt getappt ins Spiel
+    // Ersatzeffekt: kommt getappt ins Spiel (bedingungslos oder „unless …“)
     if (/^~ enters( the battlefield)? tapped\.?$/i.test(line)) {
       result.entersTapped = true;
       continue;
+    }
+    const unless = line.match(/^~ enters( the battlefield)? tapped unless (.+?)\.?$/i);
+    if (unless) {
+      const condition = parseEntryCondition(unless[2]);
+      if (condition) {
+        result.entersTappedUnless = condition;
+        continue;
+      }
+    }
+    const shock = line.match(/^as ~ enters( the battlefield)?, you may pay (\d+) life\. if you don't, it enters( the battlefield)? tapped\.?$/i);
+    if (shock) {
+      result.shock = { life: Number(shock[2]) };
+      continue;
+    }
+    const reveal = line.match(/^as ~ enters( the battlefield)?, you may reveal an? (.+?) card from your hand\. if you don't, it enters( the battlefield)? tapped\.?$/i);
+    if (reveal) {
+      const types = basicTypes(reveal[2]);
+      if (types) {
+        result.reveal = { types };
+        continue;
+      }
     }
 
     // Dauereffekte: Boni für Kreaturen

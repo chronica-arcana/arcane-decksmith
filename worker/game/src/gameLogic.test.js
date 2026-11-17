@@ -41,6 +41,11 @@ const LIB = [
   ["reaper", "Schnitter", "Creature — Horror", "{G}", 2, { power: "1", toughness: "1" }, "Whenever a creature an opponent controls dies, put a +1/+1 counter on ~."],
   ["wilds", "Wildnis", "Land", "", 2, {}, "{T}, Sacrifice Wildnis: Search your library for a basic land card, put it onto the battlefield tapped, then shuffle."],
   ["cliffs", "Klippen", "Land", "", 2, {}, "Klippen enters tapped.\nWhen Klippen enters, you gain 1 life.\n{T}: Add {U} or {R}."],
+  ["slow", "Langsam", "Land", "", 2, {}, "Langsam enters the battlefield tapped unless you control two or more other lands.\n{T}: Add {G}."],
+  ["check", "Prüfland", "Land", "", 2, {}, "Prüfland enters the battlefield tapped unless you control a Mountain or a Swamp.\n{T}: Add {G}."],
+  ["shock", "Schock", "Land — Forest Mountain", "", 2, {}, "As Schock enters the battlefield, you may pay 2 life. If you don't, it enters the battlefield tapped."],
+  ["reveal", "Zeigland", "Land", "", 2, {}, "As Zeigland enters the battlefield, you may reveal a Mountain card from your hand. If you don't, it enters the battlefield tapped."],
+  ["karoo", "Rücklauf", "Land", "", 2, {}, "Rücklauf enters the battlefield tapped.\nWhen Rücklauf enters the battlefield, return a land you control to its owner's hand.\n{T}: Add {G}{R}."],
   ["priest", "Priester", "Creature — Cleric", "{G}", 2, { power: "1", toughness: "1" }, "At the beginning of your end step, you gain 1 life."]
 ];
 const facts = new Map();
@@ -590,7 +595,7 @@ describe("Kartentext-Engine", () => {
     const { game, random } = started();
     forest(game, "u0", 1);
     const hand = game.players.u0.hand.length;
-    const seer = put(game, "u0", "Seher", "hand");
+    const seer = put(game, "u0", "Seher", "hand", { only: "library" });
     act(game, "u0", { type: "cast", id: seer }, random);
     expect(game.players.u0.battlefield).toContain(seer);
     expect(game.stack).toHaveLength(0);
@@ -909,5 +914,82 @@ describe("Länder mit besonderen Regeln und Effekte der Anzeige", () => {
     act(game, "u0", { type: "cast", id, targets: ["u1"] }, random);
     expect(view(game, "u1").fx.at(-1)).toMatchObject({ type: "damage", player: "u1", amount: 3 });
     expect(view(game, "u0").fx.at(-1).id).toBe(view(game, "u1").fx.at(-1).id);
+  });
+});
+
+describe("Länder mit Bedingung beim Ins-Spiel-Kommen", () => {
+  const play = (game, random, name) => {
+    const land = put(game, "u0", name, "hand", { only: "library" });
+    expect(act(game, "u0", { type: "playLand", id: land }, random).ok).toBe(true);
+    return land;
+  };
+
+  it("Slow-Land: ungetappt erst mit zwei anderen Ländern", () => {
+    const { game, random } = started();
+    forest(game, "u0", 1);
+    expect(game.cards[play(game, random, "Langsam")].tapped).toBe(true);
+    const second = started();
+    forest(second.game, "u0", 2);
+    expect(second.game.cards[play(second.game, second.random, "Langsam")].tapped).toBe(false);
+  });
+
+  it("Check-Land: prüft die Landtypen der eigenen Länder", () => {
+    const { game, random } = started();
+    forest(game, "u0", 2); // nur Forest: Bedingung (Mountain oder Swamp) nicht erfüllt
+    expect(game.cards[play(game, random, "Prüfland")].tapped).toBe(true);
+    const second = started();
+    put(second.game, "u0", "Mountain", "battlefield");
+    expect(second.game.cards[play(second.game, second.random, "Prüfland")].tapped).toBe(false);
+  });
+
+  it("Shock-Land: Spieler wählt, ob er 2 Leben zahlt", () => {
+    const { game, random } = started();
+    const land = play(game, random, "Schock");
+    expect(game.choice).toMatchObject({ userId: "u0", kind: "yesno", options: ["yes", "no"] });
+    expect(view(game, "u0").choice.options).toEqual([{ id: "yes", label: "2 Leben zahlen (ungetappt)" }, { id: "no", label: "Nicht zahlen (getappt)" }]);
+    expect(act(game, "u0", { type: "pass" }, random).ok).toBe(false);
+    act(game, "u0", { type: "choose", ids: ["yes"] }, random);
+    expect(game.players.u0.life).toBe(18);
+    expect(game.cards[land].tapped).toBe(false);
+    const second = started();
+    const tapped = play(second.game, second.random, "Schock");
+    act(second.game, "u0", { type: "choose", ids: ["no"] }, second.random);
+    expect(second.game.players.u0.life).toBe(20);
+    expect(second.game.cards[tapped].tapped).toBe(true);
+  });
+
+  it("Shock-Land bei zu wenig Leben kommt von selbst getappt", () => {
+    const { game, random } = started();
+    game.players.u0.life = 2;
+    const land = play(game, random, "Schock");
+    expect(game.choice).toBeNull();
+    expect(game.cards[land].tapped).toBe(true);
+  });
+
+  it("Zeig-Land: Karte aus der Hand zeigen oder getappt", () => {
+    const { game, random } = started();
+    const mountain = put(game, "u0", "Mountain", "hand", { only: "library" });
+    const land = play(game, random, "Zeigland");
+    expect(game.choice.options).toContain(mountain);
+    act(game, "u0", { type: "choose", ids: [mountain] }, random);
+    expect(game.cards[land].tapped).toBe(false);
+    expect(game.players.u0.hand).toContain(mountain);
+    const second = started();
+    const hand = second.game.players.u0.hand.filter(id => second.game.defs[second.game.cards[id].def].name === "Mountain");
+    for (const id of hand) second.game.players.u0.hand.splice(second.game.players.u0.hand.indexOf(id), 1);
+    const tapped = play(second.game, second.random, "Zeigland");
+    expect(second.game.choice).toBeNull();
+    expect(second.game.cards[tapped].tapped).toBe(true);
+  });
+
+  it("Bounce-Land: ein eigenes Land zurück auf die Hand", () => {
+    const { game, random } = started();
+    const [old] = forest(game, "u0", 1);
+    play(game, random, "Rücklauf");
+    expect(game.choice).toMatchObject({ kind: "cards", min: 1, max: 1 });
+    expect(game.choice.options).toContain(old);
+    act(game, "u0", { type: "choose", ids: [old] }, random);
+    expect(game.players.u0.hand).toContain(old);
+    expect(game.players.u0.battlefield).not.toContain(old);
   });
 });

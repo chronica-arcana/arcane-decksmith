@@ -296,9 +296,32 @@ function enterBattlefield(game, card) {
   const def = defOf(game, card);
   if (def.types.planeswalker && def.loyalty) card.counters.loyalty = def.loyalty;
   if (def.rules?.entersTapped) card.tapped = true;
+  else if (def.rules?.entersTappedUnless && !entryConditionMet(game, card, def.rules.entersTappedUnless)) card.tapped = true;
+  else if (def.rules?.shock) game.triggerQueue.push({ kind: "entry", entry: "shock", cardId: card.id, controller: card.owner, life: def.rules.shock.life });
+  else if (def.rules?.reveal) game.triggerQueue.push({ kind: "entry", entry: "reveal", cardId: card.id, controller: card.owner, types: def.rules.reveal.types });
   fireTriggers(game, card, "etb");
   if (def.types.land) fireGlobal(game, "landEnters", card);
   if (def.types.creature) fireGlobal(game, "creatureEnters", card);
+}
+
+/** Ist die Bedingung von „enters tapped unless …“ erfüllt (dann kommt das Land ungetappt)? */
+function entryConditionMet(game, card, condition) {
+  const others = game.players[card.owner].battlefield.map(id => game.cards[id]).filter(other => other.id !== card.id);
+  if (condition.kind === "lands") {
+    const count = others.filter(other => {
+      const def = defOf(game, other);
+      return def.types.land && (!condition.basic || def.types.basicLand);
+    }).length;
+    return condition.op === "gte" ? count >= condition.n : count <= condition.n;
+  }
+  if (condition.kind === "types") {
+    return others.some(other => {
+      const def = defOf(game, other);
+      return def.types.land && condition.types.some(type => new RegExp(`\\b${type}\\b`, "i").test(def.typeLine));
+    });
+  }
+  if (condition.kind === "lowLife") return alive(game).some(id => game.players[id].life <= condition.n);
+  return true;
 }
 
 function manaSources(game, userId) {
@@ -962,10 +985,60 @@ function pushAbility(game, item) {
   if (!game.combat?.phaseWaiting) game.priority = game.turn.active;
 }
 
+/** Länder mit Wahl beim Ins-Spiel-Kommen: Shock-Land (Leben zahlen) und „Karte zeigen“. Ohne Möglichkeit kommt das Land getappt. */
+function openEntryChoice(game, entry) {
+  const card = game.cards[entry.cardId];
+  const player = game.players[entry.controller];
+  if (!card || !onBattlefield(game, card.id)) return;
+  const name = nameOf(game, card.id);
+  if (entry.entry === "shock") {
+    if (player.life <= entry.life) {
+      card.tapped = true;
+      return;
+    }
+    game.choice = {
+      userId: entry.controller,
+      kind: "yesno",
+      prompt: `${name}: ${entry.life} Leben zahlen, damit es ungetappt ins Spiel kommt?`,
+      labels: { yes: `${entry.life} Leben zahlen (ungetappt)`, no: "Nicht zahlen (getappt)" },
+      options: ["yes", "no"],
+      min: 1,
+      max: 1,
+      step: { type: "shock", cardId: card.id, life: entry.life },
+      queue: [],
+      ctx: null
+    };
+    return;
+  }
+  const options = player.hand.filter(id => {
+    const typeLine = defOf(game, game.cards[id]).typeLine;
+    return entry.types.some(type => new RegExp(`\\b${type}\\b`, "i").test(typeLine));
+  });
+  if (options.length === 0) {
+    card.tapped = true;
+    return;
+  }
+  game.choice = {
+    userId: entry.controller,
+    kind: "cards",
+    prompt: `${name}: Zeige eine Karte (${entry.types.join(" oder ")}) aus deiner Hand, damit es ungetappt ins Spiel kommt. Sonst kommt es getappt.`,
+    options,
+    min: 0,
+    max: 1,
+    step: { type: "reveal", cardId: card.id },
+    queue: [],
+    ctx: null
+  };
+}
+
 /** Wartende Auslöser auf den Stapel legen; bei Auslösern mit Ziel wählt der Besitzer das Ziel. */
 function flushTriggers(game) {
   while (game.triggerQueue.length > 0 && !game.choice) {
     const next = game.triggerQueue.shift();
+    if (next.kind === "entry") {
+      openEntryChoice(game, next);
+      continue;
+    }
     const { trigger } = next;
     const base = {
       controller: next.controller,
@@ -1135,6 +1208,21 @@ function runEffect(game, effect, ctx, rest) {
         leaveTo(game, targetCard, "hand");
       }
       return false;
+    case "bounceOwnLand": {
+      const options = controller.battlefield.filter(id => defOf(game, game.cards[id]).types.land);
+      if (options.length === 0) return false;
+      return openChoice(game, {
+        userId: ctx.controller,
+        kind: "cards",
+        prompt: `Wähle ein Land, das zurück auf deine Hand geht (${name}).`,
+        options,
+        min: 1,
+        max: 1,
+        step: { type: "bounceLand" },
+        queue: rest,
+        ctx
+      });
+    }
     case "tap":
     case "untap":
       if (targetCard) targetCard.tapped = effect.type === "tap";
@@ -1278,6 +1366,35 @@ function chooseAction(game, userId, action, random, now) {
       }
       addLog(game, `${player.name} wirft ab: ${ids.map(id => nameOf(game, id)).join(", ")}.`);
       break;
+    case "shock": {
+      const card = game.cards[step.cardId];
+      if (ids[0] === "yes") {
+        player.life -= step.life;
+        pushFx(game, { type: "damage", player: userId, amount: step.life });
+        addLog(game, `${player.name} zahlt ${step.life} Leben: ${nameOf(game, step.cardId)} kommt ungetappt.`);
+      } else if (card) {
+        card.tapped = true;
+        addLog(game, `${nameOf(game, step.cardId)} kommt getappt ins Spiel.`);
+      }
+      break;
+    }
+    case "reveal": {
+      const card = game.cards[step.cardId];
+      if (ids.length > 0) addLog(game, `${player.name} zeigt ${nameOf(game, ids[0])}: ${nameOf(game, step.cardId)} kommt ungetappt.`);
+      else if (card) {
+        card.tapped = true;
+        addLog(game, `${nameOf(game, step.cardId)} kommt getappt ins Spiel.`);
+      }
+      break;
+    }
+    case "bounceLand": {
+      const card = game.cards[ids[0]];
+      if (card) {
+        addLog(game, `${nameOf(game, card.id)} geht zurück auf die Hand.`);
+        leaveTo(game, card, "hand");
+      }
+      break;
+    }
     case "surveil":
       for (const id of ids) {
         player.library.splice(player.library.indexOf(id), 1);
@@ -1491,6 +1608,7 @@ export function gameView(game, viewerId) {
           options:
             game.choice.userId === viewerId
               ? game.choice.options.map(id => {
+                  if (game.choice.labels && game.choice.labels[id]) return { id, label: game.choice.labels[id] };
                   if (game.players[id]) return { id, player: { userId: id, name: game.players[id].name } };
                   if (game.cards[id]) return { id, card: cardView(game, id, viewerId) };
                   const item = game.stack.find(entry => entry.sid === id);

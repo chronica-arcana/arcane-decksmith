@@ -49,6 +49,9 @@ Cloudflare Worker mit einem **Durable Object je Raum**. Er ist die Grundlage fü
 - **Stapel ohne Klicks:** Gewirkte Zauber, Auslöser und Fähigkeiten lösen sich selbst auf. Nur wenn der Gegner (oder du bei Zügen des Gegners) wirklich
   antworten kann (Sofortzauber, Blitz, bezahlbare Fähigkeit), hält das Spiel an und fragt nach („Nicht antworten“). In den Einstellungen abschaltbar.
 - **Länder mit besonderen Regeln:** „kommt getappt ins Spiel“, Opferkosten wie bei Evolving Wilds ({T}, Sacrifice), Landfall und Auslöser beim Betreten.
+  Bedingte Länder: „unless you control two or more/fewer other lands“ (Slow-/Fast-Länder), „… two or more basic lands“ (Battle-Länder),
+  „unless you control a Plains or an Island“ (Check-Länder), „unless a player has 13 or less life“, Shock-Länder („you may pay 2 life“ mit Ja/Nein-Frage),
+  „you may reveal a … card from your hand“ (Karte zeigen oder getappt) und Bounce-Länder („return a land you control to its owner's hand“).
 - **Animationen:** Angreifer stürmen in die Mitte, Blocker schieben sich davor, Schaden und Heilung zeigen schwebende Zahlen mit Treffer-Blitz,
   zu Spielbeginn entscheidet ein animierter Münzwurf (eigene Grafiken optional: `src/assets/game/coin-front.webp` und `coin-back.webp`).
 - **Stabilität:** Wirft die Regel-Engine einen Fehler, wird der Zustand zurückgesetzt und neu gesendet; der Client gleicht den Stand beim Sichtbarwerden

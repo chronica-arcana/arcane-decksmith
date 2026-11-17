@@ -11,6 +11,23 @@ export default function ChoiceDialog({ choice, act, onHover }: { choice: Choice;
     setPicked(current => (current.includes(id) ? current.filter(item => item !== id) : choice.max === 1 ? [id] : current.length < choice.max ? [...current, id] : current));
   const ready = picked.length >= choice.min && picked.length <= choice.max;
 
+  if (choice.kind === "yesno") {
+    return (
+      <div className="modal-back" role="presentation">
+        <div className="modal choice" role="dialog" aria-label="Auswahl">
+          <h3>{choice.prompt}</h3>
+          <div className="start-actions">
+            {choice.options.map(option => (
+              <button key={option.id} type="button" className={option.id === "yes" ? "primary" : "secondary"} onClick={() => act({ type: "choose", ids: [option.id] })}>
+                {option.label ?? option.id}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="modal-back" role="presentation">
       <div className="modal choice" role="dialog" aria-label="Auswahl">
