@@ -12,7 +12,7 @@ const initials = (name: string) =>
 
 /** Avatar, Lebenspunkte, Handkartenzahl, Manapool und Zähler eines Spielers. Der Avatar ist anklickbar, wenn der Spieler ein Ziel sein kann. */
 export default function Hud({ player, own }: { player: GamePlayer; own: boolean }) {
-  const { game, act, manualMine, lifeOpen, toggleLife, isTarget, pickTarget } = useBattlefield();
+  const { game, act, manualMine, manualAllows, lifeOpen, toggleLife, isTarget, pickTarget } = useBattlefield();
   const active = game.turn.active === player.userId && game.phase === "playing";
   const targetable = isTarget(player.userId);
   const chips: string[] = [];
@@ -30,6 +30,7 @@ export default function Hud({ player, own }: { player: GamePlayer; own: boolean 
       <button
         type="button"
         className={`hud-avatar${targetable ? " targetable" : ""}`}
+        data-player={player.userId}
         aria-label={targetable ? `${player.name} als Ziel wählen` : `Spieler ${player.name}`}
         disabled={!targetable}
         onClick={() => pickTarget(player.userId)}
@@ -46,7 +47,7 @@ export default function Hud({ player, own }: { player: GamePlayer; own: boolean 
             type="button"
             className="life"
             aria-label={`Leben${own ? "" : ` von ${player.name}`}: ${player.life}`}
-            disabled={!(own && manualMine)}
+            disabled={!(own && manualMine && manualAllows.life)}
             onClick={toggleLife}
           >
             <span className="life-heart" aria-hidden="true">♥</span>
@@ -66,7 +67,7 @@ export default function Hud({ player, own }: { player: GamePlayer; own: boolean 
             ))}
           </div>
         )}
-        {own && manualMine && lifeOpen && (
+        {own && manualMine && manualAllows.life && lifeOpen && (
           <div className="life-pop" role="group" aria-label="Leben manuell anpassen">
             <button type="button" onClick={() => act({ type: "life", delta: -5 })}>−5</button>
             <button type="button" onClick={() => act({ type: "life", delta: -1 })}>−1</button>

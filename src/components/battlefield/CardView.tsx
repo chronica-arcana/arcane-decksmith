@@ -78,6 +78,7 @@ export default function CardView({
     <button
       type="button"
       className={classes}
+      data-card={card.id}
       style={style}
       draggable={Boolean(onDragStart)}
       onDragStart={event => onDragStart?.(card, event)}

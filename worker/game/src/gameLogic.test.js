@@ -39,6 +39,8 @@ const LIB = [
   ["dreams", "Träume", "Instant", "{G}", 2, {}, "Surveil 1, then draw a card.\nFlashback {R}"],
   ["bard", "Barde", "Creature — Elf", "{G}", 2, { power: "1", toughness: "1" }, "Whenever a land enters the battlefield under your control, you gain 1 life."],
   ["reaper", "Schnitter", "Creature — Horror", "{G}", 2, { power: "1", toughness: "1" }, "Whenever a creature an opponent controls dies, put a +1/+1 counter on ~."],
+  ["wilds", "Wildnis", "Land", "", 2, {}, "{T}, Sacrifice Wildnis: Search your library for a basic land card, put it onto the battlefield tapped, then shuffle."],
+  ["cliffs", "Klippen", "Land", "", 2, {}, "Klippen enters tapped.\nWhen Klippen enters, you gain 1 life.\n{T}: Add {U} or {R}."],
   ["priest", "Priester", "Creature — Cleric", "{G}", 2, { power: "1", toughness: "1" }, "At the beginning of your end step, you gain 1 life."]
 ];
 const facts = new Map();
@@ -182,7 +184,7 @@ describe("Länder, Mana und Zaubern", () => {
     expect(act(game, "u1", { type: "playLand", id: put(game, "u1", "Forest", "hand") }, random).ok).toBe(false);
   });
 
-  it("Zaubern tappt Länder automatisch, legt auf den Stapel und löst nach Passen auf", () => {
+  it("Zaubern tappt Länder automatisch; ohne mögliche Antwort löst der Zauber sich sofort auf (kein Klick nötig)", () => {
     const { game, random } = started();
     const f1 = put(game, "u0", "Forest", "battlefield");
     const f2 = put(game, "u0", "Forest", "battlefield");
@@ -191,16 +193,37 @@ describe("Länder, Mana und Zaubern", () => {
     expect(view(game, "u0").players[0].hand.find(c => c.id === bear).play).toMatchObject({ kind: "spell", ok: true });
     expect(act(game, "u0", { type: "cast", id: bear }, random).ok).toBe(true);
     expect([f1, f2, f3].filter(id => game.cards[id].tapped)).toHaveLength(2);
-    expect(game.stack).toHaveLength(1);
+    expect(game.stack).toHaveLength(0);
     expect(game.players.u0.hand).not.toContain(bear);
+    expect(game.players.u0.battlefield).toContain(bear);
     expect(game.priority).toBe("u0");
-    act(game, "u0", { type: "pass" }, random);
-    expect(game.priority).toBe("u1"); // Gegner darf antworten
+  });
+
+  it("kann der Gegner antworten, wird er gefragt – sonst nicht; erst sein „Nichts tun“ löst den Zauber auf", () => {
+    const { game, random } = started();
+    forest(game, "u0", 2);
+    put(game, "u1", "Mountain", "battlefield");
+    put(game, "u1", "Blitz", "hand");
+    const bear = put(game, "u0", "Bär", "hand");
+    act(game, "u0", { type: "cast", id: bear }, random);
+    expect(game.stack).toHaveLength(1);
+    expect(game.priority).toBe("u1");
     expect(act(game, "u0", { type: "pass" }, random).ok).toBe(false);
     act(game, "u1", { type: "pass" }, random);
     expect(game.stack).toHaveLength(0);
     expect(game.players.u0.battlefield).toContain(bear);
-    expect(game.priority).toBe("u0");
+  });
+
+  it("wer „nachfragen“ ausschaltet, wird nie unterbrochen", () => {
+    const { game, random } = started();
+    forest(game, "u0", 2);
+    put(game, "u1", "Mountain", "battlefield");
+    put(game, "u1", "Blitz", "hand");
+    act(game, "u1", { type: "askResponse", value: false }, random);
+    const bear = put(game, "u0", "Bär", "hand");
+    act(game, "u0", { type: "cast", id: bear }, random);
+    expect(game.stack).toHaveLength(0);
+    expect(game.players.u0.battlefield).toContain(bear);
   });
 
   it("zu wenig Mana, falsche Farbe und Timing werden abgelehnt", () => {
@@ -222,32 +245,17 @@ describe("Länder, Mana und Zaubern", () => {
     const { game, random } = started();
     put(game, "u0", "Forest", "battlefield");
     put(game, "u0", "Forest", "battlefield");
-    const bear = put(game, "u0", "Bär", "hand");
-    act(game, "u0", { type: "cast", id: bear }, random);
-    act(game, "u0", { type: "pass" }, random);
     put(game, "u1", "Mountain", "battlefield");
     const counter = put(game, "u1", "Gegenzauber", "hand");
+    const bear = put(game, "u0", "Bär", "hand");
+    act(game, "u0", { type: "cast", id: bear }, random);
     const sid = game.stack[0].sid;
+    expect(game.priority).toBe("u1");
     expect(act(game, "u1", { type: "cast", id: counter }, random).ok).toBe(false); // ohne Ziel
     expect(act(game, "u1", { type: "cast", id: counter, targets: [sid] }, random).ok).toBe(true);
-    expect(game.stack).toHaveLength(2);
-    act(game, "u1", { type: "pass" }, random);
-    act(game, "u0", { type: "pass" }, random);
     expect(game.players.u0.graveyard).toContain(bear); // neutralisiert
     expect(game.players.u1.graveyard).toContain(counter);
     expect(game.stack).toHaveLength(0);
-  });
-
-  it("Manapool: tapMana und X-Zauber", () => {
-    const { game, random } = started();
-    const f = [put(game, "u0", "Forest", "battlefield"), put(game, "u0", "Forest", "battlefield"), put(game, "u0", "Forest", "battlefield")];
-    expect(act(game, "u0", { type: "tapMana", id: f[0] }, random).ok).toBe(true);
-    expect(game.players.u0.pool.G).toBe(1);
-    expect(act(game, "u0", { type: "tapMana", id: f[0] }, random).ok).toBe(false);
-    const flut = put(game, "u0", "Flut", "hand");
-    expect(act(game, "u0", { type: "cast", id: flut, x: 5 }, random).ok).toBe(false);
-    expect(act(game, "u0", { type: "cast", id: flut, x: 2 }, random).ok).toBe(true);
-    expect(f.every(id => game.cards[id].tapped)).toBe(true);
   });
 
   it("Manapool lässt sich nicht von Hand ändern; Ritual füllt ihn über den Kartentext", () => {
@@ -281,16 +289,6 @@ describe("Zugstruktur", () => {
     expect(game.turn.number).toBe(game.turn.number);
     expect(game.players.u1.hand).toHaveLength(handBefore + 1);
     expect(game.priority).toBe("u1");
-  });
-
-  it("ohne Auto-Passen muss der Gegner auch passen", () => {
-    const { game, random } = started();
-    act(game, "u1", { type: "autoPass", value: false }, random);
-    act(game, "u0", { type: "pass" }, random);
-    expect(game.priority).toBe("u1");
-    expect(game.turn.phase).toBe("main1");
-    act(game, "u1", { type: "pass" }, random);
-    expect(game.turn.phase).toBe("main2");
   });
 
   it("Handkartenlimit: erst abwerfen, dann beginnt der nächste Zug", () => {
@@ -440,8 +438,6 @@ describe("Kampf", () => {
     const cmd = game.players.u0.command[0];
     expect(act(game, "u0", { type: "cast", id: cmd }, random).ok).toBe(true);
     expect(game.players.u0.cmdCasts[cmd]).toBe(1);
-    act(game, "u0", { type: "pass" }, random);
-    act(game, "u1", { type: "pass" }, random);
     expect(game.players.u0.battlefield).toContain(cmd);
     // stirbt: Frage erscheint
     game.cards[cmd].counters["-1/-1"] = 5;
@@ -590,19 +586,14 @@ describe("Kartentext-Engine", () => {
     expect(game.players.u1.graveyard).toContain(bear);
   });
 
-  it("Auslöser beim Betreten: Seher zieht eine Karte", () => {
+  it("Auslöser beim Betreten: Seher zieht eine Karte (alles löst sich selbst auf)", () => {
     const { game, random } = started();
     forest(game, "u0", 1);
     const hand = game.players.u0.hand.length;
     const seer = put(game, "u0", "Seher", "hand");
     act(game, "u0", { type: "cast", id: seer }, random);
-    act(game, "u0", { type: "pass" }, random);
-    act(game, "u1", { type: "pass" }, random);
     expect(game.players.u0.battlefield).toContain(seer);
-    expect(game.stack).toHaveLength(1); // Auslöser
-    expect(game.stack[0].kind).toBe("ability");
-    act(game, "u0", { type: "pass" }, random);
-    act(game, "u1", { type: "pass" }, random);
+    expect(game.stack).toHaveLength(0);
     expect(game.players.u0.hand.length).toBe(hand + 1); // +1 (Seher) −1 (gespielt) +1 (gezogen)
   });
 
@@ -725,27 +716,20 @@ describe("Zugbeginn, Dauereffekte, Rückblende, weitere Auslöser", () => {
     expect(game.cards[land].tapped).toBe(false);
   });
 
-  it("Manueller Zugbeginn: eigene Schritte Enttappen, Versorgung und Ziehen", () => {
+  it("Manuelles Ziehen: Die Bibliothek wird im Zieh-Schritt angeklickt, danach geht es automatisch weiter", () => {
     const { game, random } = started();
     act(game, "u1", { type: "autoStart", value: false }, random);
     const [land] = forest(game, "u1", 1);
     game.cards[land].tapped = true;
     for (let i = 0; i < 12 && game.turn.active === "u0"; i += 1) act(game, game.priority, { type: "pass" }, random);
-    expect(game.turn).toMatchObject({ active: "u1", phase: "untap", manualStart: true });
+    expect(game.turn).toMatchObject({ active: "u1", phase: "draw", manualStart: true });
+    expect(game.cards[land].tapped).toBe(false); // Enttappen ist immer automatisch
     const hand = game.players.u1.hand.length;
-    expect(act(game, "u1", { type: "drawStep" }, random).ok).toBe(false); // noch nicht der Zieh-Schritt
-    expect(act(game, "u1", { type: "untapStep" }, random).ok).toBe(true);
-    expect(game.cards[land].tapped).toBe(false);
-    expect(act(game, "u1", { type: "untapStep" }, random).ok).toBe(false);
-    act(game, "u1", { type: "pass" }, random);
-    expect(game.turn.phase).toBe("upkeep");
-    act(game, "u1", { type: "pass" }, random);
-    expect(game.turn.phase).toBe("draw");
+    expect(act(game, "u1", { type: "pass" }, random).error).toMatch(/Bibliothek/);
     expect(act(game, "u1", { type: "drawStep" }, random).ok).toBe(true);
     expect(game.players.u1.hand.length).toBe(hand + 1);
-    expect(act(game, "u1", { type: "drawStep" }, random).ok).toBe(false);
-    act(game, "u1", { type: "pass" }, random);
     expect(game.turn.phase).toBe("main1");
+    expect(act(game, "u1", { type: "drawStep" }, random).ok).toBe(false);
   });
 
   it("Der Startspieler zieht im ersten Zug nicht (auch im manuellen Modus)", () => {
@@ -755,6 +739,8 @@ describe("Zugbeginn, Dauereffekte, Rückblende, weitere Auslöser", () => {
     game.players.u1.autoStart = false;
     for (const id of game.seats) applyAction(game, id, { type: "keep" }, { random });
     const first = game.turn.active;
+    expect(game.turn.drawBlocked).toBe(true);
+    expect(game.turn.phase).toBe("main1");
     game.turn.phase = "draw";
     expect(applyAction(game, first, { type: "drawStep" }, { random }).error).toMatch(/Startspieler/);
   });
@@ -787,10 +773,10 @@ describe("Zugbeginn, Dauereffekte, Rückblende, weitere Auslöser", () => {
     const option = view(game, "u0").players[0].graveyard.find(c => c.id === dreams).play;
     expect(option).toMatchObject({ kind: "spell", ok: true });
     act(game, "u0", { type: "cast", id: dreams }, random);
-    expect(game.stack[0].flashback).toBe(true);
-    act(game, "u0", { type: "pass" }, random);
-    act(game, "u1", { type: "pass" }, random);
+    expect(game.choice).toMatchObject({ kind: "cards" }); // Surveil läuft erneut
+    act(game, "u0", { type: "choose", ids: [] }, random);
     expect(game.players.u0.exile).toContain(dreams);
+    expect(game.players.u0.graveyard).not.toContain(dreams);
   });
 
   it("Kostenloses Wirken ist nicht möglich", () => {
@@ -806,23 +792,19 @@ describe("Zugbeginn, Dauereffekte, Rückblende, weitere Auslöser", () => {
     put(game, "u0", "Priester", "battlefield");
     const land = put(game, "u0", "Forest", "hand", { only: "library" });
     act(game, "u0", { type: "playLand", id: land }, random);
-    expect(game.stack.map(i => i.sourceName)).toEqual(["Barde"]);
-    act(game, "u0", { type: "pass" }, random);
-    act(game, "u1", { type: "pass" }, random);
+    expect(game.stack).toHaveLength(0); // Landfall löst sich selbst auf
     expect(game.players.u0.life).toBe(21);
     // gegnerische Kreatur stirbt → Schnitter bekommt einen Marker
     const victim = put(game, "u1", "Bär", "battlefield");
     game.cards[victim].counters["-1/-1"] = 5;
     act(game, "u1", { type: "coin" }, random);
     expect(game.players.u1.graveyard).toContain(victim);
-    act(game, "u0", { type: "pass" }, random);
-    act(game, "u1", { type: "pass" }, random);
     expect(game.cards[reaper].counters["+1/+1"]).toBe(1);
     expect(bard).toBeTruthy();
-    // Endphase: Priester löst aus
-    for (let i = 0; i < 6 && game.turn.phase !== "end"; i += 1) act(game, "u0", { type: "pass" }, random);
-    expect(game.turn.phase).toBe("end");
-    expect(game.stack.map(i => i.sourceName)).toContain("Priester");
+    // Beginn der Endphase: Priester löst aus; der Zug endet danach von selbst
+    for (let i = 0; i < 6 && game.turn.active === "u0"; i += 1) act(game, game.priority, { type: "pass" }, random);
+    expect(game.turn.active).toBe("u1");
+    expect(game.players.u0.life).toBe(22);
   });
 
   it("Selbstheilung: Hat niemand Priorität und wartet niemand, geht sie an den aktiven Spieler", () => {
@@ -893,5 +875,39 @@ describe("Dauertest: das Spiel bleibt nie stehen", () => {
         }
       }
     }
+  });
+});
+
+describe("Länder mit besonderen Regeln und Effekte der Anzeige", () => {
+  it("Evolving-Wilds-Prinzip: tappen und opfern, dann ein Basic Land getappt aufs Feld", () => {
+    const { game, random } = started();
+    const wilds = put(game, "u0", "Wildnis", "battlefield");
+    const info = view(game, "u0").players[0].battlefield.find(c => c.id === wilds).abilities[0];
+    expect(info).toMatchObject({ ok: true, costLabel: "{T}, Opfern" });
+    expect(act(game, "u0", { type: "activate", id: wilds, index: 0 }, random).ok).toBe(true);
+    expect(game.players.u0.graveyard).toContain(wilds); // geopfert
+    expect(game.choice).toMatchObject({ kind: "cards" });
+    const land = game.choice.options[0];
+    act(game, "u0", { type: "choose", ids: [land] }, random);
+    expect(game.players.u0.battlefield).toContain(land);
+    expect(game.cards[land].tapped).toBe(true);
+  });
+
+  it("Länder, die getappt ins Spiel kommen, und ihr Auslöser lösen sich selbst auf", () => {
+    const { game, random } = started();
+    const cliffs = put(game, "u0", "Klippen", "hand");
+    expect(act(game, "u0", { type: "playLand", id: cliffs }, random).ok).toBe(true);
+    expect(game.cards[cliffs].tapped).toBe(true);
+    expect(game.players.u0.life).toBe(21);
+    expect(game.stack).toHaveLength(0);
+  });
+
+  it("Schaden und Heilung erzeugen Anzeige-Effekte für alle", () => {
+    const { game, random } = started();
+    put(game, "u0", "Mountain", "battlefield");
+    const id = put(game, "u0", "Blitz", "hand");
+    act(game, "u0", { type: "cast", id, targets: ["u1"] }, random);
+    expect(view(game, "u1").fx.at(-1)).toMatchObject({ type: "damage", player: "u1", amount: 3 });
+    expect(view(game, "u0").fx.at(-1).id).toBe(view(game, "u1").fx.at(-1).id);
   });
 });

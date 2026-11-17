@@ -52,7 +52,7 @@ export type PlayerCounterKind = "poison" | "energy" | "experience";
 /** Gültige Ziele für eine Zielangabe eines Zaubers oder einer Fähigkeit (Karten-, Spieler- oder Stapel-IDs). */
 export type TargetOption = { kind: string; options: string[] };
 
-export type CardAbility = { index: number; text: string; ok: boolean; targets: TargetOption[]; manual: boolean };
+export type CardAbility = { index: number; text: string; costLabel?: string; ok: boolean; targets: TargetOption[]; manual: boolean };
 
 export type GameCard = {
   id: string;
@@ -103,7 +103,9 @@ export type GamePlayer = {
   mulligans: number;
   kept: boolean;
   pool: ManaPool;
-  autoPass?: boolean;
+  /** Nachfragen, wenn ich auf einen Zauber des Gegners antworten kann. */
+  askResponse?: boolean;
+  /** Karte zu Zugbeginn automatisch ziehen. */
   autoStart?: boolean;
   prompts: { type: "commander"; id: string }[];
   counts: Record<GameZone, number>;
@@ -123,7 +125,7 @@ export type GameLogLine = { n: number; text: string };
 
 export type StackItem = { sid: string; controller: string; kind: "spell" | "ability"; text: string; sourceName?: string; card: GameCard | null };
 
-export type GameStep = "untap" | "upkeep" | "draw" | "main1" | "attackers" | "blockers" | "damage" | "main2" | "end";
+export type GameStep = "draw" | "main1" | "attackers" | "blockers" | "damage" | "main2" | "end";
 
 export type GameView = {
   format: RoomFormat;
@@ -135,10 +137,11 @@ export type GameView = {
     phase: GameStep;
     first: string | null;
     landsPlayed: number;
-    /** Der aktive Spieler hat Enttappen/Ziehen auf manuell gestellt. */
+    /** Der aktive Spieler zieht seine Karte selbst (Bibliothek anklicken). */
     manualStart?: boolean;
-    untapped?: boolean;
     drawn?: boolean;
+    /** Zeitpunkt des Spielbeginns (für den Münzwurf). */
+    beganAt?: number;
     drawBlocked?: boolean;
     /** Zu Beginn des Zuges wurde automatisch eine Karte gezogen. */
     drew?: boolean;
@@ -147,6 +150,8 @@ export type GameView = {
   stack: StackItem[];
   combat: { attackers: { id: string; target: string }[]; blocks: { blocker: string; attacker: string }[]; awaiting: string[] } | null;
   pendingDiscard: { userId: string; count: number } | null;
+  /** Kurzlebige Anzeige-Effekte (Schaden, Heilung); `id` steigt fortlaufend. */
+  fx: { id: number; type: "damage" | "heal"; amount: number; card?: string; player?: string }[];
   /** Offene Auswahl (Ziel, Karten abwerfen/suchen/wühlen). Die Optionen sieht nur, wer wählt. */
   choice: {
     userId: string;
@@ -185,9 +190,8 @@ export type GameAction =
   | { type: "cmddmg"; from: string; delta: number }
   | { type: "dice"; sides: number }
   | { type: "coin" }
-  | { type: "autoPass"; value: boolean }
+  | { type: "askResponse"; value: boolean }
   | { type: "autoStart"; value: boolean }
-  | { type: "untapStep" }
   | { type: "drawStep" }
   | { type: "tapMana"; id: string; color?: string }
   | { type: "pool"; color: "W" | "U" | "B" | "R" | "G" | "C"; delta: number }
@@ -244,7 +248,9 @@ export type ConnectionStatus =
 export const DEFAULT_GAME_WORKER_URL = "https://arcane-decksmith-game.arcane-decksmith-api.workers.dev";
 
 const ROOM_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-const KEEPALIVE_MS = 25_000;
+const KEEPALIVE_MS = 12_000;
+/** Kommt so lange gar nichts mehr vom Server (auch kein „pong“), gilt die Verbindung als tot (z. B. Handy im Standby) und wird neu aufgebaut. */
+const DEAD_AFTER_MS = 40_000;
 
 export function randomRoomCode(random: () => number = Math.random): string {
   return Array.from({ length: 6 }, () => ROOM_ALPHABET[Math.floor(random() * ROOM_ALPHABET.length)]).join("");
@@ -358,6 +364,7 @@ export function connectGame(options: {
   const socket = new Impl(options.url);
   let keepalive: ReturnType<typeof setInterval> | undefined;
   let finished = false;
+  let lastHeard = Date.now();
 
   const finish = (status: ConnectionStatus) => {
     if (finished) return;
@@ -378,12 +385,23 @@ export function connectGame(options: {
     socket.send(JSON.stringify({ type: "auth", token }));
     options.onStatus({ state: "open" });
     // "ping" wird vom Server beantwortet, ohne das Spielobjekt aufzuwecken.
+    lastHeard = Date.now();
     keepalive = setInterval(() => {
+      if (Date.now() - lastHeard > DEAD_AFTER_MS) {
+        finish({ state: "closed", code: 1006, detail: "Die Verbindung zum Spiel-Server ist abgebrochen." });
+        try {
+          socket.close(1000, "Zeitüberschreitung");
+        } catch {
+          // bereits geschlossen
+        }
+        return;
+      }
       if (socket.readyState === 1) socket.send("ping");
     }, KEEPALIVE_MS);
   }) as never);
 
   socket.addEventListener("message", ((event: { data: unknown }) => {
+    lastHeard = Date.now();
     const message = parseServerMessage(event.data);
     if (message) options.onMessage(message);
   }) as never);

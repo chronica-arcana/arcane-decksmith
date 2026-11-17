@@ -22,7 +22,7 @@ export const GAME_VERSION = 3;
 export const ZONES = ["library", "hand", "battlefield", "graveyard", "exile", "command"];
 const PUBLIC_ZONES = new Set(["battlefield", "graveyard", "exile", "command"]);
 /** Schritte eines Zuges. Aufnahme der Karte und Enttappen geschehen automatisch zu Beginn. */
-export const PHASES = ["untap", "upkeep", "draw", "main1", "attackers", "blockers", "damage", "main2", "end"];
+export const PHASES = ["draw", "main1", "attackers", "blockers", "damage", "main2", "end"];
 export const PLAYER_COUNTERS = ["poison", "energy", "experience"];
 export const START_LIFE = { standard: 20, commander: 40 };
 export const HAND_SIZE = 7;
@@ -59,6 +59,13 @@ export function shuffle(list, random = Math.random) {
 // ---------------------------------------------------------------------------
 // Grundlagen
 // ---------------------------------------------------------------------------
+
+/** Kurzlebige Effekte für die Anzeige (Schaden, Heilung): die letzten werden mit jeder Sicht mitgeschickt. */
+function pushFx(game, fx) {
+  game.fxSeq += 1;
+  game.fx.push({ id: game.fxSeq, ...fx });
+  if (game.fx.length > 16) game.fx.splice(0, game.fx.length - 16);
+}
 
 function addLog(game, text) {
   game.logSeq += 1;
@@ -129,7 +136,7 @@ function emptyPlayer(name) {
     cmdDamage: {},
     cmdCasts: {},
     pool: emptyPool(),
-    autoPass: true,
+    askResponse: true,
     autoStart: true,
     turnStartSeq: 0,
     prompts: []
@@ -204,6 +211,8 @@ export function createGame({ room, random = Math.random, now = Date.now(), facts
     choice: null,
     manual: null,
     triggerQueue: [],
+    fx: [],
+    fxSeq: 0,
     turn: { number: 0, active: null, phase: "main1", first: null, landsPlayed: 0 },
     startedAt: now,
     endedAt: null,
@@ -286,6 +295,7 @@ function enterBattlefield(game, card) {
   card.sinceSeq = tick(game);
   const def = defOf(game, card);
   if (def.types.planeswalker && def.loyalty) card.counters.loyalty = def.loyalty;
+  if (def.rules?.entersTapped) card.tapped = true;
   fireTriggers(game, card, "etb");
   if (def.types.land) fireGlobal(game, "landEnters", card);
   if (def.types.creature) fireGlobal(game, "creatureEnters", card);
@@ -416,32 +426,32 @@ function startTurn(game, userId, { skipDraw = false } = {}) {
   const player = game.players[userId];
   game.turn.active = userId;
   game.turn.landsPlayed = 0;
-  game.turn.untapped = false;
   game.turn.drawn = false;
   game.turn.drawBlocked = skipDraw;
   game.turn.drew = false;
-  game.turn.manualStart = player.autoStart === false;
+  game.turn.manualStart = player.autoStart === false && !skipDraw;
   game.combat = null;
   game.pendingDiscard = null;
   player.turnStartSeq = tick(game);
   clearPools(game);
   game.priority = userId;
   game.passed = [];
-  if (player.autoStart === false) {
-    // Manuell: Enttappen, Versorgung und Ziehen sind eigene Schritte mit Handlungsmöglichkeit.
-    game.turn.phase = "untap";
-    addLog(game, `Zug ${game.turn.number}: ${player.name} ist am Zug (Enttappen und Ziehen manuell).`);
-    return;
-  }
-  game.turn.phase = "main1";
+  // Enttappen und Versorgung laufen immer automatisch.
   untapAll(game, userId);
   addLog(game, `Zug ${game.turn.number}: ${player.name} ist am Zug (alles enttappt).`);
   fireGlobal(game, "upkeep", userId);
-  if (!skipDraw) {
+  if (skipDraw) {
+    game.turn.phase = "main1";
+    addLog(game, `${player.name} zieht im ersten Zug keine Karte.`);
+  } else if (player.autoStart === false) {
+    // Karte ziehen: durch Anklicken der Bibliothek (danach geht es automatisch weiter).
+    game.turn.phase = "draw";
+  } else {
+    game.turn.phase = "main1";
     const drawn = drawCards(game, userId, 1);
     game.turn.drew = drawn > 0;
     addLog(game, drawn ? `${player.name} zieht eine Karte.` : `${player.name} kann keine Karte ziehen (Bibliothek leer).`);
-  } else addLog(game, `${player.name} zieht im ersten Zug keine Karte.`);
+  }
 }
 
 function untapAll(game, userId) {
@@ -450,7 +460,6 @@ function untapAll(game, userId) {
     if (game.cards[id].tapped) count += 1;
     game.cards[id].tapped = false;
   }
-  game.turn.untapped = true;
   return count;
 }
 
@@ -485,13 +494,6 @@ function enterPhase(game, phase) {
 /** Alle haben nacheinander gepasst und der Stapel ist leer: nächster Schritt. */
 function advanceStep(game, now, random) {
   switch (game.turn.phase) {
-    case "untap":
-      enterPhase(game, "upkeep");
-      fireGlobal(game, "upkeep", game.turn.active);
-      return;
-    case "upkeep":
-      enterPhase(game, "draw");
-      return;
     case "draw":
       enterPhase(game, "main1");
       return;
@@ -512,10 +514,8 @@ function advanceStep(game, now, random) {
       enterPhase(game, "end");
       fireGlobal(game, "endStep", game.turn.active);
       flushTriggers(game);
-      // Niemand will im Endschritt handeln (Gegner passen automatisch, nichts löst aus): der Schritt wird übersprungen.
-      if (game.stack.length === 0 && !game.choice && alive(game).every(id => id === game.turn.active || game.players[id].autoPass)) {
-        advanceStep(game, now, random);
-      }
+      // Im Endschritt wird niemand nach Antworten gefragt: Er wird übersprungen, sobald keine Auslöser mehr offen sind.
+      if (game.stack.length === 0 && !game.choice) advanceStep(game, now, random);
       return;
     case "end": {
       const active = game.players[game.turn.active];
@@ -578,6 +578,24 @@ function settle(game, random = Math.random, now = Date.now()) {
   }
 }
 
+/** Kann der Spieler jetzt auf den Stapel antworten (leuchtende Sofortzauber oder bezahlbare Fähigkeit)? */
+function canRespond(game, userId) {
+  const saved = game.priority;
+  game.priority = userId;
+  try {
+    const player = game.players[userId];
+    for (const zone of ["hand", "command", "graveyard"]) {
+      for (const id of player[zone]) if (playOptions(game, userId, id)?.ok) return true;
+    }
+    for (const id of player.battlefield) {
+      if (abilityOptions(game, userId, game.cards[id]).some(ability => ability.ok)) return true;
+    }
+    return false;
+  } finally {
+    game.priority = saved;
+  }
+}
+
 function settleLoop(game, random, now) {
   for (let guard = 0; guard < 50; guard += 1) {
     if (game.pendingDiscard || game.choice || game.manual || game.combat?.phaseWaiting) return;
@@ -598,9 +616,21 @@ function settleLoop(game, random, now) {
       continue;
     }
     const next = waiting[0];
-    if (game.stack.length === 0 && next !== game.turn.active && game.players[next].autoPass) {
-      game.passed.push(next);
-      continue;
+    if (game.stack.length === 0) {
+      // Ohne Stapel wird nur der aktive Spieler gefragt (Phasen weiterschalten); alle anderen passen von selbst.
+      if (next !== game.turn.active) {
+        game.passed.push(next);
+        continue;
+      }
+    } else {
+      // Mit Stapel: nur nachfragen, wenn dieser Spieler wirklich antworten kann (Sofortzauber, Blitz, Fähigkeit) und nicht
+      // der Besitzer des obersten Eintrags ist. Sonst löst das Spiel den Stapel ohne Zutun auf.
+      const top = game.stack.at(-1);
+      const asks = game.players[next].askResponse !== false && next !== top.controller && canRespond(game, next);
+      if (!asks) {
+        game.passed.push(next);
+        continue;
+      }
     }
     game.priority = next;
     return;
@@ -683,14 +713,19 @@ function dealCombatDamage(game, now) {
       if (!source) continue;
       if (hit.card && game.cards[hit.card]) {
         game.cards[hit.card].damage += hit.amount;
+        pushFx(game, { type: "damage", card: hit.card, amount: hit.amount });
         if (hasKeyword(game, source, "deathtouch")) game.cards[hit.card].deathtouched = true;
       }
       if (hit.player) {
         const target = game.players[hit.player];
         target.life -= hit.amount;
+        pushFx(game, { type: "damage", player: hit.player, amount: hit.amount });
         if (source.cmd) target.cmdDamage[source.owner] = (target.cmdDamage[source.owner] ?? 0) + hit.amount;
       }
-      if (hasKeyword(game, source, "lifelink")) game.players[source.owner].life += hit.amount;
+      if (hasKeyword(game, source, "lifelink")) {
+        game.players[source.owner].life += hit.amount;
+        pushFx(game, { type: "heal", player: source.owner, amount: hit.amount });
+      }
     }
     if (hits.length > 0) {
       const summary = hits
@@ -850,6 +885,7 @@ function dealDamage(game, source, targetId, amount) {
   const lifelink = Boolean(sourceDef?.keywords.includes("lifelink"));
   if (game.players[targetId]) {
     game.players[targetId].life -= amount;
+    pushFx(game, { type: "damage", player: targetId, amount });
     addLog(game, `${sourceDef?.name ?? "Effekt"} fügt ${game.players[targetId].name} ${amount} Schaden zu.`);
   } else {
     const card = game.cards[targetId];
@@ -857,6 +893,7 @@ function dealDamage(game, source, targetId, amount) {
     const def = defOf(game, card);
     if (def.types.creature) {
       card.damage += amount;
+      pushFx(game, { type: "damage", card: targetId, amount });
       if (sourceDef?.keywords.includes("deathtouch")) card.deathtouched = true;
     }
     if (def.types.planeswalker) card.counters.loyalty = Math.max(0, (card.counters.loyalty ?? 0) - amount);
@@ -934,7 +971,7 @@ function flushTriggers(game) {
       controller: next.controller,
       source: next.source,
       sourceName: next.sourceName,
-      text: trigger.text,
+      text: trigger.summary || trigger.text,
       effects: trigger.effects,
       specs: trigger.specs,
       unparsed: trigger.unparsed
@@ -999,6 +1036,7 @@ function runEffect(game, effect, ctx, rest) {
     case "life":
       for (const id of playersOf(game, effect.who, ctx)) {
         game.players[id].life += effect.n;
+        pushFx(game, { type: effect.n >= 0 ? "heal" : "damage", player: id, amount: Math.abs(effect.n) });
         addLog(game, `${game.players[id].name}: Leben ${effect.n > 0 ? "+" : ""}${effect.n} (jetzt ${game.players[id].life}, ${name}).`);
       }
       return false;
@@ -1334,7 +1372,8 @@ export function abilityOptions(game, userId, card) {
     }
     return {
       index: ability.index,
-      text: ability.text.replace(/~/g, def.name),
+      text: ability.summary || ability.text.replace(/~/g, def.name),
+      costLabel: [ability.cost.tap ? "{T}" : "", ability.cost.mana, ability.cost.sacrifice ? "Opfern" : "", ability.cost.loyalty !== undefined ? (ability.cost.loyalty > 0 ? `+${ability.cost.loyalty}` : `${ability.cost.loyalty}`) : ""].filter(Boolean).join(", "),
       ok: okNow,
       targets: targetOptions(game, ability.specs, userId),
       manual: ability.unparsed.length > 0
@@ -1396,7 +1435,7 @@ export function gameView(game, viewerId) {
       mulligans: p.mulligans,
       kept: p.kept,
       pool: p.pool,
-      autoPass: p.autoPass,
+      askResponse: p.askResponse,
       autoStart: mine ? p.autoStart : undefined,
       prompts: mine ? p.prompts : [],
       counts: {
@@ -1441,6 +1480,7 @@ export function gameView(game, viewerId) {
         }
       : null,
     pendingDiscard: game.pendingDiscard,
+    fx: game.fx.slice(-12),
     choice: game.choice
       ? {
           userId: game.choice.userId,
@@ -1515,6 +1555,8 @@ export function applyAction(game, userId, action, { random = Math.random, now = 
     checkStateBased(game, now);
     flushTriggers(game);
     for (const id of game.seats) checkElimination(game, id, now);
+    // Auslöser und Zauber auf dem Stapel lösen sich auf, sobald niemand mehr antworten kann.
+    if (game.phase === "playing" && game.stack.length > 0) settle(game, random, now);
   }
   repairGame(game);
   return result;
@@ -1625,10 +1667,9 @@ function handleAction(game, userId, action, random, now) {
     case "coin":
       addLog(game, `${player.name} wirft eine Münze: ${random() < 0.5 ? "Kopf" : "Zahl"}.`);
       return ok();
-    case "autoPass":
+    case "askResponse":
       if (typeof action.value !== "boolean") return fail("Ungültige Einstellung.");
-      player.autoPass = action.value;
-      if (game.priority !== userId) settle(game, random, now);
+      player.askResponse = action.value;
       return ok();
     case "tapMana":
       return tapManaAction(game, userId, action);
@@ -1641,8 +1682,11 @@ function handleAction(game, userId, action, random, now) {
     }
     case "playLand":
       return playLandAction(game, userId, action);
-    case "cast":
-      return castAction(game, userId, action);
+    case "cast": {
+      const result = castAction(game, userId, action);
+      if (result.ok) settle(game, random, now); // löst sich von selbst auf, wenn niemand antworten kann
+      return result;
+    }
     case "ability": {
       if (game.priority !== userId) return fail("Du hast gerade keine Priorität.");
       const text = typeof action.text === "string" ? action.text.replace(/[\n\r]+/g, " ").trim().slice(0, 100) : "";
@@ -1658,13 +1702,6 @@ function handleAction(game, userId, action, random, now) {
       if (typeof action.value !== "boolean") return fail("Ungültige Einstellung.");
       player.autoStart = action.value;
       return ok();
-    case "untapStep": {
-      if (game.turn.active !== userId || game.turn.phase !== "untap") return fail("Enttappen geht nur im Enttappen-Schritt deines Zuges.");
-      if (game.turn.untapped) return fail("Du hast bereits enttappt.");
-      const count = untapAll(game, userId);
-      addLog(game, `${player.name} enttappt ${count} Karte${count === 1 ? "" : "n"}.`);
-      return ok();
-    }
     case "drawStep": {
       if (game.turn.active !== userId || game.turn.phase !== "draw") return fail("Karten ziehst du im Zieh-Schritt deines Zuges.");
       if (game.turn.drawBlocked) return fail("Der Startspieler zieht im ersten Zug keine Karte.");
@@ -1673,12 +1710,16 @@ function handleAction(game, userId, action, random, now) {
       game.turn.drawn = true;
       game.turn.drew = drawn > 0;
       addLog(game, drawn ? `${player.name} zieht eine Karte.` : `${player.name} kann keine Karte ziehen (Bibliothek leer).`);
+      enterPhase(game, "main1"); // nach dem Ziehen geht es automatisch weiter
       return ok();
     }
     case "choose":
       return chooseAction(game, userId, action, random, now);
-    case "activate":
-      return activateAction(game, userId, action);
+    case "activate": {
+      const result = activateAction(game, userId, action);
+      if (result.ok) settle(game, random, now);
+      return result;
+    }
     case "manualDone":
       if (game.manual?.userId !== userId) return fail("Es gibt nichts zu bestätigen.");
       game.manual = null;
@@ -1687,6 +1728,9 @@ function handleAction(game, userId, action, random, now) {
       return ok();
     case "pass": {
       if (game.priority !== userId) return fail("Du hast gerade keine Priorität.");
+      if (game.turn.phase === "draw" && game.turn.active === userId && !game.turn.drawn && !game.turn.drawBlocked && game.stack.length === 0) {
+        return fail("Ziehe zuerst eine Karte: Klicke auf deine Bibliothek.");
+      }
       game.passed.push(userId);
       settle(game, random, now);
       return ok();
@@ -1903,6 +1947,10 @@ function activateAction(game, userId, action) {
     for (const color of Object.keys(plan.poolAdd)) player.pool[color] += plan.poolAdd[color];
   }
   if (ability.cost.tap) card.tapped = true;
+  if (ability.cost.sacrifice) {
+    addLog(game, `${player.name} opfert ${def.name}.`);
+    toGraveyard(game, card);
+  }
   if (ability.cost.loyalty !== undefined) {
     card.counters.loyalty = (card.counters.loyalty ?? 0) + ability.cost.loyalty;
     card.loyaltyTurn = game.turn.number;
@@ -1914,7 +1962,7 @@ function activateAction(game, userId, action) {
     cardId: null,
     source: card.id,
     sourceName: def.name,
-    text: ability.text,
+    text: ability.summary || ability.text,
     effects: ability.effects,
     specs: ability.specs,
     targets: ability.specs.length > 0 ? action.targets : [],
@@ -1922,7 +1970,7 @@ function activateAction(game, userId, action) {
   });
   game.priority = userId;
   game.passed = [];
-  addLog(game, `${player.name} aktiviert ${def.name}: ${ability.text.replace(/~/g, def.name)}`);
+  addLog(game, `${player.name} aktiviert ${def.name}: ${ability.summary || ability.text.replace(/~/g, def.name)}`);
   return ok();
 }
 
@@ -2063,6 +2111,7 @@ function startPlaying(game, random) {
   const first = candidates[Math.floor(random() * candidates.length)];
   game.turn.first = first;
   game.turn.number = 1;
+  game.turn.beganAt = Date.now();
   addLog(game, `${game.players[first].name} beginnt (zufällig bestimmt).`);
   startTurn(game, first, { skipDraw: game.seats.length === 2 });
 }

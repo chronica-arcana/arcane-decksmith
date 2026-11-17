@@ -24,7 +24,6 @@ export type ActionBarProps = {
   discardPick: string[];
   clearDiscardPick: () => void;
   canAttack: boolean;
-  canSkipEnd: boolean;
   targeting: { name: string; specs: { kind: string }[]; picked: string[] } | null;
   cancelTargeting: () => void;
   onRematch: () => void;
@@ -172,51 +171,39 @@ export default function ActionBar(props: ActionBarProps) {
     );
   }
 
-  if (props.iHavePriority && props.isActive && game.stack.length === 0 && (step === "untap" || step === "upkeep" || step === "draw")) {
+  if (props.iHavePriority && props.isActive && game.stack.length === 0 && step === "draw") {
     return (
       <div className="action-bar" role="status">
-        {step === "untap" && (
-          <>
-            <strong>Enttappen</strong>
-            <button type="button" className="primary" disabled={Boolean(game.turn.untapped)} onClick={() => act({ type: "untapStep" })}>Alles enttappen</button>
-            <button type="button" className="secondary" onClick={() => act({ type: "pass" })}>Weiter zur Versorgung</button>
-          </>
-        )}
-        {step === "upkeep" && (
-          <>
-            <strong>Versorgung</strong>
-            <button type="button" className="primary" onClick={() => act({ type: "pass" })}>Weiter zum Ziehen</button>
-          </>
-        )}
-        {step === "draw" && (
-          <>
-            <strong>Ziehen</strong>
-            <button type="button" className="primary" disabled={Boolean(game.turn.drawn || game.turn.drawBlocked)} onClick={() => act({ type: "drawStep" })}>Karte ziehen</button>
-            {game.turn.drawBlocked && <span className="muted">Der Startspieler zieht im ersten Zug keine Karte.</span>}
-            <button type="button" className="secondary" onClick={() => act({ type: "pass" })}>Weiter zur Hauptphase 1</button>
-          </>
-        )}
+        <strong>Ziehen: Klicke auf deine Bibliothek, um eine Karte zu ziehen.</strong>
+      </div>
+    );
+  }
+
+  if (props.iHavePriority && game.stack.length > 0) {
+    // Nur wer wirklich antworten kann, wird überhaupt gefragt.
+    const top = game.stack.at(-1)!;
+    const what = top.card?.name ?? top.sourceName ?? "einen Effekt";
+    return (
+      <div className="action-bar" role="alert">
+        <strong>{nameOf(top.controller)} spielt {what}.</strong>
+        <span className="muted">Du kannst antworten: Die leuchtenden Karten und Fähigkeiten sind möglich.</span>
+        <button type="button" className="primary go" onClick={() => act({ type: "pass" })}>Nicht antworten</button>
       </div>
     );
   }
 
   if (props.iHavePriority) {
-    const resolving = game.stack.length > 0;
-    const label = resolving
-      ? "Auflösen lassen"
-      : step === "main1"
+    const label =
+      step === "main1"
         ? props.canAttack && props.livingOpponents.length > 0 ? "Weiter zum Kampf" : "Weiter zur Hauptphase 2"
         : step === "attackers"
           ? "Kein Angriff"
           : step === "damage"
             ? "Kampfschaden verursachen"
-            : step === "main2"
-              ? props.canSkipEnd ? "Zug beenden" : "Weiter zum Zugende"
-              : props.isActive ? "Zug beenden" : "Passen";
+            : "Zug beenden";
     return (
       <div className="action-bar" role="status">
         <button type="button" className="primary go" onClick={() => act({ type: "pass" })}>{label}</button>
-        {resolving && <span className="muted">Du antwortest nicht – der oberste Eintrag auf dem Stapel wird aufgelöst.</span>}
       </div>
     );
   }

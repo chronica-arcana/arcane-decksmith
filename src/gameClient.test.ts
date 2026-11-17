@@ -133,6 +133,18 @@ describe("connectGame", () => {
     expect(socket.sent).toHaveLength(before);
   });
 
+  it("erkennt eine tote Verbindung (nichts mehr vom Server, auch kein pong) und meldet sie", async () => {
+    const { statuses, socket } = start();
+    socket.readyState = 1;
+    socket.emit("open");
+    await vi.advanceTimersByTimeAsync(0);
+    socket.emit("message", { data: "pong" });
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(statuses.at(-1)).toEqual({ state: "open" });
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(statuses.at(-1)).toMatchObject({ state: "closed", code: 1006 });
+  });
+
   it("schließt ohne Token und meldet es", async () => {
     const { statuses, socket } = start(null);
     socket.readyState = 1;

@@ -19,17 +19,19 @@ export default function PlayerZone({ player }: { player: GamePlayer }) {
   const others = onField.filter(card => card.kind === "other");
   const lands = onField.filter(card => card.kind === "land");
 
+  // Jede Karte steckt in einem Slot, der bei Platzmangel schrumpft (Karten überlappen dann): Der Tisch bleibt fest und scrollt nie.
   const tile = (card: GameCard, size: "sm" | "md") => (
-    <CardView
-      key={card.id}
-      card={card}
-      size={size}
-      marked={markOf(card)}
-      onSelect={clickCard}
-      onHover={setHover}
-      onMenu={cardMenu}
-      onDragStart={own ? onDragStart : undefined}
-    />
+    <div key={card.id} className={`field-slot ${size}${card.tapped ? " tapped" : ""}`}>
+      <CardView
+        card={card}
+        size={size}
+        marked={markOf(card)}
+        onSelect={clickCard}
+        onHover={setHover}
+        onMenu={cardMenu}
+        onDragStart={own ? onDragStart : undefined}
+      />
+    </div>
   );
   const size = own ? "md" : "sm";
   const creatureRow = creatures.length > 0 && (
