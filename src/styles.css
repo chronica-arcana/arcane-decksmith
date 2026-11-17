@@ -5722,3 +5722,31 @@ footer {
     gap: 12px;
   }
 }
+
+.bot-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  padding: 12px 14px;
+  text-align: left;
+  color: inherit;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 12px;
+  cursor: pointer;
+}
+.bot-toggle-text { display: flex; flex-direction: column; gap: 2px; }
+.bot-toggle small { opacity: 0.7; }
+.bot-toggle-state {
+  flex: none;
+  min-width: 52px;
+  padding: 6px 12px;
+  text-align: center;
+  font-weight: 700;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.12);
+}
+.bot-toggle.on { border-color: #c9a24b; background: rgba(201, 162, 75, 0.14); }
+.bot-toggle.on .bot-toggle-state { background: #c9a24b; color: #1a1408; }
