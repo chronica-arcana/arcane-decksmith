@@ -6,7 +6,7 @@ const spell = (name, typeLine, oracleText) => parseCardText({ name, typeLine, or
 describe("cardText: Zauber", () => {
   it("Lightning Bolt: Schaden auf ein beliebiges Ziel", () => {
     const parsed = spell("Lightning Bolt", "Instant", "Lightning Bolt deals 3 damage to any target.");
-    expect(parsed).toEqual({ effects: [{ type: "damage", n: 3, to: { k: "target", t: 0 } }], specs: [{ kind: "any" }], unparsed: [] });
+    expect(parsed).toEqual({ effects: [{ type: "damage", n: 3, to: { k: "target", t: 0 } }], specs: [{ kind: "any" }], unparsed: [], summary: "3 Schaden an das Ziel." });
   });
 
   it("Divination, Giant Growth, Counterspell, Murder", () => {
@@ -49,7 +49,7 @@ describe("cardText: Permanents", () => {
   it("Einfach-Auslöser beim Betreten", () => {
     const parsed = parseCardText({ name: "Elvish Visionary", typeLine: "Creature — Elf Shaman", oracleText: "When Elvish Visionary enters the battlefield, draw a card." });
     expect(parsed.triggers).toEqual([
-      { event: "etb", text: "When ~ enters the battlefield, draw a card.", effects: [{ type: "draw", who: { k: "you" }, n: 1 }], specs: [], unparsed: [] }
+      { event: "etb", text: "When ~ enters the battlefield, draw a card.", effects: [{ type: "draw", who: { k: "you" }, n: 1 }], specs: [], unparsed: [], summary: "Du ziehst 1 Karte." }
     ]);
   });
 
@@ -69,7 +69,7 @@ describe("cardText: Permanents", () => {
     const elves = parseCardText({ name: "Llanowar Elves", typeLine: "Creature", oracleText: "{T}: Add {G}." });
     expect(elves.activated).toEqual([]);
     const flier = parseCardText({ name: "Hawk", typeLine: "Creature", oracleText: "Flying, vigilance" });
-    expect(flier).toEqual({ spell: null, triggers: [], activated: [], notes: [], statics: [], flashback: null });
+    expect(flier).toEqual({ spell: null, triggers: [], activated: [], notes: [], statics: [], flashback: null, entersTapped: false });
     const pw = parseCardText({ name: "Jace", typeLine: "Legendary Planeswalker — Jace", oracleText: "+1: Draw a card.\n−3: Return target creature to its owner's hand." });
     expect(pw.activated.map(a => a.cost.loyalty)).toEqual([1, -3]);
     expect(pw.activated[1].effects[0]).toMatchObject({ type: "bounce" });
@@ -78,9 +78,9 @@ describe("cardText: Permanents", () => {
   it("Dauereffekte und Sonderkosten werden als Hinweis geführt", () => {
     const odd = parseCardText({ name: "Seltsam", typeLine: "Enchantment", oracleText: "Whenever you cast a spell, draw a card." });
     expect(odd.notes).toEqual(["Whenever you cast a spell, draw a card."]);
-    const elder = parseCardText({ name: "Sakura-Tribe Elder", typeLine: "Creature", oracleText: "Sacrifice Sakura-Tribe Elder: Search your library for a basic land card." });
-    expect(elder.activated).toEqual([]);
-    expect(elder.notes).toHaveLength(1);
+    const discardCost = parseCardText({ name: "Opfer", typeLine: "Creature", oracleText: "Discard a card: Draw a card." });
+    expect(discardCost.activated).toEqual([]);
+    expect(discardCost.notes).toHaveLength(1);
   });
 });
 
@@ -108,5 +108,27 @@ describe("cardText: Dauereffekte, Auslöser, Rückblende", () => {
     expect(parseCardText({ name: "Dreams", typeLine: "Instant", oracleText: "Surveil 1, then draw a card.\nFlashback {3}{U}{U}" }).flashback).toBe("{3}{U}{U}");
     const sephiroth = parseCardText({ name: "Sephiroth", typeLine: "Creature", oracleText: "When Sephiroth enters, creatures your opponents control get -2/-2 until end of turn." });
     expect(sephiroth.triggers[0].effects).toEqual([{ type: "pumpAll", scope: "opp", p: -2, th: -2 }]);
+  });
+});
+
+describe("cardText: Opferkosten, getappt ins Spiel, Zusammenfassung", () => {
+  it("Evolving Wilds: {T}, Opfere diese Karte: Basic Land suchen", () => {
+    const wilds = parseCardText({ name: "Evolving Wilds", typeLine: "Land", oracleText: "{T}, Sacrifice Evolving Wilds: Search your library for a basic land card, put it onto the battlefield tapped, then shuffle." });
+    expect(wilds.activated).toHaveLength(1);
+    expect(wilds.activated[0].cost).toEqual({ tap: true, sacrifice: true, mana: "" });
+    expect(wilds.activated[0].effects).toEqual([{ type: "search", what: "basic land", to: "battlefield", tapped: true }]);
+    expect(wilds.notes).toEqual([]);
+  });
+
+  it("kommt getappt ins Spiel", () => {
+    const cliffs = parseCardText({ name: "Swiftwater Cliffs", typeLine: "Land", oracleText: "Swiftwater Cliffs enters tapped.\nWhen Swiftwater Cliffs enters, you gain 1 life.\n{T}: Add {U} or {R}." });
+    expect(cliffs.entersTapped).toBe(true);
+    expect(cliffs.triggers[0]).toMatchObject({ event: "etb", summary: "Du erhältst 1 Leben." });
+    expect(cliffs.notes).toEqual([]);
+  });
+
+  it("fasst Effekte auf Deutsch zusammen und lässt Unverstandenes im Original", () => {
+    const parsed = spell("X", "Sorcery", "Draw two cards. Each player sacrifices a creature.");
+    expect(parsed.summary).toBe("Du ziehst 2 Karten. Each player sacrifices a creature.");
   });
 });

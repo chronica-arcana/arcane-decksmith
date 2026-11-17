@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { cleanup, createEvent, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { GameCard, GamePlayer, GameView } from "../../gameClient";
 import Battlefield from "./Battlefield";
@@ -17,7 +17,7 @@ const creature = (id: string, name: string, owner = "me", extra: Partial<GameCar
 function player(userId: string, name: string, extra: Partial<GamePlayer> = {}): GamePlayer {
   return {
     userId, name, deckName: `Deck ${name}`, life: 20, poison: 0, energy: 0, experience: 0, eliminated: null, mulligans: 0, kept: false,
-    pool: { W: 0, U: 0, B: 0, R: 0, G: 0, C: 0 }, autoPass: true, prompts: [],
+    pool: { W: 0, U: 0, B: 0, R: 0, G: 0, C: 0 }, askResponse: true, prompts: [],
     counts: { library: 40, hand: 0, battlefield: 0, graveyard: 0, exile: 0, command: 0 },
     hand: [], battlefield: [], graveyard: [], exile: [], command: [], looking: null, cmdDamage: {}, cmdCasts: {}, ...extra
   };
@@ -27,7 +27,7 @@ function view(extra: Partial<GameView> = {}, mine: Partial<GamePlayer> = {}, oth
   return {
     format: "standard", phase: "playing", you: "me", winner: null, startedAt: 0, endedAt: null, log: [{ n: 1, text: "Los geht's" }],
     turn: { number: 3, active: "me", phase: "main1", first: "me", landsPlayed: 0 },
-    priority: "me", stack: [], combat: null, pendingDiscard: null, choice: null, manual: null,
+    priority: "me", stack: [], combat: null, pendingDiscard: null, fx: [], choice: null, manual: null,
     players: [player("me", "Ich", mine), player("they", "Gegner", other)], ...extra
   };
 }
@@ -151,7 +151,7 @@ describe("Spielraum", () => {
 
   it("nur im manuellen Fenster: Bibliothek zieht, Menüs bieten Handarbeit, „Fertig“ schließt es", () => {
     const wolf = creature("c1", "Wolf");
-    const game = view({ manual: { userId: "me", text: "Each player sacrifices a creature", source: "Rätsel" } }, { battlefield: [wolf] });
+    const game = view({ manual: { userId: "me", text: "Draw a card, then return a creature to the battlefield.", source: "Rätsel" } }, { battlefield: [wolf] });
     const { send } = setup(game);
     expect(screen.getByText(/lässt sich nicht automatisch umsetzen/)).toBeTruthy();
     fireEvent.click(screen.getByLabelText(/Bibliothek: 40 Karten/));
@@ -178,13 +178,17 @@ describe("Spielraum", () => {
     expect(screen.getByText("Gegner überlegt …")).toBeTruthy();
   });
 
-  it("Stapel: Zauber sichtbar, Menü bietet nur das Ansehen", () => {
+  it("Stapel (nur wenn jemand antworten kann): erklärt, was gespielt wurde, und fragt nach", () => {
     const game = view({ stack: [{ sid: "s1", controller: "they", kind: "spell", text: "", card: card("x1", "Blitz", { owner: "they" }) }] });
-    setup(game);
+    const { send } = setup(game);
     const stack = screen.getByLabelText("Stapel");
-    expect(screen.getByRole("button", { name: "Auflösen lassen" })).toBeTruthy();
+    expect(screen.getByText("Gegner spielt Blitz.")).toBeTruthy();
+    expect(screen.getByText(/Du kannst antworten/)).toBeTruthy();
     fireEvent.contextMenu(within(stack).getByRole("button", { name: "Blitz" }));
     expect(screen.getAllByRole("menuitem").map(item => item.textContent)).toEqual(["Groß ansehen"]);
+    fireEvent.click(screen.getByRole("menuitem", { name: "Groß ansehen" }));
+    fireEvent.click(screen.getByRole("button", { name: "Nicht antworten" }));
+    expect(send).toHaveBeenCalledWith({ type: "pass" });
   });
 
   it("Mana: Klick auf ein Land tappt es; bei mehreren Farben erscheint eine Auswahl", () => {
@@ -342,40 +346,39 @@ describe("Zugablauf und Anzeige", () => {
     expect(screen.getByRole("button", { name: "Zug beenden" })).toBeTruthy();
   });
 
-  it("erklärt den Knopf bei nicht leerem Stapel verständlich", () => {
-    const game = view({ stack: [{ sid: "s1", controller: "they", kind: "spell", text: "", card: card("x1", "Blitz", { owner: "they" }) }] });
-    setup(game);
-    expect(screen.getByRole("button", { name: "Auflösen lassen" })).toBeTruthy();
-    expect(screen.getByText(/Du antwortest nicht/)).toBeTruthy();
+  it("Zieh-Schritt: kein Knopf, die Bibliothek wird angeklickt; danach geht es automatisch weiter", () => {
+    const base = { manualStart: true, drawn: false, drawBlocked: false };
+    const { send } = setup(view({ turn: { number: 2, active: "me", phase: "draw", first: "they", landsPlayed: 0, ...base } }));
+    expect(screen.queryByRole("button", { name: "Karte ziehen" })).toBeNull();
+    expect(screen.getByText(/Klicke auf deine Bibliothek/)).toBeTruthy();
+    fireEvent.click(screen.getByLabelText(/Bibliothek: 40 Karten. Anklicken zum Ziehen/));
+    expect(send).toHaveBeenLastCalledWith({ type: "drawStep" });
+    cleanup();
+    setup(view({ turn: { number: 1, active: "me", phase: "main1", first: "me", landsPlayed: 0, manualStart: false, drawBlocked: true } }));
+    expect(screen.getByText("Im ersten Zug zieht der Startspieler nicht")).toBeTruthy();
   });
 
-  it("manueller Zugbeginn: Enttappen, Versorgung und Ziehen als eigene Schritte", () => {
-    const base = { manualStart: true, untapped: false, drawn: false, drawBlocked: false };
-    const first = setup(view({ turn: { number: 2, active: "me", phase: "untap", first: "they", landsPlayed: 0, ...base } }));
-    fireEvent.click(screen.getByRole("button", { name: "Alles enttappen" }));
-    expect(first.send).toHaveBeenLastCalledWith({ type: "untapStep" });
-    fireEvent.click(screen.getByRole("button", { name: "Weiter zur Versorgung" }));
-    expect(first.send).toHaveBeenLastCalledWith({ type: "pass" });
-    cleanup();
-    const second = setup(view({ turn: { number: 2, active: "me", phase: "draw", first: "they", landsPlayed: 0, ...base } }));
-    fireEvent.click(screen.getByRole("button", { name: "Karte ziehen" }));
-    expect(second.send).toHaveBeenLastCalledWith({ type: "drawStep" });
-    cleanup();
-    setup(view({ turn: { number: 1, active: "me", phase: "draw", first: "me", landsPlayed: 0, ...base, drawBlocked: true } }));
-    expect(screen.getByRole("button", { name: "Karte ziehen" })).toHaveProperty("disabled", true);
-    expect(screen.getByText(/Startspieler zieht im ersten Zug keine Karte/)).toBeTruthy();
-  });
-
-  it("Menü: Enttappen und Ziehen umstellen", () => {
-    const { send } = setup(view({}, { autoStart: true }));
+  it("Einstellungen mit An/Aus-Schaltern statt Menüpunkten", () => {
+    const { send } = setup(view({}, { autoStart: true, askResponse: true }));
     fireEvent.click(screen.getByRole("button", { name: "Weitere Aktionen" }));
-    fireEvent.click(screen.getByRole("menuitem", { name: /auf manuell stellen/ }));
-    expect(send).toHaveBeenCalledWith({ type: "autoStart", value: false });
+    expect(screen.queryByRole("menuitem", { name: /Spielverlauf/ })).toBeNull();
+    expect(screen.queryByRole("menuitem", { name: /Würfel|Münze/ })).toBeNull();
+    fireEvent.click(screen.getByRole("menuitem", { name: "Einstellungen …" }));
+    const dialog = screen.getByRole("dialog", { name: "Einstellungen" });
+    const draw = within(dialog).getByRole("switch", { name: "Karte automatisch ziehen" });
+    expect(draw.getAttribute("aria-checked")).toBe("true");
+    fireEvent.click(draw);
+    expect(send).toHaveBeenLastCalledWith({ type: "autoStart", value: false });
+    fireEvent.click(within(dialog).getByRole("switch", { name: "Nachfragen, wenn ich antworten kann" }));
+    expect(send).toHaveBeenLastCalledWith({ type: "askResponse", value: false });
   });
 
   it("Zugwechsel nennt, was automatisch passiert ist", () => {
     setup(view({ turn: { number: 4, active: "me", phase: "main1", first: "they", landsPlayed: 0, manualStart: false, drew: true } }));
     expect(screen.getByText("Alles enttappt, Karte gezogen")).toBeTruthy();
+    cleanup();
+    setup(view({ turn: { number: 4, active: "me", phase: "draw", first: "they", landsPlayed: 0, manualStart: true } }));
+    expect(screen.queryByText(/manuell/)).toBeNull();
   });
 
   it("der Raum liegt über der ganzen App (am Dokument verankert), die Vorschau verschwindet beim Verlassen der Karte und bei Berührung daneben", async () => {
@@ -391,5 +394,47 @@ describe("Zugablauf und Anzeige", () => {
     await screen.findByLabelText("Kartenvorschau");
     fireEvent.pointerDown(screen.getByLabelText("Mitte: Stapel und Kampf"));
     await vi.waitFor(() => expect(screen.queryByLabelText("Kartenvorschau")).toBeNull());
+  });
+});
+
+describe("Manuelles Fenster nur laut Kartentext, Münzwurf, Effekte", () => {
+  it("bietet nur an, was der Kartentext verlangt: Marker nur auf Kreaturen, kein Ziehen ohne „draw“", () => {
+    const land = card("l1", "Wald", { kind: "land", typeLine: "Basic Land — Forest" });
+    const wolf = creature("c1", "Wolf");
+    setup(view({ manual: { userId: "me", text: "Put a +1/+1 counter on target creature.", source: "X" } }, { battlefield: [wolf, land] }));
+    fireEvent.contextMenu(screen.getByRole("button", { name: "Wolf" }));
+    expect(screen.getByRole("menuitem", { name: "+1/+1 Marker" })).toBeTruthy();
+    expect(screen.queryByRole("menuitem", { name: "→ Friedhof" })).toBeNull(); // keine Verschiebung verlangt
+    fireEvent.keyDown(window, { key: "Escape" });
+    fireEvent.contextMenu(screen.getByRole("button", { name: "Wald" }));
+    expect(screen.queryByRole("menuitem", { name: "+1/+1 Marker" })).toBeNull(); // nicht auf Länder
+    fireEvent.click(screen.getByLabelText(/Bibliothek: 40 Karten/));
+  });
+
+  it("Münzwurf zu Spielbeginn nennt den Startspieler und verschwindet danach", () => {
+    const began = Date.now();
+    const game = view({ turn: { number: 1, active: "they", phase: "main1", first: "they", landsPlayed: 0, beganAt: began + 1000 } });
+    setup(game);
+    expect(screen.getByRole("dialog", { name: "Münzwurf: Wer beginnt?" })).toBeTruthy();
+    expect(screen.getByText("Gegner beginnt!")).toBeTruthy();
+    const overlay = screen.getByRole("dialog", { name: "Münzwurf: Wer beginnt?" });
+    const end = createEvent.animationEnd(overlay);
+    Object.defineProperty(end, "animationName", { value: "coin-out" });
+    fireEvent(overlay, end);
+    expect(screen.queryByRole("dialog", { name: "Münzwurf: Wer beginnt?" })).toBeNull();
+  });
+
+  it("kein Münzwurf mehr, wenn man mitten im ersten Zug neu lädt", () => {
+    const game = view({ turn: { number: 1, active: "they", phase: "main1", first: "they", landsPlayed: 0, beganAt: Date.now() - 600000 } });
+    setup(game);
+    expect(screen.queryByRole("dialog", { name: "Münzwurf: Wer beginnt?" })).toBeNull();
+  });
+
+  it("Schaden zeigt eine schwebende Zahl am Ziel (nur für neue Effekte)", () => {
+    const game = view({ fx: [{ id: 1, type: "damage", amount: 2, player: "they" }] });
+    const { rerender, send } = setup(game);
+    expect(document.querySelector(".fx-float")).toBeNull(); // alte Effekte beim Öffnen nicht abspielen
+    rerender(<Battlefield game={{ ...game, fx: [...game.fx, { id: 2, type: "damage", amount: 3, player: "they" }] }} hostId="me" send={send} onRematch={vi.fn()} onLeave={vi.fn()} />);
+    expect(document.querySelector(".fx-float.damage")?.textContent).toBe("−3");
   });
 });

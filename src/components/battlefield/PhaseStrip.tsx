@@ -3,8 +3,8 @@ import type { GameStep, GameView } from "../../gameClient";
 type Item = { key: string; label: string; auto?: boolean; steps: GameStep[]; sub?: { step: GameStep; label: string }[] };
 
 const ITEMS: Item[] = [
-  { key: "untap", label: "Enttappen", auto: true, steps: ["untap"] },
-  { key: "upkeep", label: "Versorgung", auto: true, steps: ["upkeep"] },
+  { key: "untap", label: "Enttappen", auto: true, steps: [] },
+  { key: "upkeep", label: "Versorgung", auto: true, steps: [] },
   { key: "draw", label: "Ziehen", auto: true, steps: ["draw"] },
   { key: "main1", label: "Hauptphase 1", steps: ["main1"] },
   {
@@ -31,9 +31,10 @@ export default function PhaseStrip({ game, activeName }: { game: GameView; activ
       <ol className="phase-list">
         {ITEMS.map((item, index) => {
           const on = item.steps.includes(current);
-          const done = (item.auto && !game.turn.manualStart) || currentIndex > index;
+          const manualDraw = item.key === "draw" && game.turn.manualStart;
+          const done = (item.auto && !manualDraw) || currentIndex > index;
           return (
-            <li key={item.key} className={`phase${on ? " on" : ""}${done ? " done" : ""}${item.auto && !game.turn.manualStart ? " auto" : ""}`} aria-current={on ? "step" : undefined}>
+            <li key={item.key} className={`phase${on ? " on" : ""}${done ? " done" : ""}${item.auto && !manualDraw ? " auto" : ""}`} aria-current={on ? "step" : undefined}>
               <span className="phase-dot" aria-hidden="true" />
               <span className="phase-label">{item.label}</span>
               {item.sub && on && (

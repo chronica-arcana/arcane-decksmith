@@ -32,6 +32,11 @@ export type BattlefieldApi = {
   libraryMenu: (event: MouseEvent) => void;
   /** Ein Kartentext hat eine manuelle Umsetzung ausgelöst, und du darfst gerade von Hand eingreifen. */
   manualMine: boolean;
+  /** Was im manuellen Fenster erlaubt ist (abgeleitet aus dem Kartentext). */
+  manualAllows: { draw: boolean; mill: boolean; life: boolean; counters: boolean; token: boolean; move: boolean; tap: boolean; reveal: boolean; flip: boolean; shuffle: boolean; look: boolean };
+  /** Zieh-Schritt: Die Bibliothek anklicken zieht jetzt eine Karte. */
+  canDrawNow: boolean;
+  drawCard: () => void;
   /** Laufende Zielwahl (Zauber oder Fähigkeit), sonst `null`. */
   targeting: { name: string; specs: TargetOption[]; picked: string[] } | null;
   isTarget: (id: string) => boolean;

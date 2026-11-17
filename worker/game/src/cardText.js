@@ -191,6 +191,44 @@ function parseSentence(raw, specs) {
   return null;
 }
 
+const WHO_DE = { you: "Du", eachOpp: "Jeder Gegner", each: "Jeder Spieler", target: "Der Zielspieler" };
+const plural = (n, one, many) => (n === 1 ? one : many);
+
+/** Verständliche deutsche Beschreibung eines Effekts (für die Anzeige auf dem Stapel). */
+export function describeEffect(effect) {
+  const who = effect.who ? WHO_DE[effect.who.k] ?? "Spieler" : "Du";
+  const signed = value => `${value >= 0 ? "+" : ""}${value}`;
+  switch (effect.type) {
+    case "draw": return `${who} ${effect.who?.k === "you" ? "ziehst" : "zieht"} ${effect.n} ${plural(effect.n, "Karte", "Karten")}.`;
+    case "life": return effect.n >= 0 ? `${who} ${effect.who?.k === "you" ? "erhältst" : "erhält"} ${effect.n} Leben.` : `${who} ${effect.who?.k === "you" ? "verlierst" : "verliert"} ${-effect.n} Leben.`;
+    case "mill": return `${who} mahlt ${effect.n} ${plural(effect.n, "Karte", "Karten")}.`;
+    case "discard": return `${who} wirft ${effect.n} ${plural(effect.n, "Karte", "Karten")} ab.`;
+    case "scry": return `Wühlen ${effect.n}.`;
+    case "surveil": return `Überwachen ${effect.n}.`;
+    case "damage": return `${effect.n} Schaden an ${{ target: "das Ziel", eachOpp: "jeden Gegner", each: "jeden Spieler", eachCreature: "jede Kreatur", eachOppCreature: "jede gegnerische Kreatur" }[effect.to.k]}.`;
+    case "destroy": return "Zerstört das Ziel.";
+    case "destroyAll": return `Zerstört alle ${{ creature: "Kreaturen", land: "Länder", artifact: "Artefakte", enchantment: "Verzauberungen" }[effect.what] ?? "Permanents"}.`;
+    case "exile": return "Schickt das Ziel ins Exil.";
+    case "bounce": return "Das Ziel geht zurück auf die Hand seines Besitzers.";
+    case "tap": return "Tappt das Ziel.";
+    case "untap": return "Enttappt das Ziel.";
+    case "counterSpell": return "Neutralisiert den Zielzauber.";
+    case "counters": return `${effect.n}× ${effect.kind}-Marker ${effect.self ? "auf diese Karte" : "auf das Ziel"}.`;
+    case "pump": return `${effect.self ? "Diese Kreatur" : "Das Ziel"} erhält ${signed(effect.p)}/${signed(effect.th)} bis zum Zugende.`;
+    case "pumpAll": return `${{ you: "Deine Kreaturen", opp: "Kreaturen deiner Gegner", all: "Alle Kreaturen" }[effect.scope ?? "you"]} erhalten ${signed(effect.p)}/${signed(effect.th)} bis zum Zugende.`;
+    case "token": return `Erzeugt ${effect.n}× ${effect.name} ${effect.p}/${effect.th}.`;
+    case "search": return `Durchsucht die Bibliothek nach ${effect.what === "card" ? "einer Karte" : `einer Karte (${effect.what})`} und legt sie ${effect.to === "hand" ? "auf die Hand" : `aufs Schlachtfeld${effect.tapped ? " (getappt)" : ""}`}.`;
+    case "gyReturn": return `Holt eine Karte (${effect.what}) aus dem Friedhof ${effect.to === "hand" ? "auf die Hand" : "aufs Schlachtfeld"}.`;
+    case "mana": return `Erzeugt ${effect.symbols.map(symbol => `{${symbol}}`).join("")}.`;
+    default: return "";
+  }
+}
+
+/** Fasst die Effekte zusammen; nicht verstandene Sätze bleiben im englischen Original stehen. */
+export function summarize({ effects, unparsed }) {
+  return [...effects.map(describeEffect).filter(Boolean), ...unparsed.map(sentence => `${sentence}.`)].join(" ");
+}
+
 /** Mehrere Sätze eines Effekt-Textes. */
 function parseEffectText(text) {
   const specs = [];
@@ -224,7 +262,7 @@ function parseEffectText(text) {
     if (split) effects.push(...split);
     else unparsed.push(sentence);
   }
-  return { effects, specs, unparsed };
+  return { effects, specs, unparsed, summary: summarize({ effects, unparsed }) };
 }
 
 /** Bedingung eines Auslösers → Ereignis (`null`, wenn nicht unterstützt). */
@@ -255,7 +293,7 @@ const stripPrefix = line => line.replace(/^[•*]\s*/, "");
 export function parseCardText({ name, typeLine, oracleText }) {
   const types = typesOf(typeLine);
   const lines = normalizeText(oracleText, name).map(stripPrefix);
-  const result = { spell: null, triggers: [], activated: [], notes: [], statics: [], flashback: null };
+  const result = { spell: null, triggers: [], activated: [], notes: [], statics: [], flashback: null, entersTapped: false };
 
   if (types.instant || types.sorcery) {
     const body = [];
@@ -287,12 +325,12 @@ export function parseCardText({ name, typeLine, oracleText }) {
     }
 
     // Aktivierte Fähigkeit: Kosten: Wirkung
-    const activated = line.match(/^((?:\{[^}]+\}|, )+): (.+)$/);
+    const activated = line.match(/^((?:\{[^}]+\}|Sacrifice ~|, )+): (.+)$/);
     if (activated) {
       const costText = activated[1];
       if (/^add\b/i.test(activated[2])) continue; // einfaches Mana: wird als Manaquelle behandelt
-      const cost = { tap: /\{T\}/.test(costText), mana: costText.replace(/\{T\}|, /g, "") };
-      const onlySupported = costText.replace(/\{T\}|\{[^}]+\}|, /g, "") === "";
+      const cost = { tap: /\{T\}/.test(costText), sacrifice: /Sacrifice ~/.test(costText), mana: costText.replace(/\{T\}|Sacrifice ~|, /g, "") };
+      const onlySupported = costText.replace(/\{T\}|Sacrifice ~|\{[^}]+\}|, /g, "") === "";
       if (!onlySupported) {
         result.notes.push(line);
         continue;
@@ -303,6 +341,12 @@ export function parseCardText({ name, typeLine, oracleText }) {
     }
     if (/^[^:]*(?:sacrifice|discard|pay|exile|remove|tap|untap)[^:]*: /i.test(line)) {
       result.notes.push(line);
+      continue;
+    }
+
+    // Ersatzeffekt: kommt getappt ins Spiel
+    if (/^~ enters( the battlefield)? tapped\.?$/i.test(line)) {
+      result.entersTapped = true;
       continue;
     }
 

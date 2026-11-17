@@ -37,25 +37,28 @@ export function ZonePile({ player, zone }: { player: GamePlayer; zone: "graveyar
  * umgesetzt werden muss, zieht ein Klick eine Karte und ein Rechtsklick öffnet Ansehen, Durchsuchen und Mischen.
  */
 export function LibraryPile({ player }: { player: GamePlayer }) {
-  const { game, canAct, act, libraryMenu, dropProps, dropKey, moveCard, manualMine } = useBattlefield();
+  const { game, canAct, act, libraryMenu, dropProps, dropKey, moveCard, manualMine, manualAllows, canDrawNow, drawCard } = useBattlefield();
   const own = player.userId === game.you;
   const key = `${player.userId}:library`;
   const manual = own && manualMine && canAct;
+  const drawNow = own && canDrawNow;
+  const clickable = drawNow || (manual && manualAllows.draw);
+  const draw = () => (drawNow ? drawCard() : act({ type: "draw" }));
   return (
     <div
-      role={manual ? "button" : undefined}
-      tabIndex={manual ? 0 : undefined}
-      className={`pile library${dropKey === key ? " drop" : ""}${manual ? " clickable" : ""}`}
-      aria-label={own ? `Bibliothek: ${player.counts.library} Karten` : `Bibliothek von ${player.name}: ${player.counts.library}`}
-      title={manual ? "Manuell: anklicken zieht eine Karte, Rechtsklick für mehr" : undefined}
-      onClick={() => manual && act({ type: "draw" })}
-      onKeyDown={event => manual && (event.key === "Enter" || event.key === " ") && act({ type: "draw" })}
+      role={clickable ? "button" : undefined}
+      tabIndex={clickable ? 0 : undefined}
+      className={`pile library${dropKey === key ? " drop" : ""}${clickable ? " clickable" : ""}${drawNow ? " draw-ready" : ""}`}
+      aria-label={own ? `Bibliothek: ${player.counts.library} Karten${drawNow ? ". Anklicken zum Ziehen" : ""}` : `Bibliothek von ${player.name}: ${player.counts.library}`}
+      title={drawNow ? "Klicke, um eine Karte zu ziehen" : manual && manualAllows.draw ? "Anklicken zieht eine Karte (Kartentext)" : undefined}
+      onClick={() => clickable && draw()}
+      onKeyDown={event => clickable && (event.key === "Enter" || event.key === " ") && draw()}
       onContextMenu={event => {
-        if (!manual) return;
+        if (!manual || !(manualAllows.look || manualAllows.shuffle || manualAllows.mill)) return;
         event.preventDefault();
         libraryMenu(event);
       }}
-      {...(manual ? dropProps(key, (card: GameCard) => moveCard(card, "library", { position: "top" })) : {})}
+      {...(manual && manualAllows.move ? dropProps(key, (card: GameCard) => moveCard(card, "library", { position: "top" })) : {})}
     >
       <span className="gc sm library-card">
         <CardBack />

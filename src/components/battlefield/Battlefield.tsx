@@ -8,12 +8,15 @@ import { BattlefieldContext, type BattlefieldApi, type Mark } from "./Battlefiel
 import CardPreview from "./CardPreview";
 import CardView from "./CardView";
 import CenterZone from "./CenterZone";
+import CoinFlip from "./CoinFlip";
 import ChatDrawer, { type ChatApi } from "./ChatDrawer";
 import ChoiceDialog from "./ChoiceDialog";
 import ContextMenu, { type MenuItem } from "./ContextMenu";
+import FxLayer from "./FxLayer";
 import MulliganScreen from "./MulliganScreen";
 import PhaseStrip from "./PhaseStrip";
 import PlayerZone from "./PlayerZone";
+import SettingsDialog from "./SettingsDialog";
 import TurnToast from "./TurnToast";
 import "./battlefield.css";
 
@@ -69,6 +72,9 @@ export default function Battlefield({
   const [lifeOpen, setLifeOpen] = useState(false);
   const [dropKey, setDropKey] = useState<string | null>(null);
   const [targeting, setTargeting] = useState<Targeting | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [coinDone, setCoinDone] = useState<number | null>(null);
+  const [mountedAt] = useState(() => Date.now());
   const hoverTimer = useRef<number | undefined>(undefined);
 
   // Vollbild: Der Hintergrund (App mit Sammlung usw.) scrollt nicht mit.
@@ -111,11 +117,29 @@ export default function Battlefield({
   const canAct = game.phase === "playing" && !me.eliminated;
   const iHavePriority = game.priority === game.you && canAct && !game.choice && !game.manual;
   const manualMine = game.manual?.userId === game.you;
+  const manualText = game.manual?.text ?? "";
+  const has = (pattern: RegExp) => pattern.test(manualText);
+  /** Im manuellen Fenster ist nur erlaubt, was der Kartentext verlangt. */
+  const manualAllows = {
+    draw: has(/draw/i),
+    mill: has(/mill/i),
+    life: has(/life|damage/i),
+    counters: has(/counter/i),
+    token: has(/token|create/i),
+    move: has(/return|exile|destroy|sacrifice|discard|into (your|the|its owner)|onto the battlefield|from (your|a) (graveyard|hand|library)|search/i),
+    tap: has(/\btap|untap/i),
+    reveal: has(/reveal/i),
+    flip: has(/face|manifest|morph/i),
+    shuffle: has(/shuffle|search/i),
+    look: has(/look|search|scry|surveil/i)
+  };
+  const canDrawNow = game.phase === "playing" && !me.eliminated && game.turn.active === game.you && step === "draw" && !game.turn.drawn && !game.turn.drawBlocked && game.stack.length === 0 && !game.choice && !game.manual;
+  const beganAt = game.turn.beganAt ?? 0;
+  const showCoin = game.phase === "playing" && game.turn.number === 1 && beganAt > 0 && coinDone !== beganAt && beganAt >= mountedAt - 4000 && Boolean(game.turn.first);
   const target = attackTarget || livingOpponents[0]?.userId || "";
   const awaitingMe = Boolean(game.combat?.awaiting.includes(game.you));
   const attackedMe = game.combat?.attackers.filter(attacker => attacker.target === game.you) ?? [];
   const canAttack = me.battlefield.some(card => card.kind === "creature" && !card.tapped && !card.sick && !card.faceDown && !card.keywords?.includes("defender"));
-  const canSkipEnd = livingOpponents.every(player => player.autoPass !== false);
   const attackStep = canAct && isActive && step === "attackers" && game.stack.length === 0 && !game.choice && !game.manual;
   const discarding = game.pendingDiscard?.userId === game.you;
   const previewCard = hover ?? (pinnedId ? allCards.get(pinnedId) : undefined) ?? null;
@@ -193,7 +217,7 @@ export default function Battlefield({
   const dropOnTable = (card: GameCard) => {
     const zone = zoneOf(card);
     if ((zone === "hand" || zone === "command") && card.play?.ok) startCast(card);
-    else if (manualMine && zone && zone !== "battlefield") moveCard(card, "battlefield");
+    else if (manualMine && manualAllows.move && zone && zone !== "battlefield") moveCard(card, "battlefield");
   };
 
   // ---------- Menüs ----------
@@ -224,63 +248,49 @@ export default function Battlefield({
         }
       }
       if (manualMine) {
-        items.push({ label: "Manuell:", onClick: () => undefined, heading: true });
+        const manual: MenuItem[] = [];
+        const creature = card.kind === "creature" || /planeswalker/i.test(card.typeLine ?? "");
         if (zone === "hand") {
-          items.push({ label: "Zeigen / verbergen", onClick: () => act({ type: "reveal", id: card.id }) });
-          items.push({ label: "Verdeckt ausspielen", onClick: () => moveCard(card, "battlefield", { faceDown: true }) });
-          items.push({ label: "→ Schlachtfeld", onClick: () => moveCard(card, "battlefield") });
-          items.push(...moves(["graveyard", "exile"]), ...library);
+          if (manualAllows.reveal) manual.push({ label: "Zeigen / verbergen", onClick: () => act({ type: "reveal", id: card.id }) });
+          if (manualAllows.flip) manual.push({ label: "Verdeckt ausspielen", onClick: () => moveCard(card, "battlefield", { faceDown: true }) });
+          if (manualAllows.move) manual.push({ label: "→ Schlachtfeld", onClick: () => moveCard(card, "battlefield") }, ...moves(["graveyard", "exile"]), ...library);
         } else if (zone === "battlefield") {
-          items.push({ label: card.tapped ? "Enttappen" : "Tappen", onClick: () => act({ type: "tap", id: card.id }) });
-          items.push({ label: "Umdrehen", onClick: () => act({ type: "flip", id: card.id }) });
-          items.push({ label: "+1/+1 Marker", onClick: () => act({ type: "counter", id: card.id, kind: "+1/+1", delta: 1 }) });
-          items.push({ label: "−1/−1 Marker", onClick: () => act({ type: "counter", id: card.id, kind: "-1/-1", delta: 1 }) });
-          items.push({
-            label: "Anderen Marker hinzufügen …",
-            onClick: () => {
-              const kind = window.prompt("Markerart (z. B. Loyalität, Ladung):", "Ladung")?.trim();
-              if (kind) act({ type: "counter", id: card.id, kind, delta: 1 });
-            }
-          });
-          for (const kind of Object.keys(card.counters)) {
-            items.push({ label: `${kind}-Marker entfernen`, onClick: () => act({ type: "counter", id: card.id, kind, delta: -1 }) });
+          if (manualAllows.tap) manual.push({ label: card.tapped ? "Enttappen" : "Tappen", onClick: () => act({ type: "tap", id: card.id }) });
+          if (manualAllows.flip) manual.push({ label: "Umdrehen", onClick: () => act({ type: "flip", id: card.id }) });
+          if (manualAllows.counters && creature) {
+            manual.push({ label: "+1/+1 Marker", onClick: () => act({ type: "counter", id: card.id, kind: "+1/+1", delta: 1 }) });
+            manual.push({ label: "−1/−1 Marker", onClick: () => act({ type: "counter", id: card.id, kind: "-1/-1", delta: 1 }) });
+            for (const kind of Object.keys(card.counters)) manual.push({ label: `${kind}-Marker entfernen`, onClick: () => act({ type: "counter", id: card.id, kind, delta: -1 }) });
           }
-          items.push(...moves(["hand", "graveyard", "exile", "command"]), ...library);
-        } else if (zone) {
-          items.push({ label: "→ Schlachtfeld", onClick: () => moveCard(card, "battlefield") });
-          items.push(...moves(["hand", "graveyard", "exile", "command"]), ...library);
+          if (manualAllows.move) manual.push(...moves(["hand", "graveyard", "exile", "command"]), ...library);
+        } else if (zone && manualAllows.move) {
+          manual.push({ label: "→ Schlachtfeld", onClick: () => moveCard(card, "battlefield") }, ...moves(["hand", "graveyard", "exile", "command"]), ...library);
         }
+        if (manual.length > 0) items.push({ label: "Laut Kartentext:", onClick: () => undefined, heading: true }, ...manual);
       }
     }
     setMenu({ x, y, items });
   };
 
   const gameMenu = (event: MouseEvent) => {
-    const items: MenuItem[] = [
-      { label: "Spielverlauf anzeigen", onClick: () => setDrawer("log") },
-      { label: "Würfel W6", onClick: () => act({ type: "dice", sides: 6 }) },
-      { label: "Würfel W20", onClick: () => act({ type: "dice", sides: 20 }) },
-      { label: "Münze werfen", onClick: () => act({ type: "coin" }) },
-      { label: (me.autoPass ?? true) ? "Automatisch passen: aus" : "Automatisch passen: an", onClick: () => act({ type: "autoPass", value: !(me.autoPass ?? true) }) },
-      {
-        label: (me.autoStart ?? true) ? "Enttappen und Ziehen: auf manuell stellen" : "Enttappen und Ziehen: auf automatisch stellen",
-        onClick: () => act({ type: "autoStart", value: !(me.autoStart ?? true) })
-      }
-    ];
+    const items: MenuItem[] = [{ label: "Einstellungen …", onClick: () => setSettingsOpen(true) }];
     if (manualMine) {
-      items.push({ label: "Manuell:", onClick: () => undefined, heading: true });
-      items.push({ label: "Karte ziehen", onClick: () => act({ type: "draw" }) });
-      items.push({ label: "Oberste Karte mahlen", onClick: () => act({ type: "mill" }) });
-      items.push({ label: "Bibliothek mischen", onClick: () => act({ type: "shuffle" }) });
-      items.push({ label: "Alles enttappen", onClick: () => act({ type: "untapAll" }) });
-      items.push({
-        label: "Spielstein erzeugen …",
-        onClick: () => {
-          const name = window.prompt("Spielstein (z. B. „Goblin 1/1“):", "Goblin 1/1")?.trim();
-          if (name) act({ type: "token", name });
-        }
-      });
-      items.push({ label: "Leben anpassen …", onClick: () => setLifeOpen(true) });
+      const manual: MenuItem[] = [];
+      if (manualAllows.draw) manual.push({ label: "Karte ziehen", onClick: () => act({ type: "draw" }) });
+      if (manualAllows.mill) manual.push({ label: "Oberste Karte mahlen", onClick: () => act({ type: "mill" }) });
+      if (manualAllows.shuffle) manual.push({ label: "Bibliothek mischen", onClick: () => act({ type: "shuffle" }) });
+      if (manualAllows.tap) manual.push({ label: "Alles enttappen", onClick: () => act({ type: "untapAll" }) });
+      if (manualAllows.token) {
+        manual.push({
+          label: "Spielstein erzeugen …",
+          onClick: () => {
+            const name = window.prompt("Spielstein (z. B. „Goblin 1/1“):", "Goblin 1/1")?.trim();
+            if (name) act({ type: "token", name });
+          }
+        });
+      }
+      if (manualAllows.life) manual.push({ label: "Leben anpassen …", onClick: () => setLifeOpen(true) });
+      if (manual.length > 0) items.push({ label: "Laut Kartentext:", onClick: () => undefined, heading: true }, ...manual);
     }
     if (canAct) {
       items.push({
@@ -302,10 +312,9 @@ export default function Battlefield({
       x: event.clientX,
       y: event.clientY,
       items: [
-        { label: "Oberste 3 ansehen", onClick: () => look(3) },
-        { label: "Bibliothek durchsuchen", onClick: () => look("all") },
-        { label: "Mischen", onClick: () => act({ type: "shuffle" }) },
-        { label: "Oberste Karte mahlen", onClick: () => act({ type: "mill" }) }
+        ...(manualAllows.look ? [{ label: "Oberste 3 ansehen", onClick: () => look(3) }, { label: "Bibliothek durchsuchen", onClick: () => look("all") }] : []),
+        ...(manualAllows.shuffle ? [{ label: "Mischen", onClick: () => act({ type: "shuffle" }) }] : []),
+        ...(manualAllows.mill ? [{ label: "Oberste Karte mahlen", onClick: () => act({ type: "mill" }) }] : [])
       ]
     });
   };
@@ -411,6 +420,9 @@ export default function Battlefield({
     pickTarget,
     lifeOpen,
     toggleLife: () => setLifeOpen(open => !open),
+    manualAllows,
+    canDrawNow,
+    drawCard: () => act({ type: "drawStep" }),
     inCombat,
     allCards,
     pendingBlocks: blocks
@@ -490,7 +502,6 @@ export default function Battlefield({
                 discardPick={discardPick}
                 clearDiscardPick={() => setDiscardPick([])}
                 canAttack={canAttack}
-                canSkipEnd={canSkipEnd}
                 targeting={targeting}
                 cancelTargeting={() => setTargeting(null)}
                 onRematch={onRematch}
@@ -507,15 +518,21 @@ export default function Battlefield({
               text={isActive ? "Du bist am Zug" : `${nameOf(game.turn.active)} ist am Zug`}
               detail={
                 game.turn.manualStart
-                  ? "Enttappen und Ziehen manuell"
+                  ? undefined
                   : game.turn.drew
                     ? "Alles enttappt, Karte gezogen"
                     : game.turn.number === 1 && game.players.length === 2
-                      ? "Alles enttappt, im ersten Zug keine Karte"
+                      ? "Im ersten Zug zieht der Startspieler nicht"
                       : "Alles enttappt"
               }
             />
           )}
+
+          <FxLayer fx={game.fx ?? []} />
+
+          {showCoin && game.turn.first && <CoinFlip players={game.players} firstId={game.turn.first} onDone={() => setCoinDone(beganAt)} />}
+
+          {settingsOpen && <SettingsDialog me={me} act={act} onClose={() => setSettingsOpen(false)} />}
 
           {game.choice && game.choice.userId === game.you && <ChoiceDialog key={game.choice.prompt} choice={game.choice} act={act} onHover={setHoverStable} />}
 

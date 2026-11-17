@@ -43,9 +43,14 @@ Cloudflare Worker mit einem **Durable Object je Raum**. Er ist die Grundlage fü
   Mana erzeugen, Überwachen (Surveil). Dazu **Dauereffekte** („Creatures you control get +1/+1“, „Other creatures you control get +1/+1 and have flying“),
   **Rückblende** (Flashback aus dem Friedhof, danach Exil) und mehr Auslöser (Kreatur stirbt/betritt, Land betritt, Beginn der Versorgung/Endphase). Dazu **Ziele** (nur gültige Ziele, die Auswahl erfolgt beim Wirken), **Auslöser** („When ~ enters the battlefield“, „dies“,
   „attacks“), **aktivierte Fähigkeiten** (Kosten {T} und Mana) und **Loyalitätsfähigkeiten**.
-- **Zugbeginn:** Enttappen, Versorgung und Ziehen laufen standardmäßig automatisch (Startspieler zieht im ersten Zug nicht). Im ⋯-Menü lässt sich
-  das je Spieler auf **manuell** stellen: dann sind es eigene Schritte mit „Alles enttappen“ und „Karte ziehen“. Ein Endschritt, in dem niemand handeln will,
-  wird übersprungen; ebenso der Kampf, wenn keine Kreatur angreifen kann.
+- **Zugbeginn:** Enttappen und Versorgung laufen immer automatisch. Die Karte wird standardmäßig automatisch gezogen (Startspieler im ersten Zug nicht);
+  in den Einstellungen lässt sich das auf **manuell** stellen: Dann klickst du im Zieh-Schritt auf deine Bibliothek und es geht danach von selbst weiter.
+  Ein Kampf ohne mögliche Angreifer und ein Endschritt ohne offene Auslöser werden übersprungen.
+- **Stapel ohne Klicks:** Gewirkte Zauber, Auslöser und Fähigkeiten lösen sich selbst auf. Nur wenn der Gegner (oder du bei Zügen des Gegners) wirklich
+  antworten kann (Sofortzauber, Blitz, bezahlbare Fähigkeit), hält das Spiel an und fragt nach („Nicht antworten“). In den Einstellungen abschaltbar.
+- **Länder mit besonderen Regeln:** „kommt getappt ins Spiel“, Opferkosten wie bei Evolving Wilds ({T}, Sacrifice), Landfall und Auslöser beim Betreten.
+- **Animationen:** Angreifer stürmen in die Mitte, Blocker schieben sich davor, Schaden und Heilung zeigen schwebende Zahlen mit Treffer-Blitz,
+  zu Spielbeginn entscheidet ein animierter Münzwurf (eigene Grafiken optional: `src/assets/game/coin-front.webp` und `coin-back.webp`).
 - **Stabilität:** Wirft die Regel-Engine einen Fehler, wird der Zustand zurückgesetzt und neu gesendet; der Client gleicht den Stand beim Sichtbarwerden
   und alle 20 Sekunden ab und verbindet sich bei Abbruch automatisch neu. Ein Dauertest spielt 300 Zufallsspiele ohne Stillstand.
 - **Nicht automatisch:** Bedingte Dauereffekte, Bedingungen, „für jedes“, X-Effekte, Modi, Aura/Ausrüstung,

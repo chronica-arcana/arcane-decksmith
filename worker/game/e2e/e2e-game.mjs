@@ -86,15 +86,10 @@ check("Es wurde nichts verändert", me(pA).hand.length === handBefore && me(pA).
 // Zaubern über den Stapel (die Testkarten haben keine Manakosten): wirken, beide passen, Karte liegt auf dem Schlachtfeld
 const spell = me(pA).hand.find(c => c.play?.kind === "spell" && c.play.ok);
 act(pA, { type: "cast", id: spell.id });
-await waitFor(() => game(pC).stack.length === 1);
-check("Zauber liegt für alle sichtbar auf dem Stapel", game(pC).stack[0].card?.name === spell.name && game(pA).priority === game(pA).you);
-act(pA, { type: "pass" });
-await waitFor(() => game(pC).priority === game(pC).you);
-check("Gegner bekommt Priorität", game(pC).priority === game(pC).you);
-act(pC, { type: "pass" });
-await waitFor(() => game(pA).stack.length === 0);
+await waitFor(() => game(pA).players.find(p => p.userId === game(pA).you).battlefield.some(card => card.id === spell.id));
 const mineA = game(pA).players.find(p => p.userId === game(pA).you);
-check("Zauber löst sich auf und liegt für beide sichtbar auf dem Schlachtfeld", mineA.battlefield.some(card => card.id === spell.id) && game(pC).players.find(p => p.userId === mineA.userId).battlefield.some(card => card.id === spell.id));
+check("Zauber löst sich ohne Klick auf, wenn niemand antworten kann (kein Stapel, keine Rückfrage)", game(pA).stack.length === 0 && game(pC).stack.length === 0);
+check("Karte liegt für beide sichtbar auf dem Schlachtfeld", mineA.battlefield.some(card => card.id === spell.id) && game(pC).players.find(p => p.userId === mineA.userId).battlefield.some(card => card.id === spell.id));
 const landCard = me(pA).hand.find(c => c.play?.kind === "land");
 if (landCard) act(pA, { type: "playLand", id: landCard.id });
 act(pA, { type: "endTurn" });
@@ -145,15 +140,8 @@ const activeSock = { [alice.id]: x, [carol.id]: y, [dave.id]: z }[game(x).turn.a
 const aliceTurn = game(x).turn.active === alice.id;
 if (aliceTurn) {
   act(x, { type: "cast", id: cmdr.id });
-  await waitFor(() => game(y).stack.length === 1);
-  check("Kommandant wird aus der Kommandozone gewirkt", game(y).stack[0].card?.name === cmdr.name);
-  act(x, { type: "pass" });
-  await waitFor(() => game(y).priority === carol.id);
-  act(y, { type: "pass" });
-  await waitFor(() => game(z).priority === dave.id);
-  act(z, { type: "pass" });
-  await waitFor(() => game(x).stack.length === 0);
-  check("Kommandant liegt auf dem Schlachtfeld, Steuer wird gezählt", game(x).players.find(p => p.userId === alice.id).cmdCasts[cmdr.id] === 1);
+  await waitFor(() => game(x).players.find(p => p.userId === alice.id).cmdCasts[cmdr.id] === 1);
+  check("Kommandant wird aus der Kommandozone gewirkt und löst sich ohne Klick auf", game(x).stack.length === 0 && game(x).players.find(p => p.userId === alice.id).battlefield.some(card => card.id === cmdr.id));
 } else {
   check("Kommandant bleibt in der Kommandozone, bis Alice dran ist (Startspieler war ein anderer)", me(x).command.length === 1);
 }
