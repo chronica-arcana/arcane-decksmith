@@ -36,13 +36,9 @@ export default function CenterZone({ children }: { children: ReactNode }) {
           {game.stack.length > 0 && (
             <div className="stack" aria-label="Stapel">
               <div className="stack-cards">
-                {[...game.stack].reverse().map((item, index) => (
+                {[...game.stack].reverse().filter(item => item.card).map((item, index) => (
                   <div key={item.sid} className={`stack-item${index === 0 ? " top" : ""}`}>
-                    {item.card ? (
-                      <CardView card={item.card} size="lg" marked={isTarget(item.sid) ? "target" : null} onHover={setHover} onMenu={cardMenu} onSelect={(card, event) => (isTarget(item.sid) ? pickTarget(item.sid) : clickCard(card, event))} />
-                    ) : (
-                      <span className="stack-ability"><strong>{item.sourceName}</strong> {(item.text || "Fähigkeit").replace(/~/g, item.sourceName ?? "")}</span>
-                    )}
+                    <CardView card={item.card!} size="lg" marked={isTarget(item.sid) ? "target" : null} onHover={setHover} onMenu={cardMenu} onSelect={(card, event) => (isTarget(item.sid) ? pickTarget(item.sid) : clickCard(card, event))} />
                   </div>
                 ))}
               </div>
