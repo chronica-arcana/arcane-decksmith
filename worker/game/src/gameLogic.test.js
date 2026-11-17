@@ -993,3 +993,28 @@ describe("Länder mit Bedingung beim Ins-Spiel-Kommen", () => {
     expect(game.players.u0.battlefield).not.toContain(old);
   });
 });
+
+describe("Rückfrage nur bei leuchtenden Karten", () => {
+  it("keine Rückfrage, wenn der Gegner nur Länder, Kreaturen oder eine nicht bezahlbare Karte hat", () => {
+    const { game, random } = started();
+    forest(game, "u0", 2);
+    put(game, "u1", "Mountain", "hand", { only: "library" });
+    put(game, "u1", "Magier", "battlefield");   // Fähigkeit auf dem Feld zählt nicht
+    put(game, "u1", "Blitz", "hand", { only: "library" }); // kein rotes Mana → nicht bezahlbar
+    const bear = put(game, "u0", "Bär", "hand", { only: "library" });
+    act(game, "u0", { type: "cast", id: bear }, random);
+    expect(game.stack).toHaveLength(0);
+    expect(game.players.u0.battlefield).toContain(bear);
+  });
+
+  it("Rückfrage, sobald der Gegner einen bezahlbaren Sofortzauber auf der Hand hat", () => {
+    const { game, random } = started();
+    forest(game, "u0", 2);
+    put(game, "u1", "Mountain", "battlefield");
+    put(game, "u1", "Blitz", "hand", { only: "library" });
+    const bear = put(game, "u0", "Bär", "hand", { only: "library" });
+    act(game, "u0", { type: "cast", id: bear }, random);
+    expect(game.stack).toHaveLength(1);
+    expect(game.priority).toBe("u1");
+  });
+});
