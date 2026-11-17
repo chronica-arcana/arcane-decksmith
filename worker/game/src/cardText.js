@@ -98,6 +98,43 @@ function parseSentence(raw, specs) {
   const lower = s.toLowerCase().replace(/^it deals/, "~ deals");
   let m;
 
+  // „… for each …“: der Effekt wird mit der Anzahl multipliziert.
+  if ((m = lower.match(/^(.+?) for each (creature you control|land you control|artifact you control|creature your opponents control|creature|land|artifact|card in your hand|opponent)$/))) {
+    const head = parseSentence(s.slice(0, m[1].length), specs);
+    if (head && head.length === 1 && typeof head[0].n === "number" && head[0].n === 1) return [{ ...head[0], per: m[2] }];
+    return null;
+  }
+
+  // „You may …“: der Spieler entscheidet (Ja/Nein); „If you do, …“ folgt nur nach „Ja“.
+  if ((m = lower.match(/^you may (.+)$/))) {
+    const inner = parseSentence(s.slice(8), specs);
+    return inner ? [{ type: "may", effects: inner }] : null;
+  }
+  if ((m = lower.match(/^if you do, (.+)$/)) && !/^that creature gains/.test(m[1])) {
+    const inner = parseSentence(s.slice(11), specs);
+    return inner ? [{ type: "ifDid", effects: inner }] : null;
+  }
+
+  if ((m = lower.match(/^gain control of (target creature|target permanent|target artifact|target land|target enchantment)( until end of turn)?$/))) {
+    const t = addTarget(specs, m[1]);
+    return t === null ? null : [{ type: "control", t, untilEot: Boolean(m[2]) }];
+  }
+  if (lower === "untap that creature" || lower === "untap it") return [{ type: "untapLast" }];
+  if (/^(?:it|that creature) gains haste until end of turn$/.test(lower)) return [{ type: "hasteLast" }];
+  if (lower === "prevent all combat damage that would be dealt this turn") return [{ type: "fog" }];
+  if (lower === "take an extra turn after this one") return [{ type: "extraTurn" }];
+  if ((m = lower.match(/^(target creature|~) gains? ([a-z ,]+?) until end of turn$/))) {
+    const kws = m[2].split(/,| and /).map(word => word.trim()).filter(Boolean);
+    if (kws.length === 0 || !kws.every(word => KEYWORDS.includes(word))) return null;
+    if (m[1] === "~") return [{ type: "grantKw", kws, self: true }];
+    const t = addTarget(specs, m[1]);
+    return t === null ? null : [{ type: "grantKw", kws, t }];
+  }
+  if ((m = lower.match(new RegExp(`^${WHO} sacrifices? (?:a|an|one) (creature|artifact|enchantment|land|permanent|nonland permanent)$`)))) {
+    const who = parseWho(m[1], specs);
+    return who ? [{ type: "sacrifice", who, what: m[2] === "nonland permanent" ? "nonland" : m[2] }] : null;
+  }
+
   if ((m = lower.match(new RegExp(`^(?:${WHO} )?draws? ${N} cards?$`)))) {
     const who = parseWho(m[1] ?? "you", specs);
     return who && num(m[2]) !== null ? [{ type: "draw", who, n: num(m[2]) }] : null;
@@ -134,7 +171,7 @@ function parseSentence(raw, specs) {
     return t === null ? null : [{ type: "damage", n, to: { k: "target", t } }];
   }
 
-  if ((m = lower.match(/^(?:you may )?attach (?:~|it) to (target creature you control|target creature)$/))) {
+  if ((m = lower.match(/^attach (?:~|it) to (target creature you control|target creature)$/))) {
     const t = addTarget(specs, m[1]);
     return t === null ? null : [{ type: "attach", t }];
   }
@@ -227,7 +264,17 @@ const WHO_DE = { you: "Du", eachOpp: "Jeder Gegner", each: "Jeder Spieler", targ
 const plural = (n, one, many) => (n === 1 ? one : many);
 
 /** Verständliche deutsche Beschreibung eines Effekts (für die Anzeige auf dem Stapel). */
+const PER_DE = {
+  "creature you control": "deiner Kreaturen", "land you control": "deiner Länder", "artifact you control": "deiner Artefakte",
+  "creature your opponents control": "gegnerischer Kreaturen", creature: "Kreaturen", land: "Länder", artifact: "Artefakte",
+  "card in your hand": "Karten auf deiner Hand", opponent: "Gegner"
+};
 export function describeEffect(effect) {
+  const text = describeBase(effect);
+  return effect.per && text ? `${text} (mal Anzahl ${PER_DE[effect.per] ?? effect.per})` : text;
+}
+
+function describeBase(effect) {
   const who = effect.who ? WHO_DE[effect.who.k] ?? "Spieler" : "Du";
   const signed = value => `${value >= 0 ? "+" : ""}${value}`;
   switch (effect.type) {
@@ -250,6 +297,15 @@ export function describeEffect(effect) {
     case "tap": return "Tappt das Ziel.";
     case "untap": return "Enttappt das Ziel.";
     case "counterSpell": return "Neutralisiert den Zielzauber.";
+    case "control": return `Übernimmt die Kontrolle über das Ziel${effect.untilEot ? " bis zum Zugende" : ""}.`;
+    case "untapLast": return "Enttappt diese Kreatur.";
+    case "hasteLast": return "Sie erhält Eile bis zum Zugende.";
+    case "fog": return "Verhindert allen Kampfschaden in diesem Zug.";
+    case "extraTurn": return "Du erhältst nach diesem Zug einen zusätzlichen Zug.";
+    case "grantKw": return `${effect.self ? "Diese Karte" : "Das Ziel"} erhält ${effect.kws.join(", ")} bis zum Zugende.`;
+    case "sacrifice": return `${who} opfert ${{ creature: "eine Kreatur", artifact: "ein Artefakt", enchantment: "eine Verzauberung", land: "ein Land", permanent: "ein Permanent", nonland: "ein Nichtland-Permanent" }[effect.what] ?? "ein Permanent"}.`;
+    case "may": return `Optional: ${effect.effects.map(describeEffect).filter(Boolean).join(" ")}`;
+    case "ifDid": return `Wenn ja: ${effect.effects.map(describeEffect).filter(Boolean).join(" ")}`;
     case "attach": return "Hängt diese Karte an die Ziel-Kreatur.";
     case "grantTemp": return `Die Kreatur erhält ${effect.kws.join(", ")} bis zum Zugende.`;
     case "reanimate": return `Holt die Ziel-Karte aus dem Friedhof ${effect.to === "hand" ? "auf die Hand" : "aufs Schlachtfeld"}${effect.counters ? ` (mit ${effect.counters} zusätzlichen +1/+1-Markern)` : ""}.`;
@@ -300,7 +356,7 @@ function parseEffectText(text) {
       effects.push(...whole);
       continue;
     }
-    const pieces = sentence.split(/,? then | and /).map(piece => piece.trim());
+    const pieces = sentence.split(/,? then | and /).map(piece => piece.trim()).map((piece, index) => (index > 0 && /^\d+ damage to /i.test(piece) ? `~ deals ${piece}` : piece));
     const split = pieces.length > 1 ? tryParts(pieces) : null;
     if (split) effects.push(...split);
     else unparsed.push(sentence);
@@ -406,6 +462,22 @@ export function parseCardText({ name, typeLine, oracleText }) {
   }
 
   for (const line of lines) {
+    // Schutz („Protection from red and from white“) – nur Farben werden automatisch beachtet.
+    const protection = line.match(/^protection from ([a-z, ]+)$/i);
+    if (protection) {
+      const names = { white: "W", blue: "U", black: "B", red: "R", green: "G" };
+      const words = protection[1].toLowerCase().split(/,| and from | and |from /).map(word => word.trim()).filter(Boolean);
+      const colors = words.map(word => names[word]).filter(Boolean);
+      if (colors.length > 0 && colors.length === words.length) result.protection = [...new Set([...(result.protection ?? []), ...colors])];
+      else result.notes.push(line);
+      continue;
+    }
+    // Ward: zusätzliche Mana-Kosten, wenn ein Gegner die Karte als Ziel wählt.
+    const ward = line.match(/^ward (\{[^}]+\}(?:\{[^}]+\})*|\d+)$/i);
+    if (ward) {
+      result.ward = /^\d+$/.test(ward[1]) ? `{${ward[1]}}` : ward[1];
+      continue;
+    }
     // Ausrüsten: „Equip {2}“ (nur Manakosten) hängt die Karte an eine eigene Kreatur (nur als Zauberspruch).
     const equip = line.match(/^equip (\{[^}]+\}(?:\{[^}]+\})*)$/i);
     if (equip) {
@@ -513,7 +585,7 @@ export function parseCardText({ name, typeLine, oracleText }) {
       const event = triggerEvent(trigger[1], trigger[2].toLowerCase());
       if (event) {
         const parsed = parseEffectText(trigger[3]);
-        if (parsed.specs.length <= 1) {
+        if (parsed.specs.length <= 3) {
           result.triggers.push({ ...event, text: line, ...parsed });
           continue;
         }

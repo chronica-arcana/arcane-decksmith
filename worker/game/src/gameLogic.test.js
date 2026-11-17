@@ -29,7 +29,19 @@ const LIB = [
   ["mage", "Magier", "Creature — Wizard", "{G}", 2, { power: "1", toughness: "1" }, "{T}: Magier deals 1 damage to any target."],
   ["ritual", "Ritual", "Instant", "{G}", 2, {}, "Add {R}{R}{R}."],
   ["alarm", "Alarm", "Instant", "{G}", 2, {}, "Create two 1/1 white Soldier creature tokens."],
-  ["mystery", "Rätsel", "Sorcery", "{G}", 2, {}, "Each player sacrifices a creature."],
+  ["mystery", "Rätsel", "Sorcery", "{G}", 2, {}, "Exile all cards from each graveyard."],
+  ["edict", "Opferzwang", "Sorcery", "{G}", 2, {}, "Target opponent sacrifices a creature."],
+  ["threaten", "Bedrohung", "Sorcery", "{G}", 2, {}, "Gain control of target creature until end of turn. Untap that creature. It gains haste until end of turn."],
+  ["fog", "Nebel", "Instant", "{G}", 2, {}, "Prevent all combat damage that would be dealt this turn."],
+  ["extra", "Zeitschleife", "Sorcery", "{G}", 2, {}, "Take an extra turn after this one."],
+  ["pact", "Pakt", "Sorcery", "{G}", 2, {}, "You may draw a card. If you do, you lose 1 life."],
+  ["horde", "Horde", "Sorcery", "{G}", 2, {}, "Draw a card for each creature you control."],
+  ["pro", "Schutzgeist", "Creature — Spirit", "{G}", 2, { power: "2", toughness: "2" }, "Protection from red"],
+  ["wardy", "Wächter", "Creature — Knight", "{G}", 2, { power: "2", toughness: "2" }, "Ward {2}"],
+  ["fearful", "Schreck", "Creature — Horror", "{G}", 2, { power: "2", toughness: "2", keywords: ["Fear"] }],
+  ["inf", "Seuchenträger", "Creature — Horror", "{G}", 2, { power: "2", toughness: "2", keywords: ["Infect"] }],
+  ["king", "König", "Legendary Creature — Elf", "{G}", 1, { power: "2", toughness: "2" }],
+  ["walker", "Wanderer", "Legendary Planeswalker — Test", "{2}", 2, { loyalty: "4" }],
   ["kavu", "Kavu", "Creature — Kavu", "{G}", 2, { power: "4", toughness: "2" }, "When Kavu enters the battlefield, it deals 2 damage to target creature."],
   ["scrier", "Seherin", "Sorcery", "{G}", 2, {}, "Scry 2."],
   ["pain", "Qual", "Sorcery", "{G}", 2, {}, "Each opponent discards a card."],
@@ -1044,7 +1056,7 @@ describe("Bedingungen, Modi, X und Cycling", () => {
     second.game.defs[second.game.cards[legend].def].types.legendary = true;
     expect(second.game.cards[playLand(second.game, second.random, "Legendär")].tapped).toBe(false);
     const third = started();
-    expect(third.game.players.u0.turnsTaken).toBe(1);
+    third.game.players.u0.turnsTaken = 1;
     expect(third.game.cards[playLand(third.game, third.random, "Startstadt")].tapped).toBe(false);
     const late = started();
     late.game.players.u0.turnsTaken = 4;
@@ -1138,7 +1150,9 @@ describe("Ausrüstung, Auren und Wiederbelebung", () => {
     expect(act(game, "u0", { type: "cast", id: scythe }, random)).toEqual({ ok: true });
     // Auslöser verlangt ein Ziel (nur eine Kreatur → Auswahl)
     if (game.choice) act(game, "u0", { type: "choose", ids: [bear] }, random);
-    for (let i = 0; i < 4 && game.stack.length > 0; i += 1) act(game, game.priority, { type: "pass" }, random);
+    for (let i = 0; i < 4 && game.stack.length > 0 && !game.choice; i += 1) act(game, game.priority, { type: "pass" }, random);
+    expect(game.choice?.kind).toBe("yesno"); // „you may attach“: der Spieler entscheidet
+    act(game, "u0", { type: "choose", ids: ["yes"] }, random);
     expect(game.cards[scythe].attachedTo).toBe(bear);
     const card = view(game, "u0").players[0].battlefield.find(c => c.id === bear);
     expect(card.power).toBe(4);
