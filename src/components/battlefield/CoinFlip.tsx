@@ -31,16 +31,16 @@ export default function CoinFlip({ players, firstId, onDone }: { players: GamePl
         {two ? (
           <>
             <div className="coin" style={style}>
-              <div className="coin-face front" style={front ? { backgroundImage: `url(${front})` } : undefined}>
+              <div className={`coin-face front${front ? " has-image" : ""}`} style={front ? { backgroundImage: `url(${front})` } : undefined}>
                 {!front && <span>{players[0].name}</span>}
               </div>
-              <div className="coin-face back" style={back ? { backgroundImage: `url(${back})` } : undefined}>
+              <div className={`coin-face back${back ? " has-image" : ""}`} style={back ? { backgroundImage: `url(${back})` } : undefined}>
                 {!back && <span>{players[1].name}</span>}
               </div>
             </div>
             <div className="coin-names">
-              <span>Kopf: {players[0].name}</span>
-              <span>Zahl: {players[1].name}</span>
+              <span>{front ? "Mond" : "Kopf"}: {players[0].name}</span>
+              <span>{back ? "Sonne" : "Zahl"}: {players[1].name}</span>
             </div>
           </>
         ) : (
