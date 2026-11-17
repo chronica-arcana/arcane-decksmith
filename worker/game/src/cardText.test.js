@@ -38,7 +38,7 @@ describe("cardText: Zauber", () => {
 
   it("alles Unverstandene bleibt unausgeführt und wird gemeldet", () => {
     expect(spell("Doom Blade", "Instant", "Destroy target nonblack creature.")).toMatchObject({ effects: [], unparsed: ["Destroy target nonblack creature"] });
-    expect(spell("Cryptic", "Instant", "Choose one —\n• Counter target spell.\n• Draw a card.").unparsed).toHaveLength(1);
+    expect(spell("Wahl", "Instant", "Choose one or both —\n• Counter target spell.\n• Draw a card.").unparsed).toHaveLength(1);
     const mixed = spell("Mix", "Sorcery", "Draw a card. Each player sacrifices a creature.");
     expect(mixed.effects).toHaveLength(1);
     expect(mixed.unparsed).toEqual(["Each player sacrifices a creature"]);
@@ -69,7 +69,7 @@ describe("cardText: Permanents", () => {
     const elves = parseCardText({ name: "Llanowar Elves", typeLine: "Creature", oracleText: "{T}: Add {G}." });
     expect(elves.activated).toEqual([]);
     const flier = parseCardText({ name: "Hawk", typeLine: "Creature", oracleText: "Flying, vigilance" });
-    expect(flier).toEqual({ spell: null, triggers: [], activated: [], notes: [], statics: [], flashback: null, entersTapped: false, entersTappedUnless: null, shock: null, reveal: null });
+    expect(flier).toEqual({ spell: null, triggers: [], activated: [], notes: [], statics: [], flashback: null, cycling: null, entersTapped: false, entersTappedUnless: null, shock: null, reveal: null });
     const pw = parseCardText({ name: "Jace", typeLine: "Legendary Planeswalker — Jace", oracleText: "+1: Draw a card.\n−3: Return target creature to its owner's hand." });
     expect(pw.activated.map(a => a.cost.loyalty)).toEqual([1, -3]);
     expect(pw.activated[1].effects[0]).toMatchObject({ type: "bounce" });
@@ -145,8 +145,11 @@ describe("cardText: Länder, die unter Bedingungen getappt ins Spiel kommen", ()
   it("Landtyp-Bedingung (Check-Länder) und Lebens-Bedingung", () => {
     expect(land("Land enters tapped unless you control a Plains or an Island.").entersTappedUnless).toEqual({ kind: "types", types: ["plains", "island"] });
     expect(land("Land enters the battlefield tapped unless a player has 13 or less life.").entersTappedUnless).toEqual({ kind: "lowLife", n: 13 });
-    expect(land("Land enters tapped unless you control a legendary creature.").entersTappedUnless).toBeNull();
-    expect(land("Land enters tapped unless you control a legendary creature.").notes).toHaveLength(1);
+    expect(land("Land enters tapped unless you control a legendary creature.").entersTappedUnless).toEqual({ kind: "controls", legendary: true, type: "creature" });
+    expect(land("Land enters tapped unless you control a Gate.").entersTappedUnless).toEqual({ kind: "controls", legendary: false, type: "gate" });
+    expect(land("Land enters tapped unless you control three or more tokens.").entersTappedUnless).toBeNull();
+    expect(land("Land enters tapped unless you control three or more tokens.").notes).toHaveLength(1);
+    expect(land("Land enters tapped unless it's your first, second, or third turn of the game.").entersTappedUnless).toEqual({ kind: "turn", n: 3 });
   });
 
   it("Shock-Länder und „Karte zeigen“-Länder", () => {
@@ -158,5 +161,27 @@ describe("cardText: Länder, die unter Bedingungen getappt ins Spiel kommen", ()
     const karoo = land("Land enters the battlefield tapped.\nWhen Land enters the battlefield, return a land you control to its owner's hand.\n{T}: Add {R}{G}.");
     expect(karoo.entersTapped).toBe(true);
     expect(karoo.triggers[0].effects).toEqual([{ type: "bounceOwnLand" }]);
+  });
+});
+
+describe("cardText: Modi, X-Werte, Cycling", () => {
+  it("Modale Zauber: ein Modus pro Aufzählungspunkt", () => {
+    const parsed = spell("Cryptic", "Instant", "Choose one —\n• Counter target spell.\n• Draw a card.");
+    expect(parsed.modes).toHaveLength(2);
+    expect(parsed.modes[0]).toMatchObject({ label: "Counter target spell.", effects: [{ type: "counterSpell", t: 0 }], specs: [{ kind: "spell" }] });
+    expect(parsed.modes[1].effects).toEqual([{ type: "draw", who: { k: "you" }, n: 1 }]);
+  });
+
+  it("X als Menge", () => {
+    expect(spell("Flut", "Sorcery", "Draw X cards.").effects).toEqual([{ type: "draw", who: { k: "you" }, n: "X" }]);
+    expect(spell("Feuer", "Sorcery", "Feuer deals X damage to each opponent.").effects).toEqual([{ type: "damage", n: "X", to: { k: "eachOpp" } }]);
+    expect(spell("Drain", "Sorcery", "Target opponent loses X life.").effects[0]).toMatchObject({ n: "X", negate: true });
+    expect(spell("Flut", "Sorcery", "Draw X cards.").summary).toBe("Du ziehst X Karten.");
+  });
+
+  it("Cycling und Landcycling", () => {
+    expect(parseCardText({ name: "Karte", typeLine: "Creature", oracleText: "Flying\nCycling {2}" }).cycling).toEqual({ cost: "{2}", search: null });
+    expect(parseCardText({ name: "Karte", typeLine: "Creature", oracleText: "Basic landcycling {1}" }).cycling).toEqual({ cost: "{1}", search: "basic land" });
+    expect(parseCardText({ name: "Karte", typeLine: "Instant", oracleText: "Draw a card.\nCycling {1}" }).spell.effects).toHaveLength(1);
   });
 });

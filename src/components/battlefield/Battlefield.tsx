@@ -73,6 +73,7 @@ export default function Battlefield({
   const [dropKey, setDropKey] = useState<string | null>(null);
   const [targeting, setTargeting] = useState<Targeting | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [modePick, setModePick] = useState<{ card: GameCard; x?: number } | null>(null);
   const [coinDone, setCoinDone] = useState<number | null>(null);
   const [mountedAt] = useState(() => Date.now());
   const hoverTimer = useRef<number | undefined>(undefined);
@@ -176,9 +177,20 @@ export default function Battlefield({
     setTargeting({ name, specs, picked: [], run });
   };
 
-  const startCast = (card: GameCard, x?: number) => {
+  const startCast = (card: GameCard, x?: number, mode?: number) => {
     if (card.play?.kind === "land") return act({ type: "playLand", id: card.id });
     if (x === undefined && /\{X\}/i.test(card.manaCost ?? "")) return setCastX({ id: card.id, name: card.name ?? "", value: 0 });
+    if (mode === undefined && card.play?.modes?.length) return setModePick({ card, x });
+    if (mode !== undefined) {
+      const chosen = card.play?.modes?.[mode];
+      return startTargeting(card.name ?? "Zauber", chosen?.targets ?? [], targets => ({
+        type: "cast",
+        id: card.id,
+        mode,
+        ...(x !== undefined ? { x } : {}),
+        ...(targets.length > 0 ? { targets } : {})
+      }));
+    }
     startTargeting(card.name ?? "Zauber", card.play?.targets ?? [], targets => ({
       type: "cast",
       id: card.id,
@@ -234,6 +246,9 @@ export default function Battlefield({
         { label: "→ Bibliothek oben", onClick: () => moveCard(card, "library", { position: "top" }) },
         { label: "→ Bibliothek unten", onClick: () => moveCard(card, "library", { position: "bottom" }) }
       ];
+      if (zone === "hand" && card.cycle) {
+        items.push({ label: `Cycling ${card.cycle.cost}${card.cycle.search ? " (Land suchen)" : " (Karte ziehen)"}`, disabled: !card.cycle.ok, onClick: () => act({ type: "cycle", id: card.id }) });
+      }
       if ((zone === "hand" || zone === "command" || zone === "graveyard") && card.play) {
         items.push({ label: card.play.kind === "land" ? "Land spielen" : zone === "graveyard" ? "Mit Rückblende wirken" : "Wirken", disabled: !card.play.ok, onClick: () => startCast(card) });
       }
@@ -531,6 +546,37 @@ export default function Battlefield({
           <FxLayer fx={game.fx ?? []} />
 
           {showCoin && game.turn.first && <CoinFlip players={game.players} firstId={game.turn.first} onDone={() => setCoinDone(beganAt)} />}
+
+          {modePick && (
+            <div className="modal-back">
+              <div className="modal small" role="dialog" aria-label="Modus wählen">
+                <h3>{modePick.card.name}: Wähle einen Modus</h3>
+                <div className="mode-list">
+                  {modePick.card.play?.modes?.map((mode, index) => {
+                    const blocked = mode.targets.some(target => target.options.length === 0) || mode.manual;
+                    return (
+                      <button
+                        key={index}
+                        type="button"
+                        className="secondary"
+                        disabled={blocked}
+                        onClick={() => {
+                          const { card, x } = modePick;
+                          setModePick(null);
+                          startCast(card, x, index);
+                        }}
+                      >
+                        {mode.label}
+                      </button>
+                    );
+                  })}
+                </div>
+                <div className="start-actions">
+                  <button type="button" className="secondary" onClick={() => setModePick(null)}>Abbrechen</button>
+                </div>
+              </div>
+            </div>
+          )}
 
           {settingsOpen && <SettingsDialog me={me} act={act} onClose={() => setSettingsOpen(false)} />}
 
