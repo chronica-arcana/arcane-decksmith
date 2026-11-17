@@ -218,6 +218,16 @@ describe("Länder, Mana und Zaubern", () => {
     expect(f.every(id => game.cards[id].tapped)).toBe(true);
   });
 
+  it("Manapool lässt sich von Hand anpassen (Effekte, die Mana erzeugen)", () => {
+    const { game, random } = started();
+    expect(act(game, "u0", { type: "pool", color: "R", delta: 2 }, random).ok).toBe(true);
+    expect(game.players.u0.pool.R).toBe(2);
+    act(game, "u0", { type: "pool", color: "R", delta: -5 }, random);
+    expect(game.players.u0.pool.R).toBe(0);
+    expect(act(game, "u0", { type: "pool", color: "X", delta: 1 }, random).ok).toBe(false);
+    expect(act(game, "u0", { type: "pool", color: "G", delta: 9 }, random).ok).toBe(false);
+  });
+
   it("Beschwörungsmüdigkeit: frische Kreaturen können weder angreifen noch Mana erzeugen", () => {
     const { game, random } = started();
     const bear = put(game, "u0", "Bär", "battlefield", { sick: true });

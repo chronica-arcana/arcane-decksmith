@@ -910,6 +910,13 @@ function handleAction(game, userId, action, random, now) {
       return ok();
     case "tapMana":
       return tapManaAction(game, userId, action);
+    case "pool": {
+      if (!["W", "U", "B", "R", "G", "C"].includes(action.color) || !isInt(action.delta) || action.delta === 0 || Math.abs(action.delta) > 5) {
+        return fail("Ungültige Manaangabe.");
+      }
+      player.pool[action.color] = Math.min(99, Math.max(0, player.pool[action.color] + action.delta));
+      return ok();
+    }
     case "playLand":
       return playLandAction(game, userId, action);
     case "cast":

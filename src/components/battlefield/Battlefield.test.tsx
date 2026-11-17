@@ -2,7 +2,7 @@
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { GameCard, GamePlayer, GameView } from "../../gameClient";
-import GameTable from "./GameTable";
+import Battlefield from "./Battlefield";
 
 afterEach(cleanup);
 
@@ -34,12 +34,12 @@ function view(extra: Partial<GameView> = {}, mine: Partial<GamePlayer> = {}, oth
 
 const setup = (game: GameView, hostId = "me") => {
   const send = vi.fn();
-  const utils = render(<GameTable game={game} hostId={hostId} send={send} onRematch={vi.fn()} onLeave={vi.fn()} />);
+  const utils = render(<Battlefield game={game} hostId={hostId} send={send} onRematch={vi.fn()} onLeave={vi.fn()} />);
   return { send, ...utils };
 };
 const handArea = () => screen.getByLabelText("Deine Hand");
 
-describe("GameTable", () => {
+describe("Battlefield", () => {
   it("Starthand: Behalten und Mulligan", () => {
     const hand = [card("h1", "Karte Eins"), card("h2", "Karte Zwei")];
     const { send } = setup(view({ phase: "mulligan" }, { hand }));
@@ -101,7 +101,7 @@ describe("GameTable", () => {
     const { send, rerender } = setup(view());
     fireEvent.click(screen.getByRole("button", { name: "Weiter zum Kampf" }));
     expect(send).toHaveBeenCalledWith({ type: "pass" });
-    rerender(<GameTable game={view({ priority: "they" })} hostId="me" send={send} onRematch={vi.fn()} onLeave={vi.fn()} />);
+    rerender(<Battlefield game={view({ priority: "they" })} hostId="me" send={send} onRematch={vi.fn()} onLeave={vi.fn()} />);
     expect(screen.queryByRole("button", { name: "Weiter zum Kampf" })).toBeNull();
     expect(screen.getByText("Gegner hat Priorität …")).toBeTruthy();
   });
@@ -195,7 +195,8 @@ describe("GameTable", () => {
   it("Kommandanten-Rückkehr wird angeboten; Steuer wird angezeigt", () => {
     const game = view({ format: "commander" }, { prompts: [{ type: "commander", id: "k1" }], graveyard: [card("k1", "Heldin", { cmd: true })], command: [card("k2", "Heldin", { cmd: true })], cmdCasts: { k2: 2 } });
     const { send } = setup(game);
-    expect(screen.getByText(/Steuer \+4/)).toBeTruthy();
+    expect(screen.getByText(/2× gewirkt/)).toBeTruthy();
+    expect(screen.getByAltText("4")).toBeTruthy(); // Steuer als Scryfall-Symbol {4}
     fireEvent.click(screen.getByRole("button", { name: /Ja, in die Kommandozone/ }));
     expect(send).toHaveBeenCalledWith({ type: "commanderZone", id: "k1", yes: true });
   });
@@ -211,13 +212,66 @@ describe("GameTable", () => {
     expect(send).not.toHaveBeenCalledWith({ type: "concede" });
   });
 
+  it("Phasenleiste zeigt Zug, automatische Schritte und die Kampf-Unterschritte", () => {
+    setup(view({ turn: { number: 5, active: "me", phase: "blockers", first: "me", landsPlayed: 0 } }));
+    const bar = screen.getByRole("navigation", { name: "Phasen" });
+    expect(within(bar).getByText("Zug 5")).toBeTruthy();
+    for (const label of ["Enttappen", "Versorgung", "Ziehen", "Hauptphase 1", "Kampf", "Hauptphase 2", "Zugende"]) {
+      expect(within(bar).getByText(label)).toBeTruthy();
+    }
+    expect(within(bar).getByText("Kampf").closest("li")?.getAttribute("aria-current")).toBe("step");
+    expect(within(bar).getByText("Blocker")).toBeTruthy();
+  });
+
+  it("Manapool: Symbole, Klick addiert Mana, Rechtsklick nimmt es weg", () => {
+    const { send } = setup(view({}, { pool: { W: 0, U: 0, B: 0, R: 2, G: 0, C: 0 } }));
+    const pool = screen.getByRole("group", { name: "Manapool", hidden: false });
+    const red = within(pool).getByRole("button", { name: /Rot: 2/ });
+    expect(within(red).getByAltText("Rot")).toBeTruthy();
+    fireEvent.click(red);
+    expect(send).toHaveBeenLastCalledWith({ type: "pool", color: "R", delta: 1 });
+    fireEvent.contextMenu(red);
+    expect(send).toHaveBeenLastCalledWith({ type: "pool", color: "R", delta: -1 });
+    fireEvent.contextMenu(within(pool).getByRole("button", { name: /Blau: 0/ }));
+    expect(send).toHaveBeenCalledTimes(2); // bei 0 gibt es nichts abzuziehen
+  });
+
+  it("Kampfbahnen: Angreifer und Blocker liegen in der Mitte, nicht mehr auf dem Feld", () => {
+    const attacker = creature("a1", "Räuber", "they", { attacking: true });
+    const blocker = creature("b1", "Wächter", "me", { blocking: "a1" });
+    const game = view(
+      {
+        turn: { number: 3, active: "they", phase: "damage", first: "me", landsPlayed: 0 },
+        combat: { attackers: [{ id: "a1", target: "me" }], blocks: [{ blocker: "b1", attacker: "a1" }], awaiting: [] }
+      },
+      { battlefield: [blocker, creature("b2", "Reserve")] },
+      { battlefield: [attacker] }
+    );
+    setup(game);
+    const combat = screen.getByLabelText("Kampf");
+    expect(within(combat).getByRole("button", { name: /Räuber/ })).toBeTruthy();
+    expect(within(combat).getByRole("button", { name: /Wächter/ })).toBeTruthy();
+    const mine = screen.getByLabelText("Kreaturen von Ich");
+    expect(within(mine).queryByRole("button", { name: /Wächter/ })).toBeNull();
+    expect(within(mine).getByRole("button", { name: /Reserve/ })).toBeTruthy();
+  });
+
+  it("Vorschau zeigt beim Darüberfahren das große Scryfall-Bild und die Kosten als Symbole", () => {
+    const wolf = creature("c1", "Wolf", "me", { manaCost: "{1}{G}", imageUri: "https://cards.scryfall.io/normal/front/a/b/x.jpg" });
+    setup(view({}, { battlefield: [wolf] }));
+    fireEvent.mouseEnter(screen.getByRole("button", { name: "Wolf" }));
+    const preview = screen.getByLabelText("Kartenvorschau");
+    expect(within(preview).getByAltText("Wolf").getAttribute("src")).toBe("https://cards.scryfall.io/large/front/a/b/x.jpg");
+    expect(within(preview).getByAltText("Grün")).toBeTruthy();
+  });
+
   it("Spielende: Sieger, Revanche nur für den Gastgeber", () => {
     const ended = view({ phase: "ended", winner: "they" });
     const onRematch = vi.fn();
-    const { rerender } = render(<GameTable game={ended} hostId="they" send={vi.fn()} onRematch={onRematch} onLeave={vi.fn()} />);
+    const { rerender } = render(<Battlefield game={ended} hostId="they" send={vi.fn()} onRematch={onRematch} onLeave={vi.fn()} />);
     expect(screen.getByText(/Gegner gewinnt/)).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Revanche" })).toBeNull();
-    rerender(<GameTable game={ended} hostId="me" send={vi.fn()} onRematch={onRematch} onLeave={vi.fn()} />);
+    rerender(<Battlefield game={ended} hostId="me" send={vi.fn()} onRematch={onRematch} onLeave={vi.fn()} />);
     fireEvent.click(screen.getByRole("button", { name: "Revanche" }));
     expect(onRematch).toHaveBeenCalled();
   });

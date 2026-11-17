@@ -52,6 +52,9 @@ Cloudflare Worker mit einem **Durable Object je Raum**. Er ist die Grundlage fü
 - **Bibliothek anklicken** zieht eine Karte. **Rechtsklick oder langes Drücken** auf eine Karte (oder die Bibliothek) zeigt nur die gerade möglichen Aktionen.
 - Leben ändert sich automatisch (Kampf, Lebensverbindung, Kosten); eine manuelle Korrektur steht hinter einem Klick auf die eigene Lebenszahl.
 - Hintergrund und Kartenrückseite liegen in `src/assets/game`.
+- Die Oberfläche ist das Modul `src/components/battlefield` (`Battlefield.tsx` mit Zonen für Gegner, Mitte mit Stapel und Kampf, eigenen Platz,
+  Phasenleiste, HUD, Manapool, Handfächer, Ablagen und Kommandozone). Kartenbilder (small, normal, large) und Mana-Symbole kommen direkt von
+  Scryfall (`svgs.scryfall.io/card-symbols`); Schrift „Cinzel“ wird von Google Fonts geladen und fällt auf Serifenschrift zurück.
 
 ## Einrichtung ohne Terminal (GitHub-Workflow)
 1. **Cloudflare-Token erzeugen:** Cloudflare Dashboard → *My Profile → API Tokens → Create Token* → Vorlage

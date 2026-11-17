@@ -153,6 +153,7 @@ export type GameAction =
   | { type: "coin" }
   | { type: "autoPass"; value: boolean }
   | { type: "tapMana"; id: string; color?: string }
+  | { type: "pool"; color: "W" | "U" | "B" | "R" | "G" | "C"; delta: number }
   | { type: "playLand"; id: string }
   | { type: "cast"; id: string; x?: number; free?: boolean }
   | { type: "ability"; text: string }
