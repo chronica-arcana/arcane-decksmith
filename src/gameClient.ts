@@ -155,11 +155,11 @@ export type GameView = {
   /** Offene Auswahl (Ziel, Karten abwerfen/suchen/wühlen). Die Optionen sieht nur, wer wählt. */
   choice: {
     userId: string;
-    kind: "targets" | "cards";
+    kind: "targets" | "cards" | "yesno";
     prompt: string;
     min: number;
     max: number;
-    options: { id: string; card?: GameCard | null; player?: { userId: string; name: string }; spell?: boolean }[];
+    options: { id: string; card?: GameCard | null; player?: { userId: string; name: string }; spell?: boolean; label?: string }[];
   } | null;
   /** Ein Kartentext, den das Spiel nicht umsetzen kann: Nur dieser Spieler darf jetzt von Hand eingreifen. */
   manual: { userId: string; text: string; source: string } | null;

@@ -69,7 +69,7 @@ describe("cardText: Permanents", () => {
     const elves = parseCardText({ name: "Llanowar Elves", typeLine: "Creature", oracleText: "{T}: Add {G}." });
     expect(elves.activated).toEqual([]);
     const flier = parseCardText({ name: "Hawk", typeLine: "Creature", oracleText: "Flying, vigilance" });
-    expect(flier).toEqual({ spell: null, triggers: [], activated: [], notes: [], statics: [], flashback: null, entersTapped: false });
+    expect(flier).toEqual({ spell: null, triggers: [], activated: [], notes: [], statics: [], flashback: null, entersTapped: false, entersTappedUnless: null, shock: null, reveal: null });
     const pw = parseCardText({ name: "Jace", typeLine: "Legendary Planeswalker — Jace", oracleText: "+1: Draw a card.\n−3: Return target creature to its owner's hand." });
     expect(pw.activated.map(a => a.cost.loyalty)).toEqual([1, -3]);
     expect(pw.activated[1].effects[0]).toMatchObject({ type: "bounce" });
@@ -130,5 +130,33 @@ describe("cardText: Opferkosten, getappt ins Spiel, Zusammenfassung", () => {
   it("fasst Effekte auf Deutsch zusammen und lässt Unverstandenes im Original", () => {
     const parsed = spell("X", "Sorcery", "Draw two cards. Each player sacrifices a creature.");
     expect(parsed.summary).toBe("Du ziehst 2 Karten. Each player sacrifices a creature.");
+  });
+});
+
+describe("cardText: Länder, die unter Bedingungen getappt ins Spiel kommen", () => {
+  const land = text => parseCardText({ name: "Land", typeLine: "Land", oracleText: text });
+
+  it("Zähl-Bedingungen (Slow-, Fast- und Battle-Länder)", () => {
+    expect(land("Land enters tapped unless you control two or more other lands.").entersTappedUnless).toEqual({ kind: "lands", n: 2, op: "gte", basic: false });
+    expect(land("Land enters the battlefield tapped unless you control two or fewer other lands.").entersTappedUnless).toEqual({ kind: "lands", n: 2, op: "lte", basic: false });
+    expect(land("Land enters the battlefield tapped unless you control two or more basic lands.").entersTappedUnless).toMatchObject({ basic: true, op: "gte" });
+  });
+
+  it("Landtyp-Bedingung (Check-Länder) und Lebens-Bedingung", () => {
+    expect(land("Land enters tapped unless you control a Plains or an Island.").entersTappedUnless).toEqual({ kind: "types", types: ["plains", "island"] });
+    expect(land("Land enters the battlefield tapped unless a player has 13 or less life.").entersTappedUnless).toEqual({ kind: "lowLife", n: 13 });
+    expect(land("Land enters tapped unless you control a legendary creature.").entersTappedUnless).toBeNull();
+    expect(land("Land enters tapped unless you control a legendary creature.").notes).toHaveLength(1);
+  });
+
+  it("Shock-Länder und „Karte zeigen“-Länder", () => {
+    expect(land("As Land enters the battlefield, you may pay 2 life. If you don't, it enters the battlefield tapped.").shock).toEqual({ life: 2 });
+    expect(land("As Land enters the battlefield, you may reveal a Forest or Island card from your hand. If you don't, it enters the battlefield tapped.").reveal).toEqual({ types: ["forest", "island"] });
+  });
+
+  it("Bounce-Länder: eigenes Land zurück auf die Hand", () => {
+    const karoo = land("Land enters the battlefield tapped.\nWhen Land enters the battlefield, return a land you control to its owner's hand.\n{T}: Add {R}{G}.");
+    expect(karoo.entersTapped).toBe(true);
+    expect(karoo.triggers[0].effects).toEqual([{ type: "bounceOwnLand" }]);
   });
 });

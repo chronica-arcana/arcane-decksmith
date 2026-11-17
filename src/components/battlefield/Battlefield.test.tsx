@@ -438,3 +438,17 @@ describe("Manuelles Fenster nur laut Kartentext, Münzwurf, Effekte", () => {
     expect(document.querySelector(".fx-float.damage")?.textContent).toBe("−3");
   });
 });
+
+describe("Auswahl: Ja/Nein (Shock-Land)", () => {
+  it("zeigt die Frage mit zwei Antworten und sendet die Wahl sofort", () => {
+    const choice = {
+      userId: "me", kind: "yesno" as const, prompt: "Schock: 2 Leben zahlen, damit es ungetappt ins Spiel kommt?", min: 1, max: 1,
+      options: [{ id: "yes", label: "2 Leben zahlen (ungetappt)" }, { id: "no", label: "Nicht zahlen (getappt)" }]
+    };
+    const { send } = setup(view({ priority: null, choice }));
+    const dialog = screen.getByRole("dialog", { name: "Auswahl" });
+    expect(within(dialog).getByText(/2 Leben zahlen, damit es ungetappt/)).toBeTruthy();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Nicht zahlen (getappt)" }));
+    expect(send).toHaveBeenCalledWith({ type: "choose", ids: ["no"] });
+  });
+});
