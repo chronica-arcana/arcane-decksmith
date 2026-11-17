@@ -10,6 +10,7 @@ import CardView from "./CardView";
 export default function CenterZone({ children }: { children: ReactNode }) {
   const { game, allCards, nameOf, clickCard, cardMenu, setHover, markOf, pendingBlocks, isTarget, pickTarget } = useBattlefield();
   const combat = game.combat;
+  const opponentCount = game.players.filter(player => !player.eliminated).length - 1;
   const lanes = (combat?.attackers ?? [])
     .map(attacker => {
       const card = allCards.get(attacker.id);
@@ -46,12 +47,11 @@ export default function CenterZone({ children }: { children: ReactNode }) {
           )}
           {lanes.length > 0 && (
             <div className="combat" aria-label="Kampf">
-              <span className="mid-title">Kampf</span>
               <div className="combat-lanes">
                 {lanes.map(({ attacker, card, blockers }) => (
                   <div key={attacker.id} className="lane">
-                    <span className="lane-target muted">→ {nameOf(attacker.target)}</span>
-                    <CardView card={card} size="md" marked={markOf(card)} onSelect={clickCard} onHover={setHover} onMenu={cardMenu} />
+                    {opponentCount > 1 && <span className="lane-target muted">→ {nameOf(attacker.target)}</span>}
+                    <CardView card={card} size="sm" marked={markOf(card)} onSelect={clickCard} onHover={setHover} onMenu={cardMenu} />
                     <div className="lane-blockers">
                       {blockers.map(blocker => (
                         <CardView key={blocker.id} card={blocker} size="sm" marked={markOf(blocker)} onSelect={clickCard} onHover={setHover} onMenu={cardMenu} />

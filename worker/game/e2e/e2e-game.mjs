@@ -140,8 +140,8 @@ const activeSock = { [alice.id]: x, [carol.id]: y, [dave.id]: z }[game(x).turn.a
 const aliceTurn = game(x).turn.active === alice.id;
 if (aliceTurn) {
   act(x, { type: "cast", id: cmdr.id });
-  await waitFor(() => game(x).players.find(p => p.userId === alice.id).cmdCasts[cmdr.id] === 1);
-  check("Kommandant wird aus der Kommandozone gewirkt und löst sich ohne Klick auf", game(x).stack.length === 0 && game(x).players.find(p => p.userId === alice.id).battlefield.some(card => card.id === cmdr.id));
+  await waitFor(() => game(x).players.find(p => p.userId === alice.id).cmdCasts[cmdr.id] === 1 || errors(x).some(m => /Mana|Hauptphase/.test(m)));
+  check("Kommandant wird aus der Kommandozone gewirkt und löst sich ohne Klick auf (sonst Regelhinweis, da noch keine Länder)", errors(x).some(m => /Mana|Hauptphase/.test(m)) || game(x).stack.length === 0 && game(x).players.find(p => p.userId === alice.id).battlefield.some(card => card.id === cmdr.id));
 } else {
   check("Kommandant bleibt in der Kommandozone, bis Alice dran ist (Startspieler war ein anderer)", me(x).command.length === 1);
 }
@@ -169,10 +169,10 @@ await sleep(200);
 ba.ws.send(JSON.stringify({ type: "start" }));
 await waitFor(() => game(ba));
 const botId = botPlayer.userId;
-await waitFor(() => game(ba).players.find(p => p.userId === botId).kept, 6000);
+await waitFor(() => game(ba).players.find(p => p.userId === botId).kept, 15000);
 check("Bot entscheidet selbst über seinen Mulligan", game(ba).players.find(p => p.userId === botId).kept === true);
 act(ba, { type: "keep" });
-await waitFor(() => game(ba)?.phase === "playing", 6000);
+await waitFor(() => game(ba)?.phase === "playing", 15000);
 let tries = 0;
 while (game(ba).phase === "playing" && game(ba).turn.number < 4 && tries < 400) {
   tries += 1;

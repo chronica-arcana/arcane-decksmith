@@ -162,16 +162,20 @@
 /* Mitte der Matte: Stapel, Kampf, Aktionsleiste (ohne eigenen Kasten) */
 .mid { flex: none; display: grid; gap: 4px; justify-items: center; padding: 2px 0; position: relative; }
 .mid::before { content: ""; position: absolute; left: 4%; right: 4%; top: 50%; height: 1px; background: linear-gradient(90deg, transparent, #c9a24b55, transparent); z-index: -1; }
-.mid-content { display: flex; gap: 18px; flex-wrap: wrap; align-items: flex-start; justify-content: center; padding: 4px 10px; border-radius: 12px; background: #070a0d99; }
+.mid-content { display: flex; gap: 12px; flex-wrap: wrap; align-items: flex-start; justify-content: center; padding: 4px 10px; border-radius: 12px; background: #070a0d99; }
 .mid-title { display: block; margin-bottom: 2px; font-family: var(--font-fantasy); font-size: 0.7rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--gold-bright); }
 .stack-cards { display: flex; gap: 8px; flex-wrap: wrap; }
 .stack-item { display: grid; gap: 2px; justify-items: center; font-size: 0.7rem; }
 .stack-item.top .gc { box-shadow: 0 0 14px 3px var(--gold-bright); }
 .stack-ability { padding: 6px; border-radius: 8px; background: #ffffff1c; text-align: center; max-width: 160px; }
 .combat-lanes { display: flex; gap: 14px; flex-wrap: wrap; }
-.lane { display: grid; gap: 3px; justify-items: center; }
+.lane { display: flex; align-items: center; gap: 6px; }
 .lane-target { font-size: 0.68rem; }
-.lane-blockers { display: flex; gap: 4px; min-height: 8px; margin-top: -10px; }
+.lane-blockers { display: flex; gap: 4px; }
+.lane-blockers:empty { display: none; }
+.combat .gc { transform: none; }
+.combat-lanes { align-items: center; }
+.mid-content { overflow: hidden; }
 .action-bar { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; justify-content: center; padding: 6px 14px; border-radius: 12px; background: #0a0d10f2; border: 1px solid var(--gold); box-shadow: 0 0 14px #c9a24b33; }
 .action-bar .go { min-width: 13em; }
 
