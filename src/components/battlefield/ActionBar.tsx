@@ -182,11 +182,11 @@ export default function ActionBar(props: ActionBarProps) {
   if (props.iHavePriority && game.stack.length > 0) {
     // Nur wer wirklich antworten kann, wird überhaupt gefragt.
     const top = game.stack.at(-1)!;
-    const what = top.card?.name ?? top.sourceName ?? "einen Effekt";
+    const what = top.card ? `${top.card.name}.` : `${top.sourceName ?? "Effekt"}: ${(top.text || "Fähigkeit").replace(/~/g, top.sourceName ?? "")}`;
     return (
       <div className="action-bar" role="alert">
-        <strong>{nameOf(top.controller)} spielt {what}.</strong>
-        <span className="muted">Du kannst antworten: Die leuchtenden Karten und Fähigkeiten sind möglich.</span>
+        <strong>{nameOf(top.controller)} spielt {what}</strong>
+        <span className="muted">Du kannst antworten.</span>
         <button type="button" className="primary go" onClick={() => act({ type: "pass" })}>Nicht antworten</button>
       </div>
     );
