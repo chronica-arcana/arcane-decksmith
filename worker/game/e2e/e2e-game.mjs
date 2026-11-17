@@ -141,7 +141,7 @@ const aliceTurn = game(x).turn.active === alice.id;
 if (aliceTurn) {
   act(x, { type: "cast", id: cmdr.id });
   await waitFor(() => game(x).players.find(p => p.userId === alice.id).cmdCasts[cmdr.id] === 1 || errors(x).length > 0);
-  check("Kommandant wird aus der Kommandozone gewirkt und löst sich ohne Klick auf (sonst Regelhinweis, da noch keine Länder)", errors(x).length > 0 || game(x).stack.length === 0 && game(x).players.find(p => p.userId === alice.id).battlefield.some(card => card.id === cmdr.id));
+  check("Kommandant wird aus der Kommandozone gewirkt und löst sich ohne Klick auf (sonst Regelhinweis, da noch keine Länder)", errors(x).length > 0 || me(x).command.some(card => card.id === cmdr.id) || game(x).stack.length === 0 && game(x).players.find(p => p.userId === alice.id).battlefield.some(card => card.id === cmdr.id));
 } else {
   check("Kommandant bleibt in der Kommandozone, bis Alice dran ist (Startspieler war ein anderer)", me(x).command.length === 1);
 }
