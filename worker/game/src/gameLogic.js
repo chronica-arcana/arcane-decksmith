@@ -458,10 +458,10 @@ function eliminate(game, userId, reason, now, random = Math.random) {
     return false;
   });
   if (game.combat) {
-    const involved = game.combat.attackers.some(a => a.target === userId || game.cards[a.id]?.owner === userId);
+    const involved = game.combat.attackers.some(a => attackTargetOwner(game, a.target) === userId || game.cards[a.id]?.owner === userId);
     if (involved && game.turn.active === userId) game.combat = null;
     else if (involved) {
-      game.combat.attackers = game.combat.attackers.filter(a => a.target !== userId && game.cards[a.id]?.owner !== userId);
+      game.combat.attackers = game.combat.attackers.filter(a => attackTargetOwner(game, a.target) !== userId && game.cards[a.id]?.owner !== userId);
       game.combat.blocks = game.combat.blocks.filter(b => game.cards[b.blocker]?.owner !== userId);
     }
   }
@@ -536,6 +536,16 @@ function startTurn(game, userId, { skipDraw = false } = {}) {
 }
 
 /** Kontrolle über eine Karte übernehmen (bis zum Zugende oder dauerhaft). Beschwörungsmüdigkeit gilt für den neuen Kontrolleur. */
+/** Ward: Wählt ein Spieler eine gegnerische Karte mit Ward als Ziel, kostet das zusätzlich (hier gleich beim Wirken bezahlt). */
+function wardExtra(game, userId, targets) {
+  let extra = "";
+  for (const id of targets ?? []) {
+    const card = game.cards[id];
+    if (card && card.owner !== userId && onBattlefield(game, id)) extra += defOf(game, card).rules?.ward ?? "";
+  }
+  return extra;
+}
+
 function takeControl(game, card, newController, untilEot) {
   if (card.owner === newController || !onBattlefield(game, card.id)) return false;
   const from = game.players[card.owner];
@@ -633,7 +643,8 @@ function advanceStep(game, now, random) {
       fireGlobal(game, "endStep", game.turn.active);
       flushTriggers(game);
       // Im Endschritt wird niemand nach Antworten gefragt: Er wird übersprungen, sobald keine Auslöser mehr offen sind.
-      if (game.stack.length === 0 && !game.choice) advanceStep(game, now, random);
+      const someoneCanRespond = game.seats.some(id => id !== game.turn.active && !game.players[id].eliminated && game.players[id].askResponse !== false && canRespond(game, id));
+      if (game.stack.length === 0 && !game.choice && !someoneCanRespond) advanceStep(game, now, random);
       return;
     case "end": {
       const active = game.players[game.turn.active];
@@ -738,6 +749,9 @@ function canRespond(game, userId) {
   }
 }
 
+/** Schritte, an deren Ende ein Gegner mit passendem Sofortzauber gefragt wird. */
+const STEP_WINDOWS = new Set(["main1", "attackers", "damage", "main2", "end"]);
+
 function settleLoop(game, random, now) {
   for (let guard = 0; guard < 50; guard += 1) {
     if (game.pendingDiscard || game.choice || game.manual || (game.combat?.phaseWaiting && game.stack.length === 0)) return;
@@ -760,9 +774,9 @@ function settleLoop(game, random, now) {
     const next = waiting[0];
     if (game.stack.length === 0) {
       // Ohne Stapel wird nur der aktive Spieler gefragt (Phasen weiterschalten); alle anderen passen von selbst.
-      // Ausnahme: vor dem Kampfschaden darf auch ein Verteidiger mit leuchtendem Sofortzauber antworten.
-      const damageWindow = game.turn.phase === "damage" && game.players[next].askResponse !== false && canRespond(game, next);
-      if (next !== game.turn.active && !damageWindow) {
+      // Ausnahme: Am Ende jedes Schritts darf auch ein Gegner mit leuchtendem Sofortzauber antworten (nur wenn er das so eingestellt hat).
+      const window = STEP_WINDOWS.has(game.turn.phase) && game.players[next].askResponse !== false && canRespond(game, next);
+      if (next !== game.turn.active && !window) {
         game.passed.push(next);
         continue;
       }
@@ -785,8 +799,25 @@ function settleLoop(game, random, now) {
 // Kampf
 // ---------------------------------------------------------------------------
 
+/** Warum kann `blocker` den Angreifer nicht blocken? (`null`, wenn er es kann.) */
+export function cannotBlockReason(game, attacker, blocker) {
+  if (hasKeyword(game, attacker, "flying") && !hasKeyword(game, blocker, "flying") && !hasKeyword(game, blocker, "reach")) return "Flug";
+  const blockerDef = defOf(game, blocker);
+  const blockerColors = colorsOfDef(blockerDef);
+  if (hasKeyword(game, attacker, "fear") && !blockerDef.types.artifact && !blockerColors.includes("B")) return "Furcht";
+  if (hasKeyword(game, attacker, "intimidate") && !blockerDef.types.artifact && !blockerColors.some(color => colorsOfCard(game, attacker).includes(color))) return "Einschüchtern";
+  if (hasKeyword(game, attacker, "skulk") && powerOf(game, blocker) > powerOf(game, attacker)) return "Schleichen";
+  if (protectedFrom(game, attacker, blockerColors)) return "Schutz";
+  return null;
+}
+
+/** Wer verteidigt? Ein Angriff gilt einem Spieler oder einem Planeswalker (dann dessen Kontrolleur). */
+export function attackTargetOwner(game, target) {
+  return game.players[target] ? target : game.cards[target]?.owner;
+}
+
 function defendersOf(game) {
-  return [...new Set(game.combat.attackers.map(attacker => attacker.target))].filter(id => !game.players[id].eliminated);
+  return [...new Set(game.combat.attackers.map(attacker => attackTargetOwner(game, attacker.target)))].filter(id => id && game.players[id] && !game.players[id].eliminated);
 }
 
 function canBlockAnything(game, userId) {
@@ -837,7 +868,7 @@ function dealCombatDamage(game, now) {
       const wasBlocked = combat.blocks.some(b => b.attacker === attacker.id);
       if (power === 0) continue;
       if (!wasBlocked) {
-        hits.push({ source: card.id, player: attacker.target, amount: power });
+        hits.push({ source: card.id, ...(game.players[attacker.target] ? { player: attacker.target } : { card: attacker.target }), amount: power });
         continue;
       }
       let left = power;
@@ -849,7 +880,7 @@ function dealCombatDamage(game, now) {
         if (give > 0) hits.push({ source: card.id, card: blockerId, amount: give });
         left -= give;
       });
-      if (hasKeyword(game, card, "trample") && left > 0) hits.push({ source: card.id, player: attacker.target, amount: left });
+      if (hasKeyword(game, card, "trample") && left > 0) hits.push({ source: card.id, ...(game.players[attacker.target] ? { player: attacker.target } : { card: attacker.target }), amount: left });
     }
     for (const block of combat.blocks) {
       if (!living(block.blocker) || !living(block.attacker) || !deals(block.blocker)) continue;
@@ -2426,10 +2457,11 @@ function castAction(game, userId, action) {
 
   const x = isInt(action.x) ? clampInt(action.x, 0, 99) : 0;
   const tax = found.zone === "command" ? 2 * (player.cmdCasts[found.card.id] ?? 0) : 0;
-  const cost = flashback ? def.rules.flashback : def.manaCost;
+  const ward = specs.length > 0 ? wardExtra(game, userId, action.targets) : "";
+  const cost = (flashback ? def.rules.flashback : def.manaCost) + ward;
   const plan = planPayment({ manaCost: cost, x, extraGeneric: tax, pool: player.pool, sources: chosenSources(manaSources(game, userId), action) });
   if (!plan.ok) {
-    return fail(`Nicht genug Mana für ${describeCost(cost, x, tax)}${tax ? " (inkl. Kommandantensteuer)" : ""}.`);
+    return fail(`Nicht genug Mana für ${describeCost(cost, x, tax)}${tax ? " (inkl. Kommandantensteuer)" : ""}${ward ? " (inkl. Ward)" : ""}.`);
   }
   for (const id of plan.tap) game.cards[id].tapped = true;
   for (const color of Object.keys(plan.poolUsed)) player.pool[color] -= plan.poolUsed[color];
@@ -2443,6 +2475,15 @@ function castAction(game, userId, action) {
   game.priority = userId;
   game.passed = [];
   addLog(game, `${player.name} wirkt ${def.name}${paid}.`);
+  if (!def.types.creature) {
+    for (const id of player.battlefield) {
+      const card = game.cards[id];
+      if (hasKeyword(game, card, "prowess")) {
+        card.tp = (card.tp ?? 0) + 1;
+        card.tt = (card.tt ?? 0) + 1;
+      }
+    }
+  }
   return ok();
 }
 
@@ -2513,10 +2554,12 @@ function activateAction(game, userId, action) {
   }
   if (ability.specs.length > 0 && !targetsLegal(game, ability.specs, action.targets, userId, colorsOfDef(def))) return fail("Wähle gültige Ziele für diese Fähigkeit.");
 
-  if (ability.cost.mana) {
+  const abilityWard = ability.specs.length > 0 ? wardExtra(game, userId, action.targets) : "";
+  const abilityMana = (ability.cost.mana ?? "") + abilityWard;
+  if (abilityMana) {
     const sources = chosenSources(manaSources(game, userId).filter(source => source.id !== card.id), action);
-    const plan = planPayment({ manaCost: ability.cost.mana, pool: player.pool, sources });
-    if (!plan.ok) return fail(`Nicht genug Mana für ${describeCost(ability.cost.mana)}.`);
+    const plan = planPayment({ manaCost: abilityMana, pool: player.pool, sources });
+    if (!plan.ok) return fail(`Nicht genug Mana für ${describeCost(abilityMana)}${abilityWard ? " (inkl. Ward)" : ""}.`);
     for (const id of plan.tap) game.cards[id].tapped = true;
     for (const color of Object.keys(plan.poolUsed)) player.pool[color] -= plan.poolUsed[color];
     for (const color of Object.keys(plan.poolAdd)) player.pool[color] += plan.poolAdd[color];
@@ -2569,7 +2612,9 @@ function declareAttackersAction(game, userId, action, random, now) {
     if (isSick(game, card)) return fail(`${def.name} ist beschwörungsmüde.`);
     if (hasKeyword(game, card, "defender")) return fail(`${def.name} kann nicht angreifen (Verteidiger).`);
     const target = typeof entry.target === "string" ? entry.target : opponents.length === 1 ? opponents[0] : "";
-    if (!opponents.includes(target)) return fail("Wähle für jeden Angreifer einen Gegner.");
+    const walker = game.cards[target];
+    const walkerOk = walker && onBattlefield(game, target) && defOf(game, walker).types.planeswalker && opponents.includes(walker.owner);
+    if (!opponents.includes(target) && !walkerOk) return fail("Wähle für jeden Angreifer einen Gegner oder einen gegnerischen Planeswalker.");
     attackers.push({ id: entry.id, target });
   }
   if (attackers.length === 0) {
@@ -2589,7 +2634,7 @@ function declareAttackersAction(game, userId, action, random, now) {
   game.passed = [];
   addLog(
     game,
-    `${game.players[userId].name} greift an: ${attackers.map(a => `${nameOf(game, a.id)} → ${game.players[a.target].name}`).join(", ")}.`
+    `${game.players[userId].name} greift an: ${attackers.map(a => `${nameOf(game, a.id)} → ${game.players[a.target]?.name ?? nameOf(game, a.target)}`).join(", ")}.`
   );
   settleCombatWaiting(game);
   return ok();
@@ -2612,15 +2657,14 @@ function declareBlockersAction(game, userId, action) {
     const bdef = defOf(game, blocker);
     if (!bdef.types.creature || blocker.faceDown) return fail(`${bdef.name} ist keine Kreatur.`);
     if (blocker.tapped) return fail(`${bdef.name} ist getappt und kann nicht blocken.`);
-    const attacker = combat.attackers.find(a => a.id === entry.attacker && a.target === userId);
+    const attacker = combat.attackers.find(a => a.id === entry.attacker && attackTargetOwner(game, a.target) === userId);
     if (!attacker) return fail("Du kannst nur Angreifer blocken, die dich angreifen.");
     const acard = game.cards[attacker.id];
-    if (hasKeyword(game, acard, "flying") && !hasKeyword(game, blocker, "flying") && !hasKeyword(game, blocker, "reach")) {
-      return fail(`${bdef.name} kann ${nameOf(game, acard.id)} nicht blocken (Flug).`);
-    }
+    const why = cannotBlockReason(game, acard, blocker);
+    if (why) return fail(`${bdef.name} kann ${nameOf(game, acard.id)} nicht blocken (${why}).`);
     chosen.push({ blocker: entry.blocker, attacker: entry.attacker });
   }
-  for (const attacker of combat.attackers.filter(a => a.target === userId)) {
+  for (const attacker of combat.attackers.filter(a => attackTargetOwner(game, a.target) === userId)) {
     const count = chosen.filter(b => b.attacker === attacker.id).length;
     if (count === 1 && hasKeyword(game, game.cards[attacker.id], "menace")) {
       return fail(`${nameOf(game, attacker.id)} hat Drohung und muss von mindestens zwei Kreaturen geblockt werden.`);
@@ -2769,4 +2813,4 @@ export function playerLeft(game, userId, { random = Math.random, now = Date.now(
 export { poolTotal };
 
 /** Hilfsfunktionen für den Bot (nur lesend). */
-export const _internals = { defOf, powerOf, toughnessOf, hasKeyword, onBattlefield, alive };
+export const _internals = { defOf, powerOf, toughnessOf, hasKeyword, onBattlefield, alive, cannotBlockReason, attackTargetOwner };

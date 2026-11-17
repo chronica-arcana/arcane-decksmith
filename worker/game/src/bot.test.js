@@ -30,6 +30,17 @@ const LIB = [
   ["scythe", "Sense", "Artifact — Equipment", "{2}", 2, {}, "When this Equipment enters, you may attach it to target creature you control.\nEquipped creature gets +2/+1.\nEquip {2}"],
   ["halo", "Heiligenschein", "Enchantment — Aura", "{G}", 2, {}, "Enchant creature\nEnchanted creature gets +1/+1 and has flying."],
   ["revive", "Wiederkehr", "Sorcery", "{1}{G}", 2, {}, "Return target creature card from your graveyard to the battlefield with two additional +1/+1 counters on it."],
+  ["edict", "Opferzwang", "Sorcery", "{G}", 2, {}, "Target opponent sacrifices a creature."],
+  ["threaten", "Bedrohung", "Sorcery", "{G}", 2, {}, "Gain control of target creature until end of turn. Untap that creature. It gains haste until end of turn."],
+  ["fog", "Nebel", "Instant", "{G}", 2, {}, "Prevent all combat damage that would be dealt this turn."],
+  ["pact", "Pakt", "Sorcery", "{G}", 2, {}, "You may draw a card. If you do, you lose 1 life."],
+  ["horde", "Horde", "Sorcery", "{G}", 2, {}, "Draw a card for each creature you control."],
+  ["twin", "Zwilling", "Creature — Elf", "{G}", 2, { power: "1", toughness: "1" }, "When ~ enters, ~ deals 1 damage to target creature and 1 damage to target player."],
+  ["pro", "Schutzgeist", "Creature — Spirit", "{G}", 2, { power: "2", toughness: "2" }, "Protection from red"],
+  ["wardy", "Wächter", "Creature — Knight", "{G}", 2, { power: "2", toughness: "2" }, "Ward {2}"],
+  ["fearful", "Schreck", "Creature — Horror", "{G}", 2, { power: "2", toughness: "2", keywords: ["Fear"] }],
+  ["inf", "Seuchenträger", "Creature — Horror", "{G}", 2, { power: "2", toughness: "2", keywords: ["Infect"] }],
+  ["king", "König", "Legendary Creature — Elf", "{G}", 2, { power: "2", toughness: "2" }],
   ["cycler", "Wechsler", "Creature — Elf", "{3}{G}{G}", 2, { power: "2", toughness: "2" }, "Cycling {1}"]
 ];
 

@@ -8,7 +8,7 @@
  */
 import { _internals, gameView } from "./gameLogic.js";
 
-const { defOf, powerOf, toughnessOf, hasKeyword } = _internals;
+const { defOf, powerOf, toughnessOf, hasKeyword, cannotBlockReason, attackTargetOwner } = _internals;
 
 export const BOT_PREFIX = "bot-";
 export const isBotId = userId => typeof userId === "string" && userId.startsWith(BOT_PREFIX);
@@ -27,7 +27,7 @@ export function waitingPlayer(game) {
   if (game.pendingDiscard) return game.pendingDiscard.userId;
   if (game.stack.length > 0) return game.priority;
   if (game.combat?.phaseWaiting) {
-    return [...new Set(game.combat.attackers.map(a => a.target))].find(id => !game.combat.done.includes(id) && !game.players[id].eliminated) ?? null;
+    return [...new Set(game.combat.attackers.map(a => attackTargetOwner(game, a.target)))].find(id => !game.combat.done.includes(id) && !game.players[id].eliminated) ?? null;
   }
   return game.priority;
 }
@@ -67,7 +67,8 @@ function pickTarget(game, botId, options, intent, damage) {
     if (own.length === 0) return null;
     return own.sort((a, b) => (game.cards[b] ? powerOf(game, game.cards[b]) : 0) - (game.cards[a] ? powerOf(game, game.cards[a]) : 0))[0];
   }
-  const foeCards = cards.filter(id => !mine(id));
+  // Karten mit Ward meidet der Bot (der Aufpreis hängt vom Ziel ab und wird nicht vorausberechnet).
+  const foeCards = cards.filter(id => !mine(id) && !defOf(game, game.cards[id]).rules?.ward);
   const foePlayers = players.filter(id => !mine(id));
   const kill = damage ? foeCards.filter(id => toughnessOf(game, game.cards[id]) - game.cards[id].damage <= damage) : [];
   const best = list => [...list].sort((a, b) => value(viewOf(game, b)) - value(viewOf(game, a)))[0];
@@ -141,7 +142,7 @@ function declareAttackers(game, botId) {
     const toughness = toughnessOf(game, card);
     if (power <= 0) return false;
     if (lethal || foes.length === 0) return true;
-    const canBlock = foes.filter(foe => !hasKeyword(game, card, "flying") || hasKeyword(game, foe, "flying") || hasKeyword(game, foe, "reach"));
+    const canBlock = foes.filter(foe => !cannotBlockReason(game, card, foe));
     if (canBlock.length === 0) return true;
     return canBlock.every(foe => powerOf(game, foe) < toughness) && power >= 2;
   });
@@ -154,7 +155,7 @@ function declareAttackers(game, botId) {
 
 function declareBlockers(game, botId) {
   const me = game.players[botId];
-  const attackers = game.combat.attackers.filter(a => a.target === botId).map(a => game.cards[a.id]).filter(Boolean);
+  const attackers = game.combat.attackers.filter(a => attackTargetOwner(game, a.target) === botId).map(a => game.cards[a.id]).filter(Boolean);
   const blockers = me.battlefield.map(id => game.cards[id]).filter(card => defOf(game, card).types.creature && !card.tapped && !card.faceDown);
   const used = new Set();
   const blocks = [];
@@ -166,7 +167,7 @@ function declareBlockers(game, botId) {
     const aToughness = toughnessOf(game, attacker);
     const options = blockers.filter(blocker => {
       if (used.has(blocker.id)) return false;
-      return !hasKeyword(game, attacker, "flying") || hasKeyword(game, blocker, "flying") || hasKeyword(game, blocker, "reach");
+      return !cannotBlockReason(game, attacker, blocker);
     });
     const safeKill = options.filter(b => powerOf(game, b) >= aToughness && toughnessOf(game, b) > aPower);
     const trade = options.filter(b => powerOf(game, b) >= aToughness && value(viewOf(game, attacker)) >= value(viewOf(game, b)));
