@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { getSession } from "../../auth";
-import GameTable from "./GameTable";
+import Battlefield from "../battlefield/Battlefield";
 import {
   GameApiError,
   type GameAction,
@@ -213,7 +213,7 @@ export default function GameRoomPanel({
       )}
 
       {game && room && (
-        <GameTable
+        <Battlefield
           game={game}
           hostId={room.hostId}
           send={sendAction}

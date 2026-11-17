@@ -1,7 +1,8 @@
 import { useRef } from "react";
-import type { DragEvent, MouseEvent, PointerEvent } from "react";
+import type { CSSProperties, DragEvent, MouseEvent, PointerEvent } from "react";
 import type { GameCard } from "../../gameClient";
 import cardBack from "../../assets/game/cardback.webp";
+import { imageFor } from "./scryfallAssets";
 
 export type TileSize = "sm" | "md" | "lg" | "fill";
 
@@ -14,9 +15,10 @@ export function CardBack({ className = "" }: { className?: string }) {
  * Eine Karte auf dem Tisch. Klick = Hauptaktion, Rechtsklick oder langes Drücken = Menü, Ziehen = Karte bewegen,
  * Darüberfahren = große Vorschau.
  */
-export default function GameCardTile({
+export default function CardView({
   card,
   size = "md",
+  style,
   selected,
   glow,
   marked,
@@ -27,6 +29,7 @@ export default function GameCardTile({
 }: {
   card: GameCard;
   size?: TileSize;
+  style?: CSSProperties;
   selected?: boolean;
   /** Spielbar/zahlbar: grüner Schein. */
   glow?: boolean;
@@ -74,6 +77,7 @@ export default function GameCardTile({
     <button
       type="button"
       className={classes}
+      style={style}
       draggable={Boolean(onDragStart)}
       onDragStart={event => onDragStart?.(card, event)}
       onClick={event => {
@@ -101,7 +105,7 @@ export default function GameCardTile({
       {hidden ? (
         <CardBack />
       ) : card.imageUri ? (
-        <img src={card.imageUri} alt="" loading="lazy" draggable={false} />
+        <img src={imageFor(card.imageUri, size === "sm" ? "small" : "normal") ?? card.imageUri} alt="" loading="lazy" draggable={false} />
       ) : (
         <span className="gc-text">
           <strong>{card.name}</strong>
