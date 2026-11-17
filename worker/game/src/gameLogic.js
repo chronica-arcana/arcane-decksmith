@@ -15,7 +15,7 @@
  * über „Fähigkeit auf den Stapel“ und das manuelle Bewegen von Karten lässt sich alles abbilden.
  */
 import { buildDef } from "./cardFacts.js";
-import { parseCardText } from "./cardText.js";
+import { describeEffect as describeEffectText, parseCardText } from "./cardText.js";
 import { emptyPool, describeCost, planPayment, poolTotal } from "./manaPayment.js";
 
 export const GAME_VERSION = 3;
@@ -123,6 +123,15 @@ const keywordsOfCard = (game, card) => {
 };
 const hasKeyword = (game, card, keyword) => keywordsOfCard(game, card).includes(keyword);
 
+/** Farben einer Karte aus den Manasymbolen der Kosten (Spielsteine: farblos). */
+const colorsOfDef = def => [...new Set(String(def?.manaCost ?? "").match(/[WUBRG]/g) ?? [])];
+const colorsOfCard = (game, card) => colorsOfDef(defOf(game, card));
+/** Hat das Ziel Schutz vor den Farben der Quelle? */
+const protectedFrom = (game, card, sourceColors) => {
+  const protection = defOf(game, card).rules?.protection ?? [];
+  return sourceColors.some(color => protection.includes(color));
+};
+
 const counterOf = (card, kind) => card.counters[kind] ?? 0;
 const bonus = card => counterOf(card, "+1/+1") - counterOf(card, "-1/-1");
 const powerOf = (game, card) => (defOf(game, card).power ?? 0) + bonus(card) + (card.tp ?? 0) + staticEffects(game, card).p;
@@ -171,6 +180,7 @@ function addCard(game, userId, defId, zone, extra = {}) {
     sinceSeq: 0,
     tp: 0,
     tt: 0,
+    origOwner: userId,
     ...extra
   };
   game.players[userId][zone].push(id);
@@ -180,7 +190,11 @@ function addCard(game, userId, defId, zone, extra = {}) {
 function drawCards(game, userId, count) {
   const player = game.players[userId];
   let drawn = 0;
-  for (let i = 0; i < count && player.library.length > 0; i += 1) {
+  for (let i = 0; i < count; i += 1) {
+    if (player.library.length === 0) {
+      player.drewEmpty = true; // Ziehen aus leerer Bibliothek: Niederlage bei der nächsten Prüfung
+      break;
+    }
     player.hand.push(player.library.pop()); // oben = Ende der Liste
     drawn += 1;
   }
@@ -303,6 +317,8 @@ function resetCardState(card) {
   card.deathtouched = false;
   card.attachedTo = null;
   card.tk = [];
+  card.owner = card.origOwner ?? card.owner;
+  card.stolenUntilEot = false;
 }
 
 function enterBattlefield(game, card) {
@@ -375,14 +391,15 @@ function offerCommanderReturn(game, card, to) {
 
 /** Karte stirbt oder wird neutralisiert → Friedhof (Spielsteine verschwinden). */
 function toGraveyard(game, card, from = "battlefield") {
-  const owner = game.players[card.owner];
+  const holder = game.players[card.owner]; // Kontrolleur (liegt dort auf dem Feld)
+  const owner = game.players[card.origOwner ?? card.owner]; // Besitzer (dort landet die Karte)
   if (from === "battlefield") {
     fireTriggers(game, card, "dies");
     if (defOf(game, card).types.creature) fireGlobal(game, "creatureDies", card);
   }
   for (const zone of ZONES) {
-    const index = owner[zone].indexOf(card.id);
-    if (index !== -1) owner[zone].splice(index, 1);
+    const index = holder[zone].indexOf(card.id);
+    if (index !== -1) holder[zone].splice(index, 1);
   }
   if (card.token) {
     delete game.cards[card.id];
@@ -441,10 +458,10 @@ function eliminate(game, userId, reason, now, random = Math.random) {
     return false;
   });
   if (game.combat) {
-    const involved = game.combat.attackers.some(a => a.target === userId || game.cards[a.id]?.owner === userId);
+    const involved = game.combat.attackers.some(a => attackTargetOwner(game, a.target) === userId || game.cards[a.id]?.owner === userId);
     if (involved && game.turn.active === userId) game.combat = null;
     else if (involved) {
-      game.combat.attackers = game.combat.attackers.filter(a => a.target !== userId && game.cards[a.id]?.owner !== userId);
+      game.combat.attackers = game.combat.attackers.filter(a => attackTargetOwner(game, a.target) !== userId && game.cards[a.id]?.owner !== userId);
       game.combat.blocks = game.combat.blocks.filter(b => game.cards[b.blocker]?.owner !== userId);
     }
   }
@@ -460,12 +477,20 @@ function eliminate(game, userId, reason, now, random = Math.random) {
   }
 }
 
+function commanderCount(game, ownerId) {
+  return Object.values(game.cards).filter(card => card.cmd && (card.origOwner ?? card.owner) === ownerId).length;
+}
+
 function checkElimination(game, userId, now) {
   const player = game.players[userId];
   if (player.eliminated) return;
   if (player.life <= 0) eliminate(game, userId, "0 Lebenspunkte", now);
   else if (player.poison >= 10) eliminate(game, userId, "10 Giftmarken", now);
-  else if (Object.values(player.cmdDamage).some(value => value >= 21)) eliminate(game, userId, "21 Kommandantenschaden", now);
+  else if (player.drewEmpty) eliminate(game, userId, "Karte aus leerer Bibliothek gezogen", now);
+  else if (Object.values(player.cmdDamageCards ?? {}).some(value => value >= 21)) eliminate(game, userId, "21 Kommandantenschaden", now);
+  else if (
+    Object.entries(player.cmdDamage).some(([owner, value]) => value >= 21 && commanderCount(game, owner) <= 1)
+  ) eliminate(game, userId, "21 Kommandantenschaden", now);
 }
 
 // ---------------------------------------------------------------------------
@@ -483,6 +508,7 @@ function startTurn(game, userId, { skipDraw = false } = {}) {
   game.turn.drawn = false;
   game.turn.drawBlocked = skipDraw;
   game.turn.drew = false;
+  game.turn.fog = false;
   game.turn.manualStart = player.autoStart === false && !skipDraw;
   player.turnsTaken = (player.turnsTaken ?? 0) + 1;
   game.combat = null;
@@ -509,6 +535,44 @@ function startTurn(game, userId, { skipDraw = false } = {}) {
   }
 }
 
+/** Kontrolle über eine Karte übernehmen (bis zum Zugende oder dauerhaft). Beschwörungsmüdigkeit gilt für den neuen Kontrolleur. */
+/** Ward: Wählt ein Spieler eine gegnerische Karte mit Ward als Ziel, kostet das zusätzlich (hier gleich beim Wirken bezahlt). */
+function wardExtra(game, userId, targets) {
+  let extra = "";
+  for (const id of targets ?? []) {
+    const card = game.cards[id];
+    if (card && card.owner !== userId && onBattlefield(game, id)) extra += defOf(game, card).rules?.ward ?? "";
+  }
+  return extra;
+}
+
+function takeControl(game, card, newController, untilEot) {
+  if (card.owner === newController || !onBattlefield(game, card.id)) return false;
+  const from = game.players[card.owner];
+  from.battlefield.splice(from.battlefield.indexOf(card.id), 1);
+  game.players[newController].battlefield.push(card.id);
+  card.owner = newController;
+  card.stolenUntilEot = Boolean(untilEot);
+  card.attachedTo = card.attachedTo && game.cards[card.attachedTo]?.owner === newController ? card.attachedTo : null;
+  card.sinceSeq = tick(game);
+  return true;
+}
+
+/** Am Zugende gehen „bis zum Zugende“-Kontrollwechsel zurück an den Besitzer. */
+function returnStolen(game) {
+  for (const card of Object.values(game.cards)) {
+    if (!card.stolenUntilEot || card.owner === (card.origOwner ?? card.owner)) continue;
+    if (!onBattlefield(game, card.id)) continue;
+    const back = card.origOwner;
+    const from = game.players[card.owner];
+    from.battlefield.splice(from.battlefield.indexOf(card.id), 1);
+    if (game.players[back] && !game.players[back].eliminated) game.players[back].battlefield.push(card.id);
+    card.owner = back;
+    card.stolenUntilEot = false;
+    addLog(game, `${nameOf(game, card.id)} kehrt zu ${game.players[back]?.name ?? "seinem Besitzer"} zurück.`);
+  }
+}
+
 function untapAll(game, userId) {
   let count = 0;
   for (const id of game.players[userId].battlefield) {
@@ -527,7 +591,15 @@ function finishTurn(game) {
     card.tk = [];
   }
   clearPools(game);
-  const next = orderFrom(game, game.turn.active)[1] ?? orderFrom(game, game.turn.active)[0];
+  returnStolen(game);
+  let next = orderFrom(game, game.turn.active)[1] ?? orderFrom(game, game.turn.active)[0];
+  while (game.extraTurns?.length > 0) {
+    const extra = game.extraTurns.shift();
+    if (game.players[extra] && !game.players[extra].eliminated) {
+      next = extra;
+      break;
+    }
+  }
   game.turn.number += 1;
   startTurn(game, next);
 }
@@ -571,7 +643,8 @@ function advanceStep(game, now, random) {
       fireGlobal(game, "endStep", game.turn.active);
       flushTriggers(game);
       // Im Endschritt wird niemand nach Antworten gefragt: Er wird übersprungen, sobald keine Auslöser mehr offen sind.
-      if (game.stack.length === 0 && !game.choice) advanceStep(game, now, random);
+      const someoneCanRespond = game.seats.some(id => id !== game.turn.active && !game.players[id].eliminated && game.players[id].askResponse !== false && canRespond(game, id));
+      if (game.stack.length === 0 && !game.choice && !someoneCanRespond) advanceStep(game, now, random);
       return;
     case "end": {
       const active = game.players[game.turn.active];
@@ -595,7 +668,7 @@ function resolveTop(game) {
   const controller = game.players[item.controller];
   if (item.kind === "ability") {
     const ctx = { controller: item.controller, source: item.source, sourceName: item.sourceName, targets: item.targets ?? [], unparsed: item.unparsed ?? [] };
-    if ((item.specs?.length ?? 0) > 0 && !targetsLegal(game, item.specs, ctx.targets, item.controller)) {
+    if ((item.specs?.length ?? 0) > 0 && !targetsLegal(game, item.specs, ctx.targets, item.controller, item.source && game.cards[item.source] ? colorsOfCard(game, game.cards[item.source]) : [])) {
       addLog(game, `${item.sourceName}: Fähigkeit verpufft (Ziel nicht mehr gültig).`);
       return;
     }
@@ -610,7 +683,7 @@ function resolveTop(game) {
   if (def.types.instant || def.types.sorcery) {
     const base = def.rules?.spell ?? { effects: [], specs: [], unparsed: [] };
     const spell = base.modes ? base.modes[item.mode] ?? { effects: [], specs: [], unparsed: [] } : base;
-    if (spell.specs.length > 0 && !targetsLegal(game, spell.specs, item.targets ?? [], item.controller)) {
+    if (spell.specs.length > 0 && !targetsLegal(game, spell.specs, item.targets ?? [], item.controller, colorsOfDef(def))) {
       addLog(game, `${def.name} verpufft (Ziel nicht mehr gültig).`);
     } else {
       addLog(game, `${def.name} löst sich auf.`);
@@ -619,7 +692,7 @@ function resolveTop(game) {
     (item.flashback ? owner.exile : owner.graveyard).push(card.id);
   } else if (def.rules?.aura) {
     const specs = def.rules.spell?.specs ?? [];
-    if (specs.length > 0 && !targetsLegal(game, specs, item.targets ?? [], item.controller)) {
+    if (specs.length > 0 && !targetsLegal(game, specs, item.targets ?? [], item.controller, colorsOfDef(def))) {
       addLog(game, `${def.name} verpufft (Ziel nicht mehr gültig).`);
       toGraveyard(game, card, "stack");
       return;
@@ -676,6 +749,9 @@ function canRespond(game, userId) {
   }
 }
 
+/** Schritte, an deren Ende ein Gegner mit passendem Sofortzauber gefragt wird. */
+const STEP_WINDOWS = new Set(["main1", "attackers", "damage", "main2", "end"]);
+
 function settleLoop(game, random, now) {
   for (let guard = 0; guard < 50; guard += 1) {
     if (game.pendingDiscard || game.choice || game.manual || (game.combat?.phaseWaiting && game.stack.length === 0)) return;
@@ -698,9 +774,9 @@ function settleLoop(game, random, now) {
     const next = waiting[0];
     if (game.stack.length === 0) {
       // Ohne Stapel wird nur der aktive Spieler gefragt (Phasen weiterschalten); alle anderen passen von selbst.
-      // Ausnahme: vor dem Kampfschaden darf auch ein Verteidiger mit leuchtendem Sofortzauber antworten.
-      const damageWindow = game.turn.phase === "damage" && game.players[next].askResponse !== false && canRespond(game, next);
-      if (next !== game.turn.active && !damageWindow) {
+      // Ausnahme: Am Ende jedes Schritts darf auch ein Gegner mit leuchtendem Sofortzauber antworten (nur wenn er das so eingestellt hat).
+      const window = STEP_WINDOWS.has(game.turn.phase) && game.players[next].askResponse !== false && canRespond(game, next);
+      if (next !== game.turn.active && !window) {
         game.passed.push(next);
         continue;
       }
@@ -723,8 +799,25 @@ function settleLoop(game, random, now) {
 // Kampf
 // ---------------------------------------------------------------------------
 
+/** Warum kann `blocker` den Angreifer nicht blocken? (`null`, wenn er es kann.) */
+export function cannotBlockReason(game, attacker, blocker) {
+  if (hasKeyword(game, attacker, "flying") && !hasKeyword(game, blocker, "flying") && !hasKeyword(game, blocker, "reach")) return "Flug";
+  const blockerDef = defOf(game, blocker);
+  const blockerColors = colorsOfDef(blockerDef);
+  if (hasKeyword(game, attacker, "fear") && !blockerDef.types.artifact && !blockerColors.includes("B")) return "Furcht";
+  if (hasKeyword(game, attacker, "intimidate") && !blockerDef.types.artifact && !blockerColors.some(color => colorsOfCard(game, attacker).includes(color))) return "Einschüchtern";
+  if (hasKeyword(game, attacker, "skulk") && powerOf(game, blocker) > powerOf(game, attacker)) return "Schleichen";
+  if (protectedFrom(game, attacker, blockerColors)) return "Schutz";
+  return null;
+}
+
+/** Wer verteidigt? Ein Angriff gilt einem Spieler oder einem Planeswalker (dann dessen Kontrolleur). */
+export function attackTargetOwner(game, target) {
+  return game.players[target] ? target : game.cards[target]?.owner;
+}
+
 function defendersOf(game) {
-  return [...new Set(game.combat.attackers.map(attacker => attacker.target))].filter(id => !game.players[id].eliminated);
+  return [...new Set(game.combat.attackers.map(attacker => attackTargetOwner(game, attacker.target)))].filter(id => id && game.players[id] && !game.players[id].eliminated);
 }
 
 function canBlockAnything(game, userId) {
@@ -750,6 +843,10 @@ function settleCombatWaiting(game) {
 function dealCombatDamage(game, now) {
   const combat = game.combat;
   if (!combat) return;
+  if (game.turn.fog) {
+    addLog(game, "Der gesamte Kampfschaden dieses Zuges wird verhindert.");
+    return;
+  }
   const living = id => game.cards[id] && onBattlefield(game, id);
   const anyFirst = id => hasKeyword(game, game.cards[id], "first strike") || hasKeyword(game, game.cards[id], "double strike");
   const involved = [...combat.attackers.map(a => a.id), ...combat.blocks.map(b => b.blocker)].filter(living);
@@ -771,7 +868,7 @@ function dealCombatDamage(game, now) {
       const wasBlocked = combat.blocks.some(b => b.attacker === attacker.id);
       if (power === 0) continue;
       if (!wasBlocked) {
-        hits.push({ source: card.id, player: attacker.target, amount: power });
+        hits.push({ source: card.id, ...(game.players[attacker.target] ? { player: attacker.target } : { card: attacker.target }), amount: power });
         continue;
       }
       let left = power;
@@ -783,7 +880,7 @@ function dealCombatDamage(game, now) {
         if (give > 0) hits.push({ source: card.id, card: blockerId, amount: give });
         left -= give;
       });
-      if (hasKeyword(game, card, "trample") && left > 0) hits.push({ source: card.id, player: attacker.target, amount: left });
+      if (hasKeyword(game, card, "trample") && left > 0) hits.push({ source: card.id, ...(game.players[attacker.target] ? { player: attacker.target } : { card: attacker.target }), amount: left });
     }
     for (const block of combat.blocks) {
       if (!living(block.blocker) || !living(block.attacker) || !deals(block.blocker)) continue;
@@ -793,21 +890,7 @@ function dealCombatDamage(game, now) {
     for (const hit of hits) {
       const source = game.cards[hit.source];
       if (!source) continue;
-      if (hit.card && game.cards[hit.card]) {
-        game.cards[hit.card].damage += hit.amount;
-        pushFx(game, { type: "damage", card: hit.card, amount: hit.amount });
-        if (hasKeyword(game, source, "deathtouch")) game.cards[hit.card].deathtouched = true;
-      }
-      if (hit.player) {
-        const target = game.players[hit.player];
-        target.life -= hit.amount;
-        pushFx(game, { type: "damage", player: hit.player, amount: hit.amount });
-        if (source.cmd) target.cmdDamage[source.owner] = (target.cmdDamage[source.owner] ?? 0) + hit.amount;
-      }
-      if (hasKeyword(game, source, "lifelink")) {
-        game.players[source.owner].life += hit.amount;
-        pushFx(game, { type: "heal", player: source.owner, amount: hit.amount });
-      }
+      inflictDamage(game, source, hit.card ?? hit.player, hit.amount, { combat: true });
     }
     if (hits.length > 0) {
       const summary = hits
@@ -852,6 +935,32 @@ function checkStateBased(game, now) {
     }
     if (!changed) break;
   }
+  // Legendenregel: gleichnamige legendäre Permanents eines Spielers – er behält eines.
+  if (!game.choice) {
+    for (const userId of game.seats) {
+      const byName = new Map();
+      for (const id of game.players[userId].battlefield) {
+        const def = defOf(game, game.cards[id]);
+        if (!def.types.legendary) continue;
+        byName.set(def.name, [...(byName.get(def.name) ?? []), id]);
+      }
+      const group = [...byName.values()].find(ids => ids.length > 1);
+      if (group) {
+        game.choice = {
+          userId,
+          kind: "cards",
+          prompt: `Legendenregel: Wähle ${nameOf(game, group[0])}, die du behältst (die anderen kommen auf den Friedhof).`,
+          options: group,
+          min: 1,
+          max: 1,
+          step: { type: "legend", group },
+          queue: [],
+          ctx: null
+        };
+        break;
+      }
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -875,14 +984,15 @@ function typeMatches(def, what) {
 }
 
 /** Gültige Ziele (Karten-IDs, Spieler-IDs oder Stapel-IDs) für eine Zielangabe. */
-function validTargets(game, spec, controller) {
+function validTargets(game, spec, controller, sourceColors = []) {
   const players = alive(game);
   const battlefield = [];
   for (const userId of game.seats) {
     for (const id of game.players[userId].battlefield) {
       const card = game.cards[id];
       const def = defOf(game, card);
-      if (card.owner !== controller && (def.keywords.includes("hexproof") || def.keywords.includes("shroud"))) continue;
+      if (card.owner !== controller && (hasKeyword(game, card, "hexproof") || hasKeyword(game, card, "shroud"))) continue;
+      if (sourceColors.length > 0 && protectedFrom(game, card, sourceColors)) continue;
       battlefield.push({ id, def });
     }
   }
@@ -929,11 +1039,11 @@ function validTargets(game, spec, controller) {
   }
 }
 
-const targetOptions = (game, specs, controller) => specs.map(spec => ({ kind: spec.kind, options: validTargets(game, spec, controller) }));
+const targetOptions = (game, specs, controller, sourceColors = []) => specs.map(spec => ({ kind: spec.kind, options: validTargets(game, spec, controller, sourceColors) }));
 
-function targetsLegal(game, specs, targets, controller) {
+function targetsLegal(game, specs, targets, controller, sourceColors = []) {
   if (!Array.isArray(targets) || targets.length !== specs.length) return false;
-  return specs.every((spec, index) => validTargets(game, spec, controller).includes(targets[index]));
+  return specs.every((spec, index) => validTargets(game, spec, controller, sourceColors).includes(targets[index]));
 }
 
 function createToken(game, userId, { name, power, toughness, artifact = false }) {
@@ -977,33 +1087,66 @@ function playersOf(game, who, ctx) {
   }
 }
 
-function dealDamage(game, source, targetId, amount) {
-  if (amount <= 0) return;
-  const sourceDef = source ? defOf(game, source) : null;
-  const lifelink = Boolean(sourceDef?.keywords.includes("lifelink"));
+/**
+ * Fügt einem Spieler oder einer Karte Schaden zu und beachtet dabei Schutz, Gift (Infect), Wither, Todesberührung, Lebensverbindung,
+ * Planeswalker-Loyalität und Kommandantenschaden. Gilt für Kampf- und Zauberschaden.
+ */
+function inflictDamage(game, source, targetId, amount, { combat = false } = {}) {
+  if (amount <= 0) return 0;
+  const sourceName = source ? defOf(game, source).name : "Effekt";
+  const sourceColors = source ? colorsOfCard(game, source) : [];
+  const infect = source && hasKeyword(game, source, "infect");
+  const wither = source && hasKeyword(game, source, "wither");
+  let dealt = 0;
   if (game.players[targetId]) {
-    game.players[targetId].life -= amount;
+    const target = game.players[targetId];
+    if (infect) target.poison += amount;
+    else target.life -= amount;
     pushFx(game, { type: "damage", player: targetId, amount });
-    addLog(game, `${sourceDef?.name ?? "Effekt"} fügt ${game.players[targetId].name} ${amount} Schaden zu.`);
+    if (!combat) addLog(game, `${sourceName} fügt ${target.name} ${amount} ${infect ? "Giftmarken" : "Schaden"} zu.`);
+    if (source?.cmd) {
+      target.cmdDamage[source.origOwner ?? source.owner] = (target.cmdDamage[source.origOwner ?? source.owner] ?? 0) + amount;
+      target.cmdDamageCards = target.cmdDamageCards ?? {};
+      target.cmdDamageCards[source.id] = (target.cmdDamageCards[source.id] ?? 0) + amount;
+    }
+    dealt = amount;
   } else {
     const card = game.cards[targetId];
-    if (!card || !onBattlefield(game, targetId)) return;
+    if (!card || !onBattlefield(game, targetId)) return 0;
+    if (source && protectedFrom(game, card, sourceColors)) {
+      addLog(game, `${defOf(game, card).name} hat Schutz: der Schaden von ${sourceName} wird verhindert.`);
+      return 0;
+    }
     const def = defOf(game, card);
     if (def.types.creature) {
-      card.damage += amount;
+      if (infect || wither) card.counters["-1/-1"] = (card.counters["-1/-1"] ?? 0) + amount;
+      else card.damage += amount;
       pushFx(game, { type: "damage", card: targetId, amount });
-      if (sourceDef?.keywords.includes("deathtouch")) card.deathtouched = true;
+      if (source && hasKeyword(game, source, "deathtouch")) card.deathtouched = true;
+      dealt = amount;
     }
-    if (def.types.planeswalker) card.counters.loyalty = Math.max(0, (card.counters.loyalty ?? 0) - amount);
-    addLog(game, `${sourceDef?.name ?? "Effekt"} fügt ${def.name} ${amount} Schaden zu.`);
+    if (def.types.planeswalker) {
+      card.counters.loyalty = Math.max(0, (card.counters.loyalty ?? 0) - amount);
+      pushFx(game, { type: "damage", card: targetId, amount });
+      dealt = amount;
+    }
+    if (!combat) addLog(game, `${sourceName} fügt ${def.name} ${amount} Schaden zu.`);
   }
-  if (lifelink && source) game.players[source.owner].life += amount;
+  if (dealt > 0 && source && hasKeyword(game, source, "lifelink")) {
+    game.players[source.owner].life += dealt;
+    pushFx(game, { type: "heal", player: source.owner, amount: dealt });
+  }
+  return dealt;
+}
+
+function dealDamage(game, source, targetId, amount) {
+  inflictDamage(game, source, targetId, amount);
 }
 
 function destroyCard(game, card) {
   if (!onBattlefield(game, card.id)) return;
   const def = defOf(game, card);
-  if (def.keywords.includes("indestructible")) {
+  if (hasKeyword(game, card, "indestructible")) {
     addLog(game, `${def.name} ist unzerstörbar.`);
     return;
   }
@@ -1012,10 +1155,11 @@ function destroyCard(game, card) {
 }
 
 function leaveTo(game, card, zone) {
-  const owner = game.players[card.owner];
+  const holder = game.players[card.owner];
+  const owner = game.players[card.origOwner ?? card.owner];
   for (const z of ZONES) {
-    const index = owner[z].indexOf(card.id);
-    if (index !== -1) owner[z].splice(index, 1);
+    const index = holder[z].indexOf(card.id);
+    if (index !== -1) holder[z].splice(index, 1);
   }
   if (card.token) {
     delete game.cards[card.id];
@@ -1129,23 +1273,31 @@ function flushTriggers(game) {
       pushAbility(game, { ...base, targets: [] });
       continue;
     }
-    const options = validTargets(game, trigger.specs[0], next.controller);
-    if (options.length === 0) {
-      addLog(game, `${next.sourceName}: Auslöser verfällt (kein gültiges Ziel).`);
-      continue;
-    }
-    game.choice = {
-      userId: next.controller,
-      kind: "targets",
-      prompt: `Ziel für ${next.sourceName}: ${trigger.text.replace("~", next.sourceName)}`,
-      options,
-      min: 1,
-      max: 1,
-      step: { type: "trigger", item: base },
-      queue: [],
-      ctx: null
-    };
+    openTriggerTarget(game, next.controller, base, [], next.sourceName, trigger.text);
   }
+}
+
+/** Fragt das nächste Ziel eines Auslösers ab (bei mehreren Zielen nacheinander). Gibt `false` zurück, wenn es kein gültiges Ziel gibt. */
+function openTriggerTarget(game, controller, base, picked, sourceName, text) {
+  const spec = base.specs[picked.length];
+  const colors = base.source && game.cards[base.source] ? colorsOfCard(game, game.cards[base.source]) : [];
+  const options = validTargets(game, spec, controller, colors);
+  if (options.length === 0) {
+    addLog(game, `${sourceName}: Auslöser verfällt (kein gültiges Ziel).`);
+    return false;
+  }
+  game.choice = {
+    userId: controller,
+    kind: "targets",
+    prompt: `Ziel ${base.specs.length > 1 ? `${picked.length + 1} von ${base.specs.length} ` : ""}für ${sourceName}: ${String(text ?? base.text).replace("~", sourceName)}`,
+    options,
+    min: 1,
+    max: 1,
+    step: { type: "trigger", item: base, picked },
+    queue: [],
+    ctx: null
+  };
+  return true;
 }
 
 /** Führt Effekte aus. Gibt `true` zurück, wenn eine Auswahl geöffnet wurde (der Rest wartet in `choice.queue`). */
@@ -1169,9 +1321,29 @@ function openChoice(game, choice) {
   return true;
 }
 
+/** Anzahl für „… for each …“. */
+function perCount(game, ctx, per) {
+  const mine = game.players[ctx.controller];
+  const ofType = (ids, type) => ids.filter(id => defOf(game, game.cards[id]).types[type]).length;
+  const everyone = type => game.seats.reduce((sum, id) => sum + ofType(game.players[id].battlefield, type), 0);
+  switch (per) {
+    case "creature you control": return ofType(mine.battlefield, "creature");
+    case "land you control": return ofType(mine.battlefield, "land");
+    case "artifact you control": return ofType(mine.battlefield, "artifact");
+    case "creature your opponents control": return game.seats.filter(id => id !== ctx.controller).reduce((sum, id) => sum + ofType(game.players[id].battlefield, "creature"), 0);
+    case "creature": return everyone("creature");
+    case "land": return everyone("land");
+    case "artifact": return everyone("artifact");
+    case "card in your hand": return mine.hand.length;
+    case "opponent": return alive(game).filter(id => id !== ctx.controller).length;
+    default: return 0;
+  }
+}
+
 function runEffect(game, rawEffect, ctx, rest) {
   // X wird mit dem beim Wirken gewählten Wert ersetzt.
-  const effect = rawEffect.n === "X" ? { ...rawEffect, n: Math.max(0, ctx.x ?? 0) * (rawEffect.negate ? -1 : 1) } : rawEffect;
+  let effect = rawEffect.n === "X" ? { ...rawEffect, n: Math.max(0, ctx.x ?? 0) * (rawEffect.negate ? -1 : 1) } : rawEffect;
+  if (effect.per) effect = { ...effect, n: effect.n * perCount(game, ctx, effect.per) };
   const controller = game.players[ctx.controller];
   const name = ctx.sourceName ?? "Effekt";
   const sourceCard = ctx.source ? game.cards[ctx.source] : null;
@@ -1265,6 +1437,87 @@ function runEffect(game, rawEffect, ctx, rest) {
     case "destroy":
       if (targetCard) destroyCard(game, targetCard);
       return false;
+    case "may": {
+      const text = effect.effects.map(item => describeEffectText(item)).filter(Boolean).join(" ");
+      return openChoice(game, {
+        userId: ctx.controller,
+        kind: "yesno",
+        prompt: `${name}: ${text || "Optionalen Effekt ausführen?"}`,
+        options: ["yes", "no"],
+        labels: { yes: "Ja", no: "Nein" },
+        min: 1,
+        max: 1,
+        step: { type: "may", effects: effect.effects },
+        queue: rest,
+        ctx
+      });
+    }
+    case "ifDid": {
+      if (!ctx.didMay) return false;
+      for (let i = 0; i < effect.effects.length; i += 1) {
+        if (runEffect(game, effect.effects[i], ctx, [...effect.effects.slice(i + 1), ...rest])) return true;
+      }
+      return false;
+    }
+    case "sacrifice": {
+      const ids = playersOf(game, effect.who, ctx);
+      const matches = userId => game.players[userId].battlefield.filter(id => {
+        const types = defOf(game, game.cards[id]).types;
+        return effect.what === "permanent" ? true : effect.what === "nonland" ? !types.land : types[effect.what];
+      });
+      for (let i = 0; i < ids.length; i += 1) {
+        const userId = ids[i];
+        const options = matches(userId);
+        if (options.length === 0) continue;
+        if (options.length === 1) {
+          addLog(game, `${game.players[userId].name} opfert ${nameOf(game, options[0])} (${name}).`);
+          toGraveyard(game, game.cards[options[0]]);
+          continue;
+        }
+        const remaining = ids.slice(i + 1);
+        return openChoice(game, {
+          userId,
+          kind: "cards",
+          prompt: `Opfere ${{ creature: "eine Kreatur", artifact: "ein Artefakt", enchantment: "eine Verzauberung", land: "ein Land", permanent: "ein Permanent", nonland: "ein Nichtland-Permanent" }[effect.what] ?? "ein Permanent"} (${name}).`,
+          options,
+          min: 1,
+          max: 1,
+          step: { type: "sacrificeOne" },
+          queue: remaining.length > 0 ? [{ type: "sacrifice", who: { k: "ids", ids: remaining }, what: effect.what }, ...rest] : rest,
+          ctx
+        });
+      }
+      return false;
+    }
+    case "control": {
+      if (!targetCard || !takeControl(game, targetCard, ctx.controller, effect.untilEot)) return false;
+      ctx.lastControlled = targetCard.id;
+      addLog(game, `${controller.name} übernimmt die Kontrolle über ${nameOf(game, targetCard.id)}${effect.untilEot ? " bis zum Zugende" : ""} (${name}).`);
+      return false;
+    }
+    case "untapLast": {
+      const card = ctx.lastControlled ? game.cards[ctx.lastControlled] : null;
+      if (card) card.tapped = false;
+      return false;
+    }
+    case "hasteLast": {
+      const card = ctx.lastControlled ? game.cards[ctx.lastControlled] : null;
+      if (card) card.tk = [...(card.tk ?? []), "haste"];
+      return false;
+    }
+    case "fog":
+      game.turn.fog = true;
+      addLog(game, `Kampfschaden wird in diesem Zug verhindert (${name}).`);
+      return false;
+    case "extraTurn":
+      game.extraTurns = [...(game.extraTurns ?? []), ctx.controller];
+      addLog(game, `${controller.name} erhält nach diesem Zug einen zusätzlichen Zug (${name}).`);
+      return false;
+    case "grantKw": {
+      const card = effect.self ? sourceCard : targetCard;
+      if (card) card.tk = [...(card.tk ?? []), ...effect.kws];
+      return false;
+    }
     case "attach": {
       const host = targetCard;
       if (!sourceCard || !host || !onBattlefield(game, sourceCard.id) || !onBattlefield(game, host.id)) return false;
@@ -1475,9 +1728,27 @@ function chooseAction(game, userId, action, random, now) {
   const step = choice.step;
   const ctx = choice.ctx;
   switch (step.type) {
-    case "trigger":
-      pushAbility(game, { ...step.item, targets: [ids[0]] });
+    case "trigger": {
+      const picked = [...(step.picked ?? []), ids[0]];
+      if (picked.length < step.item.specs.length) {
+        if (!openTriggerTarget(game, userId, step.item, picked, step.item.sourceName, step.item.text)) game.choice = null;
+        return ok();
+      }
+      pushAbility(game, { ...step.item, targets: picked });
       break;
+    }
+    case "may":
+      ctx.didMay = ids[0] === "yes";
+      if (ctx.didMay) choice.queue = [...step.effects, ...choice.queue];
+      break;
+    case "sacrificeOne": {
+      const card = game.cards[ids[0]];
+      if (card && onBattlefield(game, card.id)) {
+        addLog(game, `${game.players[userId].name} opfert ${nameOf(game, card.id)}.`);
+        toGraveyard(game, card);
+      }
+      break;
+    }
     case "discard":
       for (const id of ids) {
         player.hand.splice(player.hand.indexOf(id), 1);
@@ -1503,6 +1774,16 @@ function chooseAction(game, userId, action, random, now) {
       else if (card) {
         card.tapped = true;
         addLog(game, `${nameOf(game, step.cardId)} kommt getappt ins Spiel.`);
+      }
+      break;
+    }
+    case "legend": {
+      for (const id of step.group) {
+        const card = game.cards[id];
+        if (id !== ids[0] && card && onBattlefield(game, id)) {
+          addLog(game, `${nameOf(game, id)} kommt wegen der Legendenregel auf den Friedhof.`);
+          toGraveyard(game, card);
+        }
       }
       break;
     }
@@ -1584,8 +1865,8 @@ export function playOptions(game, userId, id) {
     kind: "spell",
     ok: timingOk && affordable,
     timingOk,
-    targets: spell && !spell.modes && spell.specs.length > 0 ? targetOptions(game, spell.specs, userId) : [],
-    modes: spell?.modes?.map(mode => ({ label: mode.summary || mode.label, targets: targetOptions(game, mode.specs, userId), manual: mode.unparsed.length > 0 })),
+    targets: spell && !spell.modes && spell.specs.length > 0 ? targetOptions(game, spell.specs, userId, colorsOfDef(def)) : [],
+    modes: spell?.modes?.map(mode => ({ label: mode.summary || mode.label, targets: targetOptions(game, mode.specs, userId, colorsOfDef(def)), manual: mode.unparsed.length > 0 })),
     manual: Boolean(spell && !spell.modes && spell.unparsed.length > 0)
   };
 }
@@ -1613,7 +1894,7 @@ export function abilityOptions(game, userId, card) {
       text: ability.summary || ability.text.replace(/~/g, def.name),
       costLabel: [ability.cost.tap ? "{T}" : "", ability.cost.mana, ability.cost.sacrifice ? "Opfern" : "", ability.cost.loyalty !== undefined ? (ability.cost.loyalty > 0 ? `+${ability.cost.loyalty}` : `${ability.cost.loyalty}`) : ""].filter(Boolean).join(", "),
       ok: okNow,
-      targets: targetOptions(game, ability.specs, userId),
+      targets: targetOptions(game, ability.specs, userId, colorsOfDef(def)),
       manual: ability.unparsed.length > 0
     };
   });
@@ -2172,14 +2453,15 @@ function castAction(game, userId, action) {
     activeRules = spellRules.modes[mode];
   }
   const specs = activeRules?.specs ?? [];
-  if (specs.length > 0 && !targetsLegal(game, specs, action.targets, userId)) return fail("Wähle gültige Ziele für diesen Zauber.");
+  if (specs.length > 0 && !targetsLegal(game, specs, action.targets, userId, colorsOfDef(def))) return fail("Wähle gültige Ziele für diesen Zauber.");
 
   const x = isInt(action.x) ? clampInt(action.x, 0, 99) : 0;
   const tax = found.zone === "command" ? 2 * (player.cmdCasts[found.card.id] ?? 0) : 0;
-  const cost = flashback ? def.rules.flashback : def.manaCost;
+  const ward = specs.length > 0 ? wardExtra(game, userId, action.targets) : "";
+  const cost = (flashback ? def.rules.flashback : def.manaCost) + ward;
   const plan = planPayment({ manaCost: cost, x, extraGeneric: tax, pool: player.pool, sources: chosenSources(manaSources(game, userId), action) });
   if (!plan.ok) {
-    return fail(`Nicht genug Mana für ${describeCost(cost, x, tax)}${tax ? " (inkl. Kommandantensteuer)" : ""}.`);
+    return fail(`Nicht genug Mana für ${describeCost(cost, x, tax)}${tax ? " (inkl. Kommandantensteuer)" : ""}${ward ? " (inkl. Ward)" : ""}.`);
   }
   for (const id of plan.tap) game.cards[id].tapped = true;
   for (const color of Object.keys(plan.poolUsed)) player.pool[color] -= plan.poolUsed[color];
@@ -2193,6 +2475,15 @@ function castAction(game, userId, action) {
   game.priority = userId;
   game.passed = [];
   addLog(game, `${player.name} wirkt ${def.name}${paid}.`);
+  if (!def.types.creature) {
+    for (const id of player.battlefield) {
+      const card = game.cards[id];
+      if (hasKeyword(game, card, "prowess")) {
+        card.tp = (card.tp ?? 0) + 1;
+        card.tt = (card.tt ?? 0) + 1;
+      }
+    }
+  }
   return ok();
 }
 
@@ -2261,12 +2552,14 @@ function activateAction(game, userId, action) {
     if (card.loyaltyTurn === game.turn.number) return fail("Pro Zug darf nur eine Loyalitätsfähigkeit je Planeswalker benutzt werden.");
     if ((card.counters.loyalty ?? 0) + ability.cost.loyalty < 0) return fail("Nicht genug Loyalität.");
   }
-  if (ability.specs.length > 0 && !targetsLegal(game, ability.specs, action.targets, userId)) return fail("Wähle gültige Ziele für diese Fähigkeit.");
+  if (ability.specs.length > 0 && !targetsLegal(game, ability.specs, action.targets, userId, colorsOfDef(def))) return fail("Wähle gültige Ziele für diese Fähigkeit.");
 
-  if (ability.cost.mana) {
+  const abilityWard = ability.specs.length > 0 ? wardExtra(game, userId, action.targets) : "";
+  const abilityMana = (ability.cost.mana ?? "") + abilityWard;
+  if (abilityMana) {
     const sources = chosenSources(manaSources(game, userId).filter(source => source.id !== card.id), action);
-    const plan = planPayment({ manaCost: ability.cost.mana, pool: player.pool, sources });
-    if (!plan.ok) return fail(`Nicht genug Mana für ${describeCost(ability.cost.mana)}.`);
+    const plan = planPayment({ manaCost: abilityMana, pool: player.pool, sources });
+    if (!plan.ok) return fail(`Nicht genug Mana für ${describeCost(abilityMana)}${abilityWard ? " (inkl. Ward)" : ""}.`);
     for (const id of plan.tap) game.cards[id].tapped = true;
     for (const color of Object.keys(plan.poolUsed)) player.pool[color] -= plan.poolUsed[color];
     for (const color of Object.keys(plan.poolAdd)) player.pool[color] += plan.poolAdd[color];
@@ -2319,7 +2612,9 @@ function declareAttackersAction(game, userId, action, random, now) {
     if (isSick(game, card)) return fail(`${def.name} ist beschwörungsmüde.`);
     if (hasKeyword(game, card, "defender")) return fail(`${def.name} kann nicht angreifen (Verteidiger).`);
     const target = typeof entry.target === "string" ? entry.target : opponents.length === 1 ? opponents[0] : "";
-    if (!opponents.includes(target)) return fail("Wähle für jeden Angreifer einen Gegner.");
+    const walker = game.cards[target];
+    const walkerOk = walker && onBattlefield(game, target) && defOf(game, walker).types.planeswalker && opponents.includes(walker.owner);
+    if (!opponents.includes(target) && !walkerOk) return fail("Wähle für jeden Angreifer einen Gegner oder einen gegnerischen Planeswalker.");
     attackers.push({ id: entry.id, target });
   }
   if (attackers.length === 0) {
@@ -2339,7 +2634,7 @@ function declareAttackersAction(game, userId, action, random, now) {
   game.passed = [];
   addLog(
     game,
-    `${game.players[userId].name} greift an: ${attackers.map(a => `${nameOf(game, a.id)} → ${game.players[a.target].name}`).join(", ")}.`
+    `${game.players[userId].name} greift an: ${attackers.map(a => `${nameOf(game, a.id)} → ${game.players[a.target]?.name ?? nameOf(game, a.target)}`).join(", ")}.`
   );
   settleCombatWaiting(game);
   return ok();
@@ -2362,15 +2657,14 @@ function declareBlockersAction(game, userId, action) {
     const bdef = defOf(game, blocker);
     if (!bdef.types.creature || blocker.faceDown) return fail(`${bdef.name} ist keine Kreatur.`);
     if (blocker.tapped) return fail(`${bdef.name} ist getappt und kann nicht blocken.`);
-    const attacker = combat.attackers.find(a => a.id === entry.attacker && a.target === userId);
+    const attacker = combat.attackers.find(a => a.id === entry.attacker && attackTargetOwner(game, a.target) === userId);
     if (!attacker) return fail("Du kannst nur Angreifer blocken, die dich angreifen.");
     const acard = game.cards[attacker.id];
-    if (hasKeyword(game, acard, "flying") && !hasKeyword(game, blocker, "flying") && !hasKeyword(game, blocker, "reach")) {
-      return fail(`${bdef.name} kann ${nameOf(game, acard.id)} nicht blocken (Flug).`);
-    }
+    const why = cannotBlockReason(game, acard, blocker);
+    if (why) return fail(`${bdef.name} kann ${nameOf(game, acard.id)} nicht blocken (${why}).`);
     chosen.push({ blocker: entry.blocker, attacker: entry.attacker });
   }
-  for (const attacker of combat.attackers.filter(a => a.target === userId)) {
+  for (const attacker of combat.attackers.filter(a => attackTargetOwner(game, a.target) === userId)) {
     const count = chosen.filter(b => b.attacker === attacker.id).length;
     if (count === 1 && hasKeyword(game, game.cards[attacker.id], "menace")) {
       return fail(`${nameOf(game, attacker.id)} hat Drohung und muss von mindestens zwei Kreaturen geblockt werden.`);
@@ -2519,4 +2813,4 @@ export function playerLeft(game, userId, { random = Math.random, now = Date.now(
 export { poolTotal };
 
 /** Hilfsfunktionen für den Bot (nur lesend). */
-export const _internals = { defOf, powerOf, toughnessOf, hasKeyword, onBattlefield, alive };
+export const _internals = { defOf, powerOf, toughnessOf, hasKeyword, onBattlefield, alive, cannotBlockReason, attackTargetOwner };

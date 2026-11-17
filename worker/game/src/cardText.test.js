@@ -39,9 +39,9 @@ describe("cardText: Zauber", () => {
   it("alles Unverstandene bleibt unausgeführt und wird gemeldet", () => {
     expect(spell("Doom Blade", "Instant", "Destroy target nonblack creature.")).toMatchObject({ effects: [], unparsed: ["Destroy target nonblack creature"] });
     expect(spell("Wahl", "Instant", "Choose one or both —\n• Counter target spell.\n• Draw a card.").unparsed).toHaveLength(1);
-    const mixed = spell("Mix", "Sorcery", "Draw a card. Each player sacrifices a creature.");
+    const mixed = spell("Mix", "Sorcery", "Draw a card. Exile all cards from each graveyard.");
     expect(mixed.effects).toHaveLength(1);
-    expect(mixed.unparsed).toEqual(["Each player sacrifices a creature"]);
+    expect(mixed.unparsed).toEqual(["Exile all cards from each graveyard"]);
   });
 });
 
@@ -128,8 +128,8 @@ describe("cardText: Opferkosten, getappt ins Spiel, Zusammenfassung", () => {
   });
 
   it("fasst Effekte auf Deutsch zusammen und lässt Unverstandenes im Original", () => {
-    const parsed = spell("X", "Sorcery", "Draw two cards. Each player sacrifices a creature.");
-    expect(parsed.summary).toBe("Du ziehst 2 Karten. Each player sacrifices a creature.");
+    const parsed = spell("X", "Sorcery", "Draw two cards. Exile all cards from each graveyard.");
+    expect(parsed.summary).toBe("Du ziehst 2 Karten. Exile all cards from each graveyard.");
   });
 });
 

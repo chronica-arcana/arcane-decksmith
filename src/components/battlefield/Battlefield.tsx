@@ -129,7 +129,7 @@ export default function Battlefield({
 
   const opponents = game.players.filter(player => player.userId !== game.you);
   const livingOpponents = opponents.filter(player => !player.eliminated);
-  const nameOf = (userId: string | null) => game.players.find(player => player.userId === userId)?.name ?? "";
+  const nameOf = (id: string | null) => game.players.find(player => player.userId === id)?.name ?? (id ? allCards.get(id)?.name ?? "" : "");
   const step = game.turn.phase;
   const isActive = game.turn.active === game.you;
   const canAct = game.phase === "playing" && !me.eliminated;

@@ -74,6 +74,12 @@ Bedingte Länder („enters tapped unless you control a legendary creature“, �
 
 Außerdem automatisiert: Ausrüstung („Equip {N}“, „Equipped creature gets …“, Anhängen beim Ins-Spiel-Kommen) und Auren („Enchant creature“ mit Bonus), Wiederbelebung gezielt aus dem eigenen Friedhof, Sofortzauber im Angriff (Antwort vor dem Blocken und vor dem Kampfschaden) sowie „Mana selbst wählen“ (Einstellung; der Server bezahlt dann nur mit den gewählten Ländern).
 
+## Regelabdeckung (Stand: Regelprüfung)
+
+Neu automatisiert: Niederlage durch Ziehen aus leerer Bibliothek, Legendenregel (Auswahl), Planeswalker als Angriffsziel, Kommandantenschaden je Kommandant, Kontrollwechsel (bis Zugende oder dauerhaft, z. B. „Gain control of target creature“), Schutz vor Farben, Ward (Mana-Aufpreis beim Wirken), Furcht, Einschüchtern, Schleichen, Gift (Infect), Wither, Prowess, Nebel („prevent all combat damage“), zusätzliche Züge, „You may … / If you do …“ mit Ja/Nein-Auswahl, „… for each …“, „sacrifices a creature“, Auslöser mit mehreren Zielen sowie Antwortfenster am Ende jedes Schritts (Hauptphase 1, Angriff, Schaden, Hauptphase 2, Endschritt) für Gegner mit leuchtendem Sofortzauber.
+
+Bewusst vereinfacht: Ward gilt nur für Mana-Kosten und wird sofort beim Wirken bezahlt (nicht als Auslöser); Schutz gilt nur vor Farben; Schaden verhindern gibt es nur als „alle Kampfschaden dieses Zuges“; Kontrollwechsel durch Auren („You control enchanted creature“), Kopieren, Kicker, Ersatzeffekte, verzögerte Auslöser und doppelseitige Karten sind weiterhin nicht automatisiert (manuelles Fenster).
+
 ## Bedienung am Spieltisch
 - Der Spielraum füllt den ganzen Bildschirm (ohne Sammlung und App-Menü); oben links „Raum verlassen“. Es ist eine einzige Matte: Gegner oben
   (gespiegelt), Mitte mit Stapel und Kampf, du unten; die Phasen stehen unter der eigenen Hand. Chat und Verlauf liegen optional in einer

@@ -112,13 +112,18 @@ export default function ActionBar(props: ActionBarProps) {
     return (
       <div className="action-bar" role="status">
         <strong>Angriff: Klicke deine Kreaturen an, die angreifen sollen ({props.attackPick.length} gewählt).</strong>
-        {props.livingOpponents.length > 1 && (
+        {(props.livingOpponents.length > 1 || props.livingOpponents.some(player => player.battlefield.some(card => /Planeswalker/.test(card.typeLine ?? "")))) && (
           <label>
             Ziel{" "}
             <select value={props.target} onChange={event => props.setAttackTarget(event.target.value)} aria-label="Angriffsziel">
-              {props.livingOpponents.map(player => (
-                <option key={player.userId} value={player.userId}>{player.name}</option>
-              ))}
+              {props.livingOpponents.flatMap(player => [
+                <option key={player.userId} value={player.userId}>{player.name}</option>,
+                ...player.battlefield
+                  .filter(card => /Planeswalker/.test(card.typeLine ?? ""))
+                  .map(card => (
+                    <option key={card.id} value={card.id}>{card.name} ({player.name})</option>
+                  ))
+              ])}
             </select>
           </label>
         )}
