@@ -207,10 +207,19 @@ function Lobby({
           </label>
         )}
         <DeckPicker decks={decks} format={format} api={api} onChange={setCreateDeck} />
-        <label className="check">
-          <input type="checkbox" checked={useBot} onChange={event => setUseBot(event.target.checked)} />
-          Gegen einen Bot spielen
-        </label>
+        <button
+          type="button"
+          className={`bot-toggle${useBot ? " on" : ""}`}
+          role="switch"
+          aria-checked={useBot}
+          onClick={() => setUseBot(value => !value)}
+        >
+          <span className="bot-toggle-text">
+            <strong>Gegen einen Bot spielen</strong>
+            <small>Übe allein: Der Bot spielt mit einem deiner Decks.</small>
+          </span>
+          <span className="bot-toggle-state">{useBot ? "An" : "Aus"}</span>
+        </button>
         {useBot && (
           <>
             <p className="muted">Der Bot spielt ein Deck aus deiner eigenen Sammlung. Wähle, womit er antritt:</p>
