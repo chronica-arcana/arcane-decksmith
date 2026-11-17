@@ -601,17 +601,20 @@ function settle(game, random = Math.random, now = Date.now()) {
   }
 }
 
-/** Kann der Spieler jetzt auf den Stapel antworten (leuchtende Sofortzauber oder bezahlbare Fähigkeit)? */
+/**
+ * Kann der Spieler jetzt auf den Stapel antworten? Nur wenn er eine Karte auf der Hand (oder in der Kommandozone) hat, die er jetzt
+ * wirken kann – also eine „leuchtende“ Karte (Sofortzauber oder Blitz mit bezahlbarem Mana). Fähigkeiten auf dem Feld lösen keine Rückfrage aus.
+ */
 function canRespond(game, userId) {
   const saved = game.priority;
   game.priority = userId;
   try {
     const player = game.players[userId];
-    for (const zone of ["hand", "command", "graveyard"]) {
-      for (const id of player[zone]) if (playOptions(game, userId, id)?.ok) return true;
-    }
-    for (const id of player.battlefield) {
-      if (abilityOptions(game, userId, game.cards[id]).some(ability => ability.ok)) return true;
+    for (const zone of ["hand", "command"]) {
+      for (const id of player[zone]) {
+        const options = playOptions(game, userId, id);
+        if (options?.kind === "spell" && options.ok) return true;
+      }
     }
     return false;
   } finally {
