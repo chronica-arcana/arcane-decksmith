@@ -2388,3 +2388,6 @@ export function playerLeft(game, userId, { random = Math.random, now = Date.now(
 }
 
 export { poolTotal };
+
+/** Hilfsfunktionen für den Bot (nur lesend). */
+export const _internals = { defOf, powerOf, toughnessOf, hasKeyword, onBattlefield, alive };

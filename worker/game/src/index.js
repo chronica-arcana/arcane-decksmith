@@ -17,6 +17,7 @@ import { DurableObject } from "cloudflare:workers";
 import { AuthError, authenticate, verifySupabaseJwt } from "../../supabase-auth.js";
 import { validateDeckForRoom } from "./deckValidation.js";
 import { fetchScryfallFacts } from "./cardFacts.js";
+import { botToAct, isBotId, nextBotAction } from "./bot.js";
 import { GAME_VERSION, abortGame, applyAction, createGame, gameView, joinGame, playerLeft, splitGame } from "./gameLogic.js";
 import {
   RateLimiter,
@@ -45,6 +46,8 @@ const AUTH_TIMEOUT_MS = 10_000;
 const MAX_BODY_BYTES = 2048;
 /** Verbindungen pro Raum inklusive noch nicht angemeldeter. */
 const MAX_SOCKETS = 8;
+/** Pause zwischen zwei Bot-Aktionen. */
+const BOT_DELAY_MS = 700;
 
 const randomUnit = () => crypto.getRandomValues(new Uint32Array(1))[0] / 2 ** 32;
 
@@ -114,6 +117,8 @@ export class GameRoom extends DurableObject {
     this.instanceId = crypto.randomUUID().slice(0, 8);
     /** Ratenbegrenzer je Verbindung (nur im Arbeitsspeicher; nach dem Aufwachen neu). */
     this.limiters = new Map();
+    /** Aufeinanderfolgende gescheiterte Bot-Züge (nach 3 gibt der Bot auf, damit nichts endlos läuft). */
+    this.botFailures = 0;
 
     this.ctx.blockConcurrencyWhile(async () => {
       const stored = await this.ctx.storage.get("room");
@@ -129,13 +134,13 @@ export class GameRoom extends DurableObject {
 
   // --- Aufrufe vom Worker (RPC) --------------------------------------------------------------
 
-  async init({ code, hostId, hostName, format, maxPlayers, deck }) {
+  async init({ code, hostId, hostName, format, maxPlayers, deck, botDeck }) {
     if (this.room && !isExpired(this.room, Date.now())) return { ok: false, error: "exists" };
     if (this.room) await this.closeRoom("Der Raum ist abgelaufen.");
     // ROOM_TTL_SECONDS ist nur für Tests gedacht (Standard: 24 Stunden).
     const ttlSeconds = Number(this.env.ROOM_TTL_SECONDS);
     const ttlMs = ttlSeconds > 0 ? ttlSeconds * 1000 : undefined;
-    this.room = createRoom({ code, hostId, hostName, format, maxPlayers, deck, now: Date.now(), ttlMs });
+    this.room = createRoom({ code, hostId, hostName, format, maxPlayers, deck, botDeck, now: Date.now(), ttlMs });
     await this.persist();
     await this.scheduleAlarm();
     return { ok: true, expiresAt: this.room.expiresAt };
@@ -231,6 +236,40 @@ export class GameRoom extends DurableObject {
     await this.ctx.storage.put("game", splitGame(this.game).dynamic);
     if (this.game.phase === "ended") await this.recordHistory();
     this.broadcastGame();
+    await this.scheduleAlarm();
+  }
+
+  /** Wartet das Spiel auf den Bot? (Er handelt nach kurzer Pause, damit man seine Züge verfolgen kann.) */
+  botWaiting() {
+    const game = this.game;
+    if (!game || game.phase === "ended" || this.botFailures >= 3) return null;
+    return botToAct(game);
+  }
+
+  /** Eine Aktion des Bots. Schlägt sie fehl oder wirft die Engine, wird der Zustand zurückgesetzt und der Bot passt. */
+  async botStep() {
+    const botId = this.botWaiting();
+    if (!botId) return;
+    const backup = structuredClone(this.game);
+    const attempt = action => {
+      try {
+        return action ? applyAction(this.game, botId, action, { random: randomUnit }) : { ok: false };
+      } catch (error) {
+        console.error("Fehler im Bot-Zug:", error);
+        return { ok: false };
+      }
+    };
+    let result = attempt(nextBotAction(this.game, botId));
+    if (!result.ok) {
+      this.game = structuredClone(backup);
+      result = attempt({ type: "pass" });
+    }
+    if (!result.ok) {
+      this.game = backup;
+      this.botFailures += 1;
+      console.error("Bot konnte nicht handeln, Versuch", this.botFailures);
+    } else this.botFailures = 0;
+    await this.afterGameChange();
   }
 
   /** Neues Spiel aus dem Raum: Kartenwerte (Stärke, Schlüsselwörter) best effort von Scryfall, dann mischen und ziehen. */
@@ -249,7 +288,7 @@ export class GameRoom extends DurableObject {
     if (!game?.summary || !this.room) return;
     const id = `${this.room.code}-${game.startedAt}`;
     await Promise.allSettled(
-      game.seats.map(userId =>
+      game.seats.filter(userId => !isBotId(userId)).map(userId =>
         historyOf(this.env, userId).add({ ...game.summary, id, code: this.room.code, won: game.summary.winner === userId })
       )
     );
@@ -291,6 +330,7 @@ export class GameRoom extends DurableObject {
   async scheduleAlarm() {
     const times = [];
     if (this.room) times.push(this.room.expiresAt);
+    if (this.botWaiting()) times.push(Date.now() + BOT_DELAY_MS);
     for (const socket of this.ctx.getWebSockets()) {
       if (socket.readyState !== 1) continue;
       const attachment = socket.deserializeAttachment();
@@ -303,6 +343,10 @@ export class GameRoom extends DurableObject {
   async alarm() {
     if (this.room && isExpired(this.room, Date.now())) {
       await this.closeRoom("Der Raum ist abgelaufen.");
+      return;
+    }
+    if (this.botWaiting()) {
+      await this.botStep();
       return;
     }
     for (const socket of this.ctx.getWebSockets()) {
@@ -607,6 +651,14 @@ async function createRoomApi(env, auth, body) {
   const result = await checkDeck(env, auth, deckId, format);
   if (!result.ok) throw invalidDeck(result);
 
+  // Bot-Gegner: nur mit einem eigenen, gültigen Deck des Gastgebers (gleiche Prüfung wie für Spieler).
+  let botDeck;
+  if (body.botDeckId !== undefined && body.botDeckId !== null) {
+    const botResult = await checkDeck(env, auth, body.botDeckId, format);
+    if (!botResult.ok) throw invalidDeck(botResult);
+    botDeck = botResult.snapshot;
+  }
+
   const name = displayName(await fetchProfileName(env, auth.token, auth.userId), auth.claims);
   const lobby = lobbyOf(env);
 
@@ -621,7 +673,8 @@ async function createRoomApi(env, auth, body) {
       hostName: name,
       format,
       maxPlayers: Number.isInteger(body.maxPlayers) ? body.maxPlayers : undefined,
-      deck: result.snapshot
+      deck: result.snapshot,
+      botDeck
     });
     if (init.ok) return { status: 201, data: { code, expiresAt: init.expiresAt } };
     await lobby.release(auth.userId, code); // Code schon vergeben → nächster Versuch

@@ -191,6 +191,7 @@ export default function GameRoomPanel({
               <li key={player.userId}>
                 <strong>{player.name}</strong>
                 {player.isHost && <span className="muted"> · Gastgeber</span>}
+                {player.bot && <span className="muted"> · Bot</span>}
                 {player.userId === room.you && <span className="muted"> · du</span>}
                 <span className="muted">
                   {" "}

@@ -155,6 +155,44 @@ check("Spiel endet, Alice gewinnt", game(x).winner === alice.id);
 
 for (const p of [a, c, x, y, z]) p.ws.close();
 await api("POST", "/api/rooms/leave", alice); await api("POST", "/api/rooms/leave", carol); await api("POST", "/api/rooms/leave", dave);
+console.log("\n== Bot-Gegner (nur mit eigenem Deck)");
+const foreign = await api("POST", "/api/rooms", alice, { format: "standard", deckId: "A-std", botDeckId: "C-std" });
+check("Fremdes Deck für den Bot wird abgelehnt", foreign.status >= 400 && foreign.status < 500, String(foreign.status));
+const botRoom = await api("POST", "/api/rooms", alice, { format: "standard", deckId: "A-std", botDeckId: "A-std" });
+check("Raum mit Bot erstellt", botRoom.status === 201, botRoom.body?.code);
+const ba = await connect(botRoom.body.code, alice);
+await waitFor(() => lastRoom(ba));
+const botPlayer = lastRoom(ba)?.room.players.find(p => p.bot);
+check("Bot sitzt im Raum, bereit und online", Boolean(botPlayer?.ready && botPlayer.online));
+ba.ws.send(JSON.stringify({ type: "ready", ready: true }));
+await sleep(200);
+ba.ws.send(JSON.stringify({ type: "start" }));
+await waitFor(() => game(ba));
+const botId = botPlayer.userId;
+await waitFor(() => game(ba).players.find(p => p.userId === botId).kept, 6000);
+check("Bot entscheidet selbst über seinen Mulligan", game(ba).players.find(p => p.userId === botId).kept === true);
+act(ba, { type: "keep" });
+await waitFor(() => game(ba)?.phase === "playing", 6000);
+let tries = 0;
+while (game(ba).phase === "playing" && game(ba).turn.number < 4 && tries < 400) {
+  tries += 1;
+  const g = game(ba);
+  if (g.choice?.userId === g.you) act(ba, { type: "choose", ids: g.choice.options.slice(0, g.choice.min).map(o => o.id) });
+  else if (g.turn.active === g.you && g.priority === g.you && g.stack.length === 0) {
+    if (g.turn.phase === "draw" && !g.turn.drawn && !g.turn.drawBlocked) act(ba, { type: "drawStep" });
+    else if (g.turn.phase === "attackers") act(ba, { type: "declareAttackers", attackers: [] });
+    else act(ba, { type: "pass" });
+  } else if (g.priority === g.you) act(ba, { type: "pass" });
+  else if (g.combat?.awaiting?.includes(g.you)) act(ba, { type: "declareBlockers", blocks: [] });
+  await sleep(120);
+}
+const botSeat = game(ba).players.find(p => p.userId === botId);
+check("Bot spielt von selbst (Land oder Zauber im Spiel)", botSeat.counts.battlefield > 0 || game(ba).turn.number >= 4, `Zug ${game(ba).turn.number}, Schlachtfeld ${botSeat.counts.battlefield}`);
+act(ba, { type: "concede" });
+await waitFor(() => game(ba).phase === "ended");
+check("Spiel gegen den Bot endet", game(ba).phase === "ended" && game(ba).winner === botId);
+ba.ws.close();
+await api("POST", "/api/rooms/leave", alice);
 await mock.close();
 console.log(failures === 0 ? "\nAlles in Ordnung." : `\n${failures} Prüfung(en) fehlgeschlagen.`);
 process.exit(failures === 0 ? 0 : 1);

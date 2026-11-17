@@ -32,6 +32,7 @@ export type RoomPlayer = {
   ready: boolean;
   online: boolean;
   isHost: boolean;
+  bot?: boolean;
   deck: { id: string; name: string; cardCount: number };
 };
 
@@ -482,7 +483,7 @@ export function createGameApi(options: {
     checkDeck: (deckId: string, format: RoomFormat) => call<DeckCheck>("POST", "/api/decks/check", { deckId, format }),
     getMyRoom: async () => (await call<{ room: RoomInfo | null }>("GET", "/api/rooms/mine")).room,
     getRoomInfo: async (code: string) => (await call<{ room: RoomInfo }>("GET", `/api/rooms/${encodeURIComponent(code)}`)).room,
-    createRoom: (input: { format: RoomFormat; deckId: string; maxPlayers?: number }) =>
+    createRoom: (input: { format: RoomFormat; deckId: string; maxPlayers?: number; botDeckId?: string }) =>
       call<{ code: string; expiresAt: number }>("POST", "/api/rooms", input),
     joinRoom: (input: { code: string; deckId: string }) => call<{ code: string }>("POST", "/api/rooms/join", input),
     leaveRoom: () => call<{ ok: true }>("POST", "/api/rooms/leave", {}),

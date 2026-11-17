@@ -150,3 +150,15 @@ describe("Sichten", () => {
     expect(JSON.stringify(view)).not.toContain("main");
   });
 });
+
+describe("Bot-Gegner", () => {
+  it("besetzt den zweiten Platz, ist bereit und zählt als online", () => {
+    const room = createRoom({ code: "ABC234", hostId: "u1", hostName: "Ich", format: "commander", maxPlayers: 4, deck: { deckId: "a", name: "A", totalCards: 100 }, botDeck: { deckId: "b", name: "B", totalCards: 100 }, now: 0 });
+    expect(room.maxPlayers).toBe(2);
+    const view = roomView(room, "u1", ["u1"]);
+    const bot = view.players.find(player => player.bot);
+    expect(bot).toMatchObject({ ready: true, online: true, seat: 1 });
+    room.players.u1.ready = true;
+    expect(canStart(room, "u1")).toEqual({ ok: true });
+  });
+});
