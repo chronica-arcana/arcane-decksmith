@@ -76,3 +76,10 @@ describe("Origins und Raumcodes", () => {
     for (const bad of ["abc", "ab cd", "a".repeat(13), "ab/cd", "", null]) expect(normalizeRoomCode(bad)).toBeNull();
   });
 });
+
+describe("sync", () => {
+  it("Abgleich des Spielstands anfordern", async () => {
+    const { parseClientMessage } = await import("./protocol.js");
+    expect(parseClientMessage('{"type":"sync"}')).toEqual({ ok: true, message: { type: "sync" } });
+  });
+});

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import type { DragEvent, MouseEvent } from "react";
 import type { CardAbility, GameAction, GameCard, GameView, GameZone, TargetOption } from "../../gameClient";
 import tableImage from "../../assets/game/table.webp";
@@ -74,9 +75,18 @@ export default function Battlefield({
   useEffect(() => {
     const previous = document.body.style.overflow;
     document.body.style.overflow = "hidden";
+    // Eine Berührung oder ein Klick außerhalb der Karten blendet die Vorschau aus (Touch kennt kein „Maus verlässt Karte“).
+    const hide = (event: Event) => {
+      if (event.target instanceof Element && event.target.closest(".gc")) return;
+      window.clearTimeout(hoverTimer.current);
+      setHover(null);
+      setPinnedId(null);
+    };
+    window.addEventListener("pointerdown", hide);
     return () => {
       document.body.style.overflow = previous;
       window.clearTimeout(hoverTimer.current);
+      window.removeEventListener("pointerdown", hide);
     };
   }, []);
 
@@ -104,6 +114,8 @@ export default function Battlefield({
   const target = attackTarget || livingOpponents[0]?.userId || "";
   const awaitingMe = Boolean(game.combat?.awaiting.includes(game.you));
   const attackedMe = game.combat?.attackers.filter(attacker => attacker.target === game.you) ?? [];
+  const canAttack = me.battlefield.some(card => card.kind === "creature" && !card.tapped && !card.sick && !card.faceDown && !card.keywords?.includes("defender"));
+  const canSkipEnd = livingOpponents.every(player => player.autoPass !== false);
   const attackStep = canAct && isActive && step === "attackers" && game.stack.length === 0 && !game.choice && !game.manual;
   const discarding = game.pendingDiscard?.userId === game.you;
   const previewCard = hover ?? (pinnedId ? allCards.get(pinnedId) : undefined) ?? null;
@@ -198,8 +210,8 @@ export default function Battlefield({
         { label: "→ Bibliothek oben", onClick: () => moveCard(card, "library", { position: "top" }) },
         { label: "→ Bibliothek unten", onClick: () => moveCard(card, "library", { position: "bottom" }) }
       ];
-      if ((zone === "hand" || zone === "command") && card.play) {
-        items.push({ label: card.play.kind === "land" ? "Land spielen" : "Wirken", disabled: !card.play.ok, onClick: () => startCast(card) });
+      if ((zone === "hand" || zone === "command" || zone === "graveyard") && card.play) {
+        items.push({ label: card.play.kind === "land" ? "Land spielen" : zone === "graveyard" ? "Mit Rückblende wirken" : "Wirken", disabled: !card.play.ok, onClick: () => startCast(card) });
       }
       if (zone === "battlefield") {
         if (card.mana && !card.tapped && !card.sick) {
@@ -249,7 +261,11 @@ export default function Battlefield({
       { label: "Würfel W6", onClick: () => act({ type: "dice", sides: 6 }) },
       { label: "Würfel W20", onClick: () => act({ type: "dice", sides: 20 }) },
       { label: "Münze werfen", onClick: () => act({ type: "coin" }) },
-      { label: (me.autoPass ?? true) ? "Automatisch passen: aus" : "Automatisch passen: an", onClick: () => act({ type: "autoPass", value: !(me.autoPass ?? true) }) }
+      { label: (me.autoPass ?? true) ? "Automatisch passen: aus" : "Automatisch passen: an", onClick: () => act({ type: "autoPass", value: !(me.autoPass ?? true) }) },
+      {
+        label: (me.autoStart ?? true) ? "Enttappen und Ziehen: auf manuell stellen" : "Enttappen und Ziehen: auf automatisch stellen",
+        onClick: () => act({ type: "autoStart", value: !(me.autoStart ?? true) })
+      }
     ];
     if (manualMine) {
       items.push({ label: "Manuell:", onClick: () => undefined, heading: true });
@@ -306,7 +322,7 @@ export default function Battlefield({
       if (awaitingMe && blockPick && attackedMe.some(attacker => attacker.id === card.id)) {
         setBlocks(current => ({ ...current, [blockPick]: card.id }));
         setBlockPick(null);
-      } else setPinnedId(current => (current === card.id ? null : card.id));
+      }
       return;
     }
     if (discarding && zone === "hand") {
@@ -348,14 +364,11 @@ export default function Battlefield({
         cardMenu(card, event.clientX, event.clientY);
         return;
       }
-      setPinnedId(current => (current === card.id ? null : card.id));
       return;
     }
-    if ((zone === "hand" || zone === "command") && canAct && card.play?.ok) {
+    if ((zone === "hand" || zone === "command" || zone === "graveyard") && canAct && card.play?.ok) {
       startCast(card);
-      return;
     }
-    setPinnedId(current => (current === card.id ? null : card.id));
   };
 
   const markOf = (card: GameCard): Mark =>
@@ -403,7 +416,8 @@ export default function Battlefield({
     pendingBlocks: blocks
   };
 
-  const frame = (children: React.ReactNode) => (
+  const frame = (children: React.ReactNode) =>
+    createPortal(
     <div className="room" data-opps={opponents.length} style={{ backgroundImage: `url(${tableImage})` }} role="region" aria-label="Spieltisch">
       <header className="room-top">
         <button type="button" className="secondary leave" onClick={onLeave}>← Raum verlassen</button>
@@ -427,7 +441,8 @@ export default function Battlefield({
       )}
       <CardPreview card={previewCard} />
       {menu && <ContextMenu x={menu.x} y={menu.y} items={menu.items} onClose={() => setMenu(null)} />}
-    </div>
+    </div>,
+    document.body
   );
 
   if (game.phase === "mulligan") {
@@ -474,6 +489,8 @@ export default function Battlefield({
                 }}
                 discardPick={discardPick}
                 clearDiscardPick={() => setDiscardPick([])}
+                canAttack={canAttack}
+                canSkipEnd={canSkipEnd}
                 targeting={targeting}
                 cancelTargeting={() => setTargeting(null)}
                 onRematch={onRematch}
@@ -488,6 +505,15 @@ export default function Battlefield({
             <TurnToast
               key={`${game.turn.number}-${game.turn.active}`}
               text={isActive ? "Du bist am Zug" : `${nameOf(game.turn.active)} ist am Zug`}
+              detail={
+                game.turn.manualStart
+                  ? "Enttappen und Ziehen manuell"
+                  : game.turn.drew
+                    ? "Alles enttappt, Karte gezogen"
+                    : game.turn.number === 1 && game.players.length === 2
+                      ? "Alles enttappt, im ersten Zug keine Karte"
+                      : "Alles enttappt"
+              }
             />
           )}
 

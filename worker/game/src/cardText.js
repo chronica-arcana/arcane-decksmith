@@ -113,6 +113,7 @@ function parseSentence(raw, specs) {
     return who && num(m[2]) !== null ? [{ type: "discard", who, n: num(m[2]) }] : null;
   }
   if ((m = lower.match(new RegExp(`^scry ${N}$`)))) return num(m[1]) !== null ? [{ type: "scry", n: num(m[1]) }] : null;
+  if ((m = lower.match(new RegExp(`^surveil ${N}$`)))) return num(m[1]) !== null ? [{ type: "surveil", n: num(m[1]) }] : null;
 
   if ((m = lower.match(new RegExp(`^~ deals ${N} damage to (.+)$`)))) {
     const n = num(m[1]);
@@ -162,8 +163,9 @@ function parseSentence(raw, specs) {
     const t = addTarget(specs, m[1]);
     return t === null ? null : [{ type: "pump", p: Number(m[2]), th: Number(m[3]), t }];
   }
-  if ((m = lower.match(/^creatures you control get ([+-]\d+)\/([+-]\d+) until end of turn$/))) {
-    return [{ type: "pumpAll", p: Number(m[1]), th: Number(m[2]) }];
+  if ((m = lower.match(/^(creatures you control|creatures your opponents control|all creatures) get ([+-]\d+)\/([+-]\d+) until end of turn$/))) {
+    const scope = m[1] === "creatures you control" ? "you" : m[1] === "all creatures" ? "all" : "opp";
+    return [{ type: "pumpAll", scope, p: Number(m[2]), th: Number(m[3]) }];
   }
 
   if ((m = s.match(new RegExp(`^[Cc]reate ${N} (\\d+)/(\\d+) ([A-Za-z ,]+?) creature tokens?$`)))) {
@@ -225,6 +227,25 @@ function parseEffectText(text) {
   return { effects, specs, unparsed };
 }
 
+/** Bedingung eines Auslösers → Ereignis (`null`, wenn nicht unterstützt). */
+function triggerEvent(word, condition) {
+  if (/^~ enters( the battlefield)?$/.test(condition)) return { event: "etb" };
+  if (/^~ dies$/.test(condition)) return { event: "dies" };
+  if (/^~ attacks$/.test(condition)) return { event: "attacks" };
+  let m;
+  if ((m = condition.match(/^(another|a) creature (you control|an opponent controls) dies$/))) {
+    return { event: "creatureDies", scope: { owner: m[2] === "you control" ? "you" : "opp", another: m[1] === "another" } };
+  }
+  if ((m = condition.match(/^(another|a) creature dies$/))) return { event: "creatureDies", scope: { owner: "any", another: m[1] === "another" } };
+  if ((m = condition.match(/^(another|a) creature enters( the battlefield)? under your control$/))) {
+    return { event: "creatureEnters", scope: { owner: "you", another: m[1] === "another" } };
+  }
+  if (/^a land enters( the battlefield)? under your control$/.test(condition)) return { event: "landEnters", scope: { owner: "you", another: false } };
+  if (word === "At" && condition === "the beginning of your upkeep") return { event: "upkeep", scope: { owner: "you", another: false } };
+  if (word === "At" && condition === "the beginning of your end step") return { event: "endStep", scope: { owner: "you", another: false } };
+  return null;
+}
+
 const stripPrefix = line => line.replace(/^[•*]\s*/, "");
 
 /**
@@ -234,12 +255,14 @@ const stripPrefix = line => line.replace(/^[•*]\s*/, "");
 export function parseCardText({ name, typeLine, oracleText }) {
   const types = typesOf(typeLine);
   const lines = normalizeText(oracleText, name).map(stripPrefix);
-  const result = { spell: null, triggers: [], activated: [], notes: [] };
+  const result = { spell: null, triggers: [], activated: [], notes: [], statics: [], flashback: null };
 
   if (types.instant || types.sorcery) {
     const body = [];
     for (const line of lines) {
       if (isKeywordLine(line)) continue;
+      const flash = line.match(/^flashback (\{[^}]+\}(?:\{[^}]+\})*)$/i);
+      if (flash) result.flashback = flash[1];
       if (/^(kicker|flashback|buyback|cycling|entwine|escape|replicate|overload|convoke|affinity|storm|cascade)\b/i.test(line)) result.notes.push(line);
       else body.push(line);
     }
@@ -283,21 +306,27 @@ export function parseCardText({ name, typeLine, oracleText }) {
       continue;
     }
 
+    // Dauereffekte: Boni für Kreaturen
+    const anthem = line.match(/^(other )?creatures you control get ([+-]\d+)\/([+-]\d+)(?: and have ([a-z, ]+))?\.?$/i);
+    const oppAnthem = line.match(/^creatures your opponents control get ([+-]\d+)\/([+-]\d+)\.?$/i);
+    if (anthem) {
+      const grants = (anthem[4] ?? "").split(/,| and /).map(word => word.trim().toLowerCase()).filter(word => KEYWORDS.includes(word));
+      result.statics.push({ scope: anthem[1] ? "youOther" : "you", p: Number(anthem[2]), th: Number(anthem[3]), grants });
+      continue;
+    }
+    if (oppAnthem) {
+      result.statics.push({ scope: "opp", p: Number(oppAnthem[1]), th: Number(oppAnthem[2]), grants: [] });
+      continue;
+    }
+
     // Auslöser
     const trigger = line.match(/^(When|Whenever|At) (.+?), (.+)$/);
     if (trigger) {
-      const condition = trigger[2].toLowerCase();
-      const event = /^~ enters( the battlefield)?$/.test(condition)
-        ? "etb"
-        : /^~ dies$/.test(condition)
-          ? "dies"
-          : /^~ attacks$/.test(condition)
-            ? "attacks"
-            : null;
-      if (event && trigger[1] !== "At") {
+      const event = triggerEvent(trigger[1], trigger[2].toLowerCase());
+      if (event) {
         const parsed = parseEffectText(trigger[3]);
         if (parsed.specs.length <= 1) {
-          result.triggers.push({ event, text: line, ...parsed });
+          result.triggers.push({ ...event, text: line, ...parsed });
           continue;
         }
       }

@@ -104,6 +104,7 @@ export type GamePlayer = {
   kept: boolean;
   pool: ManaPool;
   autoPass?: boolean;
+  autoStart?: boolean;
   prompts: { type: "commander"; id: string }[];
   counts: Record<GameZone, number>;
   /** Eigene Hand komplett, bei anderen nur gezeigte Karten. */
@@ -120,15 +121,28 @@ export type GamePlayer = {
 
 export type GameLogLine = { n: number; text: string };
 
-export type StackItem = { sid: string; controller: string; kind: "spell" | "ability"; text: string; card: GameCard | null };
+export type StackItem = { sid: string; controller: string; kind: "spell" | "ability"; text: string; sourceName?: string; card: GameCard | null };
 
-export type GameStep = "main1" | "attackers" | "blockers" | "damage" | "main2" | "end";
+export type GameStep = "untap" | "upkeep" | "draw" | "main1" | "attackers" | "blockers" | "damage" | "main2" | "end";
 
 export type GameView = {
   format: RoomFormat;
   phase: "mulligan" | "playing" | "ended";
   you: string;
-  turn: { number: number; active: string | null; phase: GameStep; first: string | null; landsPlayed: number };
+  turn: {
+    number: number;
+    active: string | null;
+    phase: GameStep;
+    first: string | null;
+    landsPlayed: number;
+    /** Der aktive Spieler hat Enttappen/Ziehen auf manuell gestellt. */
+    manualStart?: boolean;
+    untapped?: boolean;
+    drawn?: boolean;
+    drawBlocked?: boolean;
+    /** Zu Beginn des Zuges wurde automatisch eine Karte gezogen. */
+    drew?: boolean;
+  };
   priority: string | null;
   stack: StackItem[];
   combat: { attackers: { id: string; target: string }[]; blocks: { blocker: string; attacker: string }[]; awaiting: string[] } | null;
@@ -172,6 +186,9 @@ export type GameAction =
   | { type: "dice"; sides: number }
   | { type: "coin" }
   | { type: "autoPass"; value: boolean }
+  | { type: "autoStart"; value: boolean }
+  | { type: "untapStep" }
+  | { type: "drawStep" }
   | { type: "tapMana"; id: string; color?: string }
   | { type: "pool"; color: "W" | "U" | "B" | "R" | "G" | "C"; delta: number }
   | { type: "playLand"; id: string }
@@ -216,6 +233,7 @@ export type ClientMessage =
   | { type: "ready"; ready: boolean }
   | { type: "start" }
   | { type: "rematch" }
+  | { type: "sync" }
   | { type: "game"; action: GameAction };
 
 export type ConnectionStatus =

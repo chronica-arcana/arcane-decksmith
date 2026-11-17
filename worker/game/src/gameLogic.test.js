@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { abortGame, applyAction, createGame, gameView, joinGame, playerLeft, splitGame } from "./gameLogic.js";
+import { abortGame, applyAction, createGame, gameView, joinGame, playerLeft, repairGame, splitGame } from "./gameLogic.js";
 
 const seeded = (seed = 1) => () => {
   seed = (seed * 16807) % 2147483647;
@@ -33,7 +33,13 @@ const LIB = [
   ["kavu", "Kavu", "Creature — Kavu", "{G}", 2, { power: "4", toughness: "2" }, "When Kavu enters the battlefield, it deals 2 damage to target creature."],
   ["scrier", "Seherin", "Sorcery", "{G}", 2, {}, "Scry 2."],
   ["pain", "Qual", "Sorcery", "{G}", 2, {}, "Each opponent discards a card."],
-  ["shroud", "Schleier", "Creature — Spirit", "{G}", 2, { power: "1", toughness: "1", keywords: ["Hexproof"] }]
+  ["shroud", "Schleier", "Creature — Spirit", "{G}", 2, { power: "1", toughness: "1", keywords: ["Hexproof"] }],
+  ["anthem", "Hymne", "Enchantment", "{G}", 2, {}, "Creatures you control get +1/+1."],
+  ["lord", "Anführer", "Creature — Elf", "{G}", 2, { power: "2", toughness: "2" }, "Other creatures you control get +1/+1 and have flying."],
+  ["dreams", "Träume", "Instant", "{G}", 2, {}, "Surveil 1, then draw a card.\nFlashback {R}"],
+  ["bard", "Barde", "Creature — Elf", "{G}", 2, { power: "1", toughness: "1" }, "Whenever a land enters the battlefield under your control, you gain 1 life."],
+  ["reaper", "Schnitter", "Creature — Horror", "{G}", 2, { power: "1", toughness: "1" }, "Whenever a creature an opponent controls dies, put a +1/+1 counter on ~."],
+  ["priest", "Priester", "Creature — Cleric", "{G}", 2, { power: "1", toughness: "1" }, "At the beginning of your end step, you gain 1 life."]
 ];
 const facts = new Map();
 
@@ -264,15 +270,13 @@ describe("Länder, Mana und Zaubern", () => {
 });
 
 describe("Zugstruktur", () => {
-  it("Passen führt durch Hauptphase, Kampf (übersprungen ohne Angreifer), Ende und nächsten Zug", () => {
+  it("Passen führt durch Hauptphase, Kampf (übersprungen ohne Angreifer) und den nächsten Zug (Endschritt ohne Handlung übersprungen)", () => {
     const { game, random } = started();
     expect(game.turn.phase).toBe("main1");
     act(game, "u0", { type: "pass" }, random);
     expect(game.turn.phase).toBe("main2"); // keine Angreifer möglich
-    act(game, "u0", { type: "pass" }, random);
-    expect(game.turn.phase).toBe("end");
     const handBefore = game.players.u1.hand.length;
-    act(game, "u0", { type: "pass" }, random);
+    act(game, "u0", { type: "pass" }, random); // der Endschritt wird übersprungen, weil niemand handeln will
     expect(game.turn.active).toBe("u1");
     expect(game.turn.number).toBe(game.turn.number);
     expect(game.players.u1.hand).toHaveLength(handBefore + 1);
@@ -698,6 +702,196 @@ describe("Kartentext-Engine", () => {
       { type: "move", id: card, to: "battlefield" }, { type: "token", name: "Drache 9/9" }, { type: "shuffle" }
     ]) {
       expect(act(game, "u0", action, random).ok).toBe(false);
+    }
+  });
+});
+
+describe("Zugbeginn, Dauereffekte, Rückblende, weitere Auslöser", () => {
+  it("Enttappen und Ziehen laufen automatisch: zu Beginn eines Zuges sind eigene Karten wieder ungetappt", () => {
+    const { game, random } = started();
+    const [land] = forest(game, "u0", 1);
+    const handBefore = game.players.u1.hand.length;
+    act(game, "u0", { type: "tapMana", id: land }, random);
+    expect(game.cards[land].tapped).toBe(true);
+    for (let i = 0; i < 12 && game.turn.active === "u0"; i += 1) act(game, game.priority, { type: "pass" }, random);
+    expect(game.turn.active).toBe("u1");
+    expect(game.players.u1.hand.length).toBe(handBefore + 1); // der zweite Spieler zieht in seinem ersten Zug
+    expect(game.turn.drew).toBe(true);
+    for (let i = 0; i < 12 && game.turn.active === "u1"; i += 1) {
+      if (game.pendingDiscard) act(game, "u1", { type: "discard", ids: game.players.u1.hand.slice(0, game.pendingDiscard.count) }, random);
+      else act(game, game.priority, { type: "pass" }, random);
+    }
+    expect(game.turn.active).toBe("u0");
+    expect(game.cards[land].tapped).toBe(false);
+  });
+
+  it("Manueller Zugbeginn: eigene Schritte Enttappen, Versorgung und Ziehen", () => {
+    const { game, random } = started();
+    act(game, "u1", { type: "autoStart", value: false }, random);
+    const [land] = forest(game, "u1", 1);
+    game.cards[land].tapped = true;
+    for (let i = 0; i < 12 && game.turn.active === "u0"; i += 1) act(game, game.priority, { type: "pass" }, random);
+    expect(game.turn).toMatchObject({ active: "u1", phase: "untap", manualStart: true });
+    const hand = game.players.u1.hand.length;
+    expect(act(game, "u1", { type: "drawStep" }, random).ok).toBe(false); // noch nicht der Zieh-Schritt
+    expect(act(game, "u1", { type: "untapStep" }, random).ok).toBe(true);
+    expect(game.cards[land].tapped).toBe(false);
+    expect(act(game, "u1", { type: "untapStep" }, random).ok).toBe(false);
+    act(game, "u1", { type: "pass" }, random);
+    expect(game.turn.phase).toBe("upkeep");
+    act(game, "u1", { type: "pass" }, random);
+    expect(game.turn.phase).toBe("draw");
+    expect(act(game, "u1", { type: "drawStep" }, random).ok).toBe(true);
+    expect(game.players.u1.hand.length).toBe(hand + 1);
+    expect(act(game, "u1", { type: "drawStep" }, random).ok).toBe(false);
+    act(game, "u1", { type: "pass" }, random);
+    expect(game.turn.phase).toBe("main1");
+  });
+
+  it("Der Startspieler zieht im ersten Zug nicht (auch im manuellen Modus)", () => {
+    const random = seeded();
+    const game = createGame({ room: room(), random, facts });
+    game.players.u0.autoStart = false;
+    game.players.u1.autoStart = false;
+    for (const id of game.seats) applyAction(game, id, { type: "keep" }, { random });
+    const first = game.turn.active;
+    game.turn.phase = "draw";
+    expect(applyAction(game, first, { type: "drawStep" }, { random }).error).toMatch(/Startspieler/);
+  });
+
+  it("Dauereffekte: Hymne und Anführer verändern Stärke und Schlüsselwörter", () => {
+    const { game } = started();
+    const bear = put(game, "u0", "Bär", "battlefield");
+    const lord = put(game, "u0", "Anführer", "battlefield");
+    const foe = put(game, "u1", "Bär", "battlefield");
+    let mine = view(game, "u0").players[0].battlefield;
+    expect(mine.find(c => c.id === bear)).toMatchObject({ power: 3, toughness: 3 });
+    expect(mine.find(c => c.id === bear).keywords).toContain("flying");
+    expect(mine.find(c => c.id === lord)).toMatchObject({ power: 2, toughness: 2 }); // „Other“
+    put(game, "u0", "Hymne", "battlefield");
+    mine = view(game, "u0").players[0].battlefield;
+    expect(mine.find(c => c.id === bear)).toMatchObject({ power: 4, toughness: 4 });
+    expect(view(game, "u0").players[1].battlefield.find(c => c.id === foe)).toMatchObject({ power: 2, toughness: 2 });
+  });
+
+  it("Rückblende: Karte aus dem Friedhof wirken, danach ins Exil; Surveil legt Karten auf den Friedhof", () => {
+    const { game, random } = started();
+    put(game, "u0", "Mountain", "battlefield");
+    forest(game, "u0", 2);
+    const dreams = castAndResolve(game, "u0", "Träume", random);
+    expect(game.choice).toMatchObject({ kind: "cards", max: 1 });
+    const top = game.choice.options[0];
+    act(game, "u0", { type: "choose", ids: [top] }, random);
+    expect(game.players.u0.graveyard).toContain(top);
+    expect(game.players.u0.graveyard).toContain(dreams);
+    const option = view(game, "u0").players[0].graveyard.find(c => c.id === dreams).play;
+    expect(option).toMatchObject({ kind: "spell", ok: true });
+    act(game, "u0", { type: "cast", id: dreams }, random);
+    expect(game.stack[0].flashback).toBe(true);
+    act(game, "u0", { type: "pass" }, random);
+    act(game, "u1", { type: "pass" }, random);
+    expect(game.players.u0.exile).toContain(dreams);
+  });
+
+  it("Kostenloses Wirken ist nicht möglich", () => {
+    const { game, random } = started();
+    const id = put(game, "u0", "Bär", "hand");
+    expect(act(game, "u0", { type: "cast", id, free: true }, random).ok).toBe(false);
+  });
+
+  it("Auslöser auf andere Ereignisse: Landfall, gegnerische Kreatur stirbt, Beginn der Endphase", () => {
+    const { game, random } = started();
+    const bard = put(game, "u0", "Barde", "battlefield");
+    const reaper = put(game, "u0", "Schnitter", "battlefield");
+    put(game, "u0", "Priester", "battlefield");
+    const land = put(game, "u0", "Forest", "hand", { only: "library" });
+    act(game, "u0", { type: "playLand", id: land }, random);
+    expect(game.stack.map(i => i.sourceName)).toEqual(["Barde"]);
+    act(game, "u0", { type: "pass" }, random);
+    act(game, "u1", { type: "pass" }, random);
+    expect(game.players.u0.life).toBe(21);
+    // gegnerische Kreatur stirbt → Schnitter bekommt einen Marker
+    const victim = put(game, "u1", "Bär", "battlefield");
+    game.cards[victim].counters["-1/-1"] = 5;
+    act(game, "u1", { type: "coin" }, random);
+    expect(game.players.u1.graveyard).toContain(victim);
+    act(game, "u0", { type: "pass" }, random);
+    act(game, "u1", { type: "pass" }, random);
+    expect(game.cards[reaper].counters["+1/+1"]).toBe(1);
+    expect(bard).toBeTruthy();
+    // Endphase: Priester löst aus
+    for (let i = 0; i < 6 && game.turn.phase !== "end"; i += 1) act(game, "u0", { type: "pass" }, random);
+    expect(game.turn.phase).toBe("end");
+    expect(game.stack.map(i => i.sourceName)).toContain("Priester");
+  });
+
+  it("Selbstheilung: Hat niemand Priorität und wartet niemand, geht sie an den aktiven Spieler", () => {
+    const { game } = started();
+    game.priority = null;
+    expect(repairGame(game)).toBe(true);
+    expect(game.priority).toBe(game.turn.active);
+    game.choice = { userId: "u0", kind: "cards", prompt: "x", options: [], min: 0, max: 0, step: { type: "scry" }, queue: [], ctx: null };
+    game.priority = null;
+    expect(repairGame(game)).toBe(false); // wartet auf eine Auswahl: nichts zu reparieren
+  });
+});
+
+describe("Dauertest: das Spiel bleibt nie stehen", () => {
+  /** Wählt zufällig eine mögliche Aktion für den Spieler, der gerade etwas tun muss. */
+  function pick(game, random) {
+    const waitingDefender = game.combat?.phaseWaiting ? [...new Set(game.combat.attackers.map(a => a.target))].find(id => !game.combat.done.includes(id)) : undefined;
+    const waiting = game.choice?.userId ?? game.manual?.userId ?? game.pendingDiscard?.userId ?? waitingDefender ?? game.priority;
+    const uid = waiting;
+    if (!game.players[uid]) throw new Error(`Niemand am Zug: ${JSON.stringify({ priority: game.priority, phase: game.turn.phase, combat: game.combat, choice: game.choice?.userId, manual: game.manual, discard: game.pendingDiscard })}`);
+    const options = [];
+    const v = gameView(game, uid);
+    const mine = v.players.find(p => p.userId === uid);
+    if (game.choice) {
+      const c = game.choice;
+      const count = Math.min(c.max, Math.max(c.min, 1));
+      return [uid, { type: "choose", ids: c.options.slice(0, c.min === 0 ? 0 : count) }];
+    }
+    if (game.manual) return [uid, { type: "manualDone" }];
+    if (game.pendingDiscard) return [uid, { type: "discard", ids: mine.hand.slice(0, game.pendingDiscard.count).map(c => c.id) }];
+    if (waitingDefender === uid) {
+      const blockers = mine.battlefield.filter(c => c.kind === "creature" && !c.tapped);
+      const attackers = game.combat.attackers.filter(a => a.target === uid);
+      const blocks = blockers.length && attackers.length && random() < 0.5 ? [{ blocker: blockers[0].id, attacker: attackers[0].id }] : [];
+      return [uid, { type: "declareBlockers", blocks }];
+    }
+    if (game.turn.phase === "attackers" && game.turn.active === uid && random() < 0.6) {
+      const ready = mine.battlefield.filter(c => c.kind === "creature" && !c.tapped && !c.sick && !c.keywords?.includes("defender"));
+      if (ready.length) return [uid, { type: "declareAttackers", attackers: [{ id: ready[0].id, target: v.players.find(p => p.userId !== uid).userId }] }];
+    }
+    for (const card of [...mine.hand, ...mine.command, ...mine.graveyard]) {
+      if (card.play?.ok) {
+        const targets = (card.play.targets ?? []).map(t => t.options[0]);
+        if (card.play.targets?.some(t => t.options.length === 0)) continue;
+        options.push({ type: card.play.kind === "land" ? "playLand" : "cast", id: card.id, ...(targets.length ? { targets } : {}) });
+      }
+    }
+    for (const card of mine.battlefield) if (card.mana && !card.tapped && !card.sick) options.push({ type: "tapMana", id: card.id, ...(card.manaColors.length > 1 ? { color: card.manaColors[0] } : {}) });
+    options.push({ type: "pass" }, { type: "pass" }, { type: "pass" });
+    return [uid, options[Math.floor(random() * options.length)]];
+  }
+
+  it("zufällige Spiele laufen ohne Fehler und ohne Stillstand", () => {
+    for (let seed = 1; seed <= 12; seed += 1) {
+      const random = seeded(seed * 97);
+      const players = seed % 3 === 0 ? 3 : 2;
+      const game = createGame({ room: room(players === 3 ? "commander" : "standard", players), random, now: 1, facts });
+      for (const id of game.seats) applyAction(game, id, { type: "keep" }, { random });
+      for (let step = 0; step < 400 && game.phase === "playing"; step += 1) {
+        const stuck = Boolean(!game.choice && !game.manual && !game.pendingDiscard && !game.combat?.phaseWaiting && (!game.priority || game.players[game.priority].eliminated));
+        expect(stuck, `Stillstand in Spiel ${seed}, Schritt ${step}`).toBe(false);
+        const [uid, action] = pick(game, random);
+        const result = applyAction(game, uid, action, { random });
+        if (!result.ok) {
+          // Eine unzulässige Zufallsaktion darf das Spiel nicht beschädigen: passen geht immer, sofern man Priorität hat
+          const fallback = game.priority === uid ? applyAction(game, uid, { type: "pass" }, { random }) : result;
+          expect(fallback.ok || game.phase !== "playing" || game.choice || game.manual || game.pendingDiscard || game.combat?.phaseWaiting, `Aktion ${JSON.stringify(action)} abgelehnt (${result.error}) in Spiel ${seed}`).toBeTruthy();
+        }
+      }
     }
   });
 });

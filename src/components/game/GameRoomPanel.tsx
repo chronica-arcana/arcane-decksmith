@@ -37,7 +37,7 @@ export default function GameRoomPanel({
   const [chat, setChat] = useState("");
   const [error, setError] = useState("");
   const [copied, setCopied] = useState(false);
-  const [disconnected, setDisconnected] = useState(false);
+  const [attempt, setAttempt] = useState(0);
   const connection = useRef<GameConnection | null>(null);
   const lineId = useRef(0);
   const finished = useRef(false);
@@ -51,6 +51,7 @@ export default function GameRoomPanel({
       return undefined;
     }
     finished.current = false;
+    let reconnect: number | undefined;
     connection.current = connectGame({
       url,
       getToken: async () => (await getSession())?.accessToken ?? null,
@@ -58,9 +59,9 @@ export default function GameRoomPanel({
         setStatus(next);
         if (next.state === "closed" && !finished.current) {
           finished.current = true;
-          setDisconnected(true);
           // 4005 = entfernt/verlassen, 4006 = Raum geschlossen, 4004 = kein Mitglied
           if (next.code === 4004 || next.code === 4005 || next.code === 4006) onLeft(next.detail);
+          else reconnect = window.setTimeout(() => setAttempt(value => value + 1), 1500); // Verbindung verloren: automatisch neu verbinden
         }
       },
       onMessage: message => {
@@ -77,11 +78,25 @@ export default function GameRoomPanel({
     });
     return () => {
       finished.current = true;
+      window.clearTimeout(reconnect);
       connection.current?.close();
       connection.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [code, baseUrl]);
+  }, [code, baseUrl, attempt]);
+
+  // Stand abgleichen, wenn der Tab wieder sichtbar wird und regelmäßig, damit keine Seite mit einem veralteten Spiel hängen bleibt.
+  useEffect(() => {
+    if (status.state !== "open") return undefined;
+    const sync = () => connection.current?.send({ type: "sync" });
+    const timer = window.setInterval(sync, 20_000);
+    const visible = () => document.visibilityState === "visible" && sync();
+    document.addEventListener("visibilitychange", visible);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", visible);
+    };
+  }, [status.state]);
 
   const run = async (action: () => Promise<unknown>) => {
     setError("");
@@ -128,7 +143,7 @@ export default function GameRoomPanel({
         onRematch={() => connection.current?.send({ type: "rematch" })}
         onLeave={leave}
         chat={{ lines: log, onSend: text => connection.current?.send({ type: "chat", text }), connected }}
-        notice={error}
+        notice={error || (status.state !== "open" ? "Verbindung unterbrochen – verbinde neu …" : "")}
       />
     );
   }
@@ -161,7 +176,7 @@ export default function GameRoomPanel({
         <p className="muted" role="status">
           {status.state === "open" ? "Verbunden" : status.state === "connecting" ? "Verbinde …" : status.detail}
         </p>
-        {disconnected && (
+        {status.state === "closed" && (
           <button type="button" className="secondary" onClick={() => onLeft()}>
             Zurück zur Lobby
           </button>

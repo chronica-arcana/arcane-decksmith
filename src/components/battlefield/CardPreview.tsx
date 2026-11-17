@@ -1,8 +1,7 @@
 import type { GameCard } from "../../gameClient";
-import { ManaCost } from "./ManaSymbol";
 import { imageFor } from "./scryfallAssets";
 
-/** Große Detailansicht beim Darüberfahren (rechts, immer über allem): hochauflösendes Scryfall-Bild, Kosten als Symbole, Typ und Hinweise. */
+/** Große Ansicht der überfahrenen Karte (rechts, über allem, immer ganz sichtbar). Sie verschwindet, sobald die Maus oder der Finger die Karte verlässt. */
 export default function CardPreview({ card }: { card: GameCard | null }) {
   if (!card || card.name === undefined) return null;
   const image = imageFor(card.imageUri, "large");
@@ -16,21 +15,6 @@ export default function CardPreview({ card }: { card: GameCard | null }) {
           <span>{card.typeLine}</span>
         </div>
       )}
-      <div className="preview-meta">
-        <strong>{card.name}</strong>
-        {card.manaCost && <ManaCost cost={card.manaCost} size={16} />}
-        {card.typeLine && <span className="muted">{card.typeLine}</span>}
-        {card.power !== null && card.power !== undefined && card.toughness !== null && card.toughness !== undefined && (
-          <span className="muted">
-            {card.power}/{card.toughness}
-            {card.damage > 0 ? ` (${card.damage} Schaden)` : ""}
-          </span>
-        )}
-        {card.keywords && card.keywords.length > 0 && <span className="preview-kw">{card.keywords.join(", ")}</span>}
-        {card.rulesNotes && card.rulesNotes.length > 0 && (
-          <span className="preview-note">Wird nicht automatisch berücksichtigt: {card.rulesNotes.join(" · ")}</span>
-        )}
-      </div>
     </aside>
   );
 }

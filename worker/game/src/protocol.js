@@ -40,6 +40,8 @@ export function parseClientMessage(raw) {
       return { ok: true, message: { type: "ready", ready: data.ready } };
     case "start":
       return { ok: true, message: { type: "start" } };
+    case "sync":
+      return { ok: true, message: { type: "sync" } };
     case "rematch":
       return { ok: true, message: { type: "rematch" } };
     case "game":

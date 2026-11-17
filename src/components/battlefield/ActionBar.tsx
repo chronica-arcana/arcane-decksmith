@@ -1,11 +1,5 @@
 import type { GameAction, GameCard, GamePlayer, GameStep, GameView } from "../../gameClient";
 
-const GO_LABELS: Record<string, string> = {
-  main1: "Weiter zum Kampf",
-  attackers: "Kein Angriff",
-  damage: "Kampfschaden verursachen",
-  main2: "Weiter zum Zugende"
-};
 
 export type ActionBarProps = {
   game: GameView;
@@ -29,6 +23,8 @@ export type ActionBarProps = {
   resetBlocks: () => void;
   discardPick: string[];
   clearDiscardPick: () => void;
+  canAttack: boolean;
+  canSkipEnd: boolean;
   targeting: { name: string; specs: { kind: string }[]; picked: string[] } | null;
   cancelTargeting: () => void;
   onRematch: () => void;
@@ -176,11 +172,51 @@ export default function ActionBar(props: ActionBarProps) {
     );
   }
 
+  if (props.iHavePriority && props.isActive && game.stack.length === 0 && (step === "untap" || step === "upkeep" || step === "draw")) {
+    return (
+      <div className="action-bar" role="status">
+        {step === "untap" && (
+          <>
+            <strong>Enttappen</strong>
+            <button type="button" className="primary" disabled={Boolean(game.turn.untapped)} onClick={() => act({ type: "untapStep" })}>Alles enttappen</button>
+            <button type="button" className="secondary" onClick={() => act({ type: "pass" })}>Weiter zur Versorgung</button>
+          </>
+        )}
+        {step === "upkeep" && (
+          <>
+            <strong>Versorgung</strong>
+            <button type="button" className="primary" onClick={() => act({ type: "pass" })}>Weiter zum Ziehen</button>
+          </>
+        )}
+        {step === "draw" && (
+          <>
+            <strong>Ziehen</strong>
+            <button type="button" className="primary" disabled={Boolean(game.turn.drawn || game.turn.drawBlocked)} onClick={() => act({ type: "drawStep" })}>Karte ziehen</button>
+            {game.turn.drawBlocked && <span className="muted">Der Startspieler zieht im ersten Zug keine Karte.</span>}
+            <button type="button" className="secondary" onClick={() => act({ type: "pass" })}>Weiter zur Hauptphase 1</button>
+          </>
+        )}
+      </div>
+    );
+  }
+
   if (props.iHavePriority) {
-    const label = game.stack.length > 0 ? "Passen – Stapel auflösen" : (GO_LABELS[step] ?? (props.isActive ? "Zug beenden" : "Passen"));
+    const resolving = game.stack.length > 0;
+    const label = resolving
+      ? "Auflösen lassen"
+      : step === "main1"
+        ? props.canAttack && props.livingOpponents.length > 0 ? "Weiter zum Kampf" : "Weiter zur Hauptphase 2"
+        : step === "attackers"
+          ? "Kein Angriff"
+          : step === "damage"
+            ? "Kampfschaden verursachen"
+            : step === "main2"
+              ? props.canSkipEnd ? "Zug beenden" : "Weiter zum Zugende"
+              : props.isActive ? "Zug beenden" : "Passen";
     return (
       <div className="action-bar" role="status">
         <button type="button" className="primary go" onClick={() => act({ type: "pass" })}>{label}</button>
+        {resolving && <span className="muted">Du antwortest nicht – der oberste Eintrag auf dem Stapel wird aufgelöst.</span>}
       </div>
     );
   }

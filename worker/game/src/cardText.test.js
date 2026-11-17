@@ -69,17 +69,44 @@ describe("cardText: Permanents", () => {
     const elves = parseCardText({ name: "Llanowar Elves", typeLine: "Creature", oracleText: "{T}: Add {G}." });
     expect(elves.activated).toEqual([]);
     const flier = parseCardText({ name: "Hawk", typeLine: "Creature", oracleText: "Flying, vigilance" });
-    expect(flier).toEqual({ spell: null, triggers: [], activated: [], notes: [] });
+    expect(flier).toEqual({ spell: null, triggers: [], activated: [], notes: [], statics: [], flashback: null });
     const pw = parseCardText({ name: "Jace", typeLine: "Legendary Planeswalker — Jace", oracleText: "+1: Draw a card.\n−3: Return target creature to its owner's hand." });
     expect(pw.activated.map(a => a.cost.loyalty)).toEqual([1, -3]);
     expect(pw.activated[1].effects[0]).toMatchObject({ type: "bounce" });
   });
 
   it("Dauereffekte und Sonderkosten werden als Hinweis geführt", () => {
-    const anthem = parseCardText({ name: "Glorious Anthem", typeLine: "Enchantment", oracleText: "Creatures you control get +1/+1." });
-    expect(anthem.notes).toEqual(["Creatures you control get +1/+1."]);
+    const odd = parseCardText({ name: "Seltsam", typeLine: "Enchantment", oracleText: "Whenever you cast a spell, draw a card." });
+    expect(odd.notes).toEqual(["Whenever you cast a spell, draw a card."]);
     const elder = parseCardText({ name: "Sakura-Tribe Elder", typeLine: "Creature", oracleText: "Sacrifice Sakura-Tribe Elder: Search your library for a basic land card." });
     expect(elder.activated).toEqual([]);
     expect(elder.notes).toHaveLength(1);
+  });
+});
+
+describe("cardText: Dauereffekte, Auslöser, Rückblende", () => {
+  it("Boni für Kreaturen werden als Dauereffekt erkannt", () => {
+    const anthem = parseCardText({ name: "Glorious Anthem", typeLine: "Enchantment", oracleText: "Creatures you control get +1/+1." });
+    expect(anthem.statics).toEqual([{ scope: "you", p: 1, th: 1, grants: [] }]);
+    expect(anthem.notes).toEqual([]);
+    const lord = parseCardText({ name: "Lord", typeLine: "Creature", oracleText: "Other creatures you control get +1/+1 and have flying." });
+    expect(lord.statics).toEqual([{ scope: "youOther", p: 1, th: 1, grants: ["flying"] }]);
+    expect(parseCardText({ name: "Fluch", typeLine: "Enchantment", oracleText: "Creatures your opponents control get -1/-1." }).statics[0].scope).toBe("opp");
+  });
+
+  it("weitere Auslöser", () => {
+    const events = text => parseCardText({ name: "X", typeLine: "Creature", oracleText: text }).triggers.map(t => [t.event, t.scope]);
+    expect(events("Whenever a creature an opponent controls dies, put a +1/+1 counter on ~.")).toEqual([["creatureDies", { owner: "opp", another: false }]]);
+    expect(events("Whenever another creature you control dies, draw a card.")).toEqual([["creatureDies", { owner: "you", another: true }]]);
+    expect(events("Whenever a land enters the battlefield under your control, you gain 1 life.")).toEqual([["landEnters", { owner: "you", another: false }]]);
+    expect(events("At the beginning of your upkeep, draw a card.")).toEqual([["upkeep", { owner: "you", another: false }]]);
+    expect(events("At the beginning of your end step, you gain 1 life.")).toEqual([["endStep", { owner: "you", another: false }]]);
+  });
+
+  it("Wühlen/Surveil, Gegner schwächen, Rückblende", () => {
+    expect(spell("Dreams", "Instant", "Surveil 1, then draw a card.\nFlashback {3}{U}{U}").effects).toEqual([{ type: "surveil", n: 1 }, { type: "draw", who: { k: "you" }, n: 1 }]);
+    expect(parseCardText({ name: "Dreams", typeLine: "Instant", oracleText: "Surveil 1, then draw a card.\nFlashback {3}{U}{U}" }).flashback).toBe("{3}{U}{U}");
+    const sephiroth = parseCardText({ name: "Sephiroth", typeLine: "Creature", oracleText: "When Sephiroth enters, creatures your opponents control get -2/-2 until end of turn." });
+    expect(sephiroth.triggers[0].effects).toEqual([{ type: "pumpAll", scope: "opp", p: -2, th: -2 }]);
   });
 });

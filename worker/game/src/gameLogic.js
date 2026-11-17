@@ -22,7 +22,7 @@ export const GAME_VERSION = 3;
 export const ZONES = ["library", "hand", "battlefield", "graveyard", "exile", "command"];
 const PUBLIC_ZONES = new Set(["battlefield", "graveyard", "exile", "command"]);
 /** Schritte eines Zuges. Aufnahme der Karte und Enttappen geschehen automatisch zu Beginn. */
-export const PHASES = ["main1", "attackers", "blockers", "damage", "main2", "end"];
+export const PHASES = ["untap", "upkeep", "draw", "main1", "attackers", "blockers", "damage", "main2", "end"];
 export const PLAYER_COUNTERS = ["poison", "energy", "experience"];
 export const START_LIFE = { standard: 20, commander: 40 };
 export const HAND_SIZE = 7;
@@ -75,12 +75,39 @@ function newId(game, prefix = "c") {
 
 const defOf = (game, card) => game.xdefs[card.def] ?? game.defs[card.def];
 const nameOf = (game, id) => defOf(game, game.cards[id])?.name ?? "Karte";
-const hasKeyword = (game, card, keyword) => defOf(game, card).keywords?.includes(keyword) ?? false;
+/** Dauereffekte wie „Creatures you control get +1/+1“ (Boni und Schlüsselwörter), die auf diese Karte wirken. */
+function staticEffects(game, card) {
+  const result = { p: 0, th: 0, grants: [] };
+  if (!defOf(game, card).types.creature || !onBattlefield(game, card.id)) return result;
+  for (const userId of game.seats) {
+    for (const id of game.players[userId].battlefield) {
+      const source = game.cards[id];
+      for (const effect of defOf(game, source).rules?.statics ?? []) {
+        const applies =
+          effect.scope === "you" ? source.owner === card.owner
+          : effect.scope === "youOther" ? source.owner === card.owner && source.id !== card.id
+          : effect.scope === "opp" ? source.owner !== card.owner
+          : true;
+        if (!applies) continue;
+        result.p += effect.p;
+        result.th += effect.th;
+        result.grants.push(...effect.grants);
+      }
+    }
+  }
+  return result;
+}
+const keywordsOfCard = (game, card) => {
+  const base = defOf(game, card).keywords ?? [];
+  const grants = staticEffects(game, card).grants;
+  return grants.length > 0 ? [...base, ...grants] : base;
+};
+const hasKeyword = (game, card, keyword) => keywordsOfCard(game, card).includes(keyword);
 
 const counterOf = (card, kind) => card.counters[kind] ?? 0;
 const bonus = card => counterOf(card, "+1/+1") - counterOf(card, "-1/-1");
-const powerOf = (game, card) => (defOf(game, card).power ?? 0) + bonus(card) + (card.tp ?? 0);
-const toughnessOf = (game, card) => (defOf(game, card).toughness ?? 0) + bonus(card) + (card.tt ?? 0);
+const powerOf = (game, card) => (defOf(game, card).power ?? 0) + bonus(card) + (card.tp ?? 0) + staticEffects(game, card).p;
+const toughnessOf = (game, card) => (defOf(game, card).toughness ?? 0) + bonus(card) + (card.tt ?? 0) + staticEffects(game, card).th;
 
 function emptyPlayer(name) {
   return {
@@ -103,6 +130,7 @@ function emptyPlayer(name) {
     cmdCasts: {},
     pool: emptyPool(),
     autoPass: true,
+    autoStart: true,
     turnStartSeq: 0,
     prompts: []
   };
@@ -259,6 +287,8 @@ function enterBattlefield(game, card) {
   const def = defOf(game, card);
   if (def.types.planeswalker && def.loyalty) card.counters.loyalty = def.loyalty;
   fireTriggers(game, card, "etb");
+  if (def.types.land) fireGlobal(game, "landEnters", card);
+  if (def.types.creature) fireGlobal(game, "creatureEnters", card);
 }
 
 function manaSources(game, userId) {
@@ -282,7 +312,10 @@ function offerCommanderReturn(game, card, to) {
 /** Karte stirbt oder wird neutralisiert → Friedhof (Spielsteine verschwinden). */
 function toGraveyard(game, card, from = "battlefield") {
   const owner = game.players[card.owner];
-  if (from === "battlefield") fireTriggers(game, card, "dies");
+  if (from === "battlefield") {
+    fireTriggers(game, card, "dies");
+    if (defOf(game, card).types.creature) fireGlobal(game, "creatureDies", card);
+  }
   for (const zone of ZONES) {
     const index = owner[zone].indexOf(card.id);
     if (index !== -1) owner[zone].splice(index, 1);
@@ -382,20 +415,43 @@ function clearPools(game) {
 function startTurn(game, userId, { skipDraw = false } = {}) {
   const player = game.players[userId];
   game.turn.active = userId;
-  game.turn.phase = "main1";
   game.turn.landsPlayed = 0;
+  game.turn.untapped = false;
+  game.turn.drawn = false;
+  game.turn.drawBlocked = skipDraw;
+  game.turn.drew = false;
+  game.turn.manualStart = player.autoStart === false;
   game.combat = null;
   game.pendingDiscard = null;
   player.turnStartSeq = tick(game);
-  for (const id of player.battlefield) game.cards[id].tapped = false;
   clearPools(game);
-  addLog(game, `Zug ${game.turn.number}: ${player.name} ist am Zug (alles enttappt).`);
-  if (!skipDraw) {
-    const drawn = drawCards(game, userId, 1);
-    addLog(game, drawn ? `${player.name} zieht eine Karte.` : `${player.name} kann keine Karte ziehen (Bibliothek leer).`);
-  }
   game.priority = userId;
   game.passed = [];
+  if (player.autoStart === false) {
+    // Manuell: Enttappen, Versorgung und Ziehen sind eigene Schritte mit Handlungsmöglichkeit.
+    game.turn.phase = "untap";
+    addLog(game, `Zug ${game.turn.number}: ${player.name} ist am Zug (Enttappen und Ziehen manuell).`);
+    return;
+  }
+  game.turn.phase = "main1";
+  untapAll(game, userId);
+  addLog(game, `Zug ${game.turn.number}: ${player.name} ist am Zug (alles enttappt).`);
+  fireGlobal(game, "upkeep", userId);
+  if (!skipDraw) {
+    const drawn = drawCards(game, userId, 1);
+    game.turn.drew = drawn > 0;
+    addLog(game, drawn ? `${player.name} zieht eine Karte.` : `${player.name} kann keine Karte ziehen (Bibliothek leer).`);
+  } else addLog(game, `${player.name} zieht im ersten Zug keine Karte.`);
+}
+
+function untapAll(game, userId) {
+  let count = 0;
+  for (const id of game.players[userId].battlefield) {
+    if (game.cards[id].tapped) count += 1;
+    game.cards[id].tapped = false;
+  }
+  game.turn.untapped = true;
+  return count;
 }
 
 function finishTurn(game) {
@@ -429,6 +485,16 @@ function enterPhase(game, phase) {
 /** Alle haben nacheinander gepasst und der Stapel ist leer: nächster Schritt. */
 function advanceStep(game, now, random) {
   switch (game.turn.phase) {
+    case "untap":
+      enterPhase(game, "upkeep");
+      fireGlobal(game, "upkeep", game.turn.active);
+      return;
+    case "upkeep":
+      enterPhase(game, "draw");
+      return;
+    case "draw":
+      enterPhase(game, "main1");
+      return;
     case "main1":
       if (hasPotentialAttackers(game, game.turn.active) && alive(game).length > 1) enterPhase(game, "attackers");
       else enterPhase(game, "main2");
@@ -444,6 +510,12 @@ function advanceStep(game, now, random) {
       return;
     case "main2":
       enterPhase(game, "end");
+      fireGlobal(game, "endStep", game.turn.active);
+      flushTriggers(game);
+      // Niemand will im Endschritt handeln (Gegner passen automatisch, nichts löst aus): der Schritt wird übersprungen.
+      if (game.stack.length === 0 && !game.choice && alive(game).every(id => id === game.turn.active || game.players[id].autoPass)) {
+        advanceStep(game, now, random);
+      }
       return;
     case "end": {
       const active = game.players[game.turn.active];
@@ -487,7 +559,7 @@ function resolveTop(game) {
       addLog(game, `${def.name} löst sich auf.`);
       runEffects(game, spell.effects, { controller: item.controller, source: card.id, sourceName: def.name, targets: item.targets ?? [], unparsed: spell.unparsed });
     }
-    owner.graveyard.push(card.id);
+    (item.flashback ? owner.exile : owner.graveyard).push(card.id);
   } else {
     owner.battlefield.push(card.id);
     enterBattlefield(game, card);
@@ -819,6 +891,26 @@ function leaveTo(game, card, zone) {
   owner[zone].push(card.id);
 }
 
+/** Auslöser anderer Permanents auf ein Ereignis (Kreatur stirbt/betritt, Land betritt, Beginn der Versorgung, Endphase). */
+function fireGlobal(game, event, subject) {
+  for (const userId of game.seats) {
+    for (const id of [...game.players[userId].battlefield]) {
+      const source = game.cards[id];
+      if (!source) continue;
+      const def = defOf(game, source);
+      for (const trigger of def.rules?.triggers ?? []) {
+        if (trigger.event !== event) continue;
+        const scope = trigger.scope ?? { owner: "you", another: false };
+        const subjectOwner = typeof subject === "string" ? subject : subject.owner;
+        if (scope.owner === "you" && subjectOwner !== source.owner) continue;
+        if (scope.owner === "opp" && subjectOwner === source.owner) continue;
+        if (scope.another && typeof subject !== "string" && subject.id === source.id) continue;
+        game.triggerQueue.push({ controller: source.owner, source: source.id, sourceName: def.name, trigger });
+      }
+    }
+  }
+}
+
 function fireTriggers(game, card, event) {
   const def = defOf(game, card);
   for (const trigger of def.rules?.triggers ?? []) {
@@ -1045,16 +1137,38 @@ function runEffect(game, effect, ctx, rest) {
       }
       return false;
     }
-    case "pumpAll":
-      for (const id of controller.battlefield) {
-        const c = game.cards[id];
-        if (defOf(game, c).types.creature) {
-          c.tp = (c.tp ?? 0) + effect.p;
-          c.tt = (c.tt ?? 0) + effect.th;
+    case "pumpAll": {
+      const scope = effect.scope ?? "you";
+      for (const userId of game.seats) {
+        if ((scope === "you" && userId !== ctx.controller) || (scope === "opp" && userId === ctx.controller)) continue;
+        for (const id of game.players[userId].battlefield) {
+          const c = game.cards[id];
+          if (defOf(game, c).types.creature) {
+            c.tp = (c.tp ?? 0) + effect.p;
+            c.tt = (c.tt ?? 0) + effect.th;
+          }
         }
       }
-      addLog(game, `Deine Kreaturen erhalten ${effect.p >= 0 ? "+" : ""}${effect.p}/${effect.th >= 0 ? "+" : ""}${effect.th} bis zum Zugende (${name}).`);
+      const who = scope === "you" ? "Deine Kreaturen" : scope === "opp" ? "Kreaturen deiner Gegner" : "Alle Kreaturen";
+      addLog(game, `${who} erhalten ${effect.p >= 0 ? "+" : ""}${effect.p}/${effect.th >= 0 ? "+" : ""}${effect.th} bis zum Zugende (${name}).`);
       return false;
+    }
+    case "surveil": {
+      const count = Math.min(effect.n, controller.library.length);
+      if (count === 0) return false;
+      addLog(game, `${controller.name} überwacht ${count} (${name}).`);
+      return openChoice(game, {
+        userId: ctx.controller,
+        kind: "cards",
+        prompt: `Überwachen ${count}: Wähle die Karten, die auf den Friedhof kommen (die übrigen bleiben oben).`,
+        options: controller.library.slice(-count).reverse(),
+        min: 0,
+        max: count,
+        step: { type: "surveil" },
+        queue: rest,
+        ctx
+      });
+    }
     case "token": {
       let made = 0;
       for (let i = 0; i < effect.n; i += 1) if (createToken(game, ctx.controller, { name: effect.name, power: effect.p, toughness: effect.th })) made += 1;
@@ -1126,6 +1240,13 @@ function chooseAction(game, userId, action, random, now) {
       }
       addLog(game, `${player.name} wirft ab: ${ids.map(id => nameOf(game, id)).join(", ")}.`);
       break;
+    case "surveil":
+      for (const id of ids) {
+        player.library.splice(player.library.indexOf(id), 1);
+        player.graveyard.push(id);
+      }
+      addLog(game, `${player.name} legt ${ids.length} Karte${ids.length === 1 ? "" : "n"} auf den Friedhof.`);
+      break;
     case "scry": {
       for (const id of ids) {
         player.library.splice(player.library.indexOf(id), 1);
@@ -1165,7 +1286,8 @@ function chooseAction(game, userId, action, random, now) {
 /** Was kann dieser Spieler mit der Karte aus der Hand (bzw. Kommandozone) jetzt tun? */
 export function playOptions(game, userId, id) {
   const found = locate(game, userId, id);
-  if (!found || (found.zone !== "hand" && found.zone !== "command")) return null;
+  const flashbackOk = found && found.zone === "graveyard" && Boolean(defOf(game, found.card).rules?.flashback);
+  if (!found || (found.zone !== "hand" && found.zone !== "command" && !flashbackOk)) return null;
   const def = defOf(game, found.card);
   const player = game.players[userId];
   const playing = game.phase === "playing" && !player.eliminated && !game.pendingDiscard && !game.choice && !game.manual;
@@ -1180,7 +1302,7 @@ export function playOptions(game, userId, id) {
   let affordable = false;
   if (timingOk) {
     const tax = found.zone === "command" ? 2 * (player.cmdCasts[id] ?? 0) : 0;
-    affordable = planPayment({ manaCost: def.manaCost, extraGeneric: tax, pool: player.pool, sources: manaSources(game, userId) }).ok;
+    affordable = planPayment({ manaCost: flashbackOk ? def.rules.flashback : def.manaCost, extraGeneric: tax, pool: player.pool, sources: manaSources(game, userId) }).ok;
   }
   const spell = def.rules?.spell;
   return {
@@ -1246,7 +1368,7 @@ function cardView(game, id, viewerId, { hideFace = false } = {}) {
     manaValue: def.manaValue,
     manaCost: def.manaCost,
     imageUri: def.imageUri,
-    keywords: def.keywords,
+    keywords: keywordsOfCard(game, card),
     power: creature ? (def.powerText !== null && def.power === null ? null : powerOf(game, card)) : null,
     toughness: creature ? (def.toughnessText !== null && def.toughness === null ? null : toughnessOf(game, card)) : null,
     abilities: card.owner === viewerId && onBattlefield(game, id) ? abilityOptions(game, viewerId, card) : [],
@@ -1274,7 +1396,8 @@ export function gameView(game, viewerId) {
       mulligans: p.mulligans,
       kept: p.kept,
       pool: p.pool,
-      autoPass: mine ? p.autoPass : undefined,
+      autoPass: p.autoPass,
+      autoStart: mine ? p.autoStart : undefined,
       prompts: mine ? p.prompts : [],
       counts: {
         library: p.library.length,
@@ -1307,6 +1430,7 @@ export function gameView(game, viewerId) {
       controller: item.controller,
       kind: item.kind,
       text: item.text ?? "",
+      sourceName: item.sourceName ?? "",
       card: item.cardId ? cardView(game, item.cardId, viewerId) : null
     })),
     combat: game.combat
@@ -1392,6 +1516,7 @@ export function applyAction(game, userId, action, { random = Math.random, now = 
     flushTriggers(game);
     for (const id of game.seats) checkElimination(game, id, now);
   }
+  repairGame(game);
   return result;
 }
 
@@ -1527,6 +1652,27 @@ function handleAction(game, userId, action, random, now) {
       game.priority = userId;
       game.passed = [];
       addLog(game, `${player.name} legt eine Fähigkeit auf den Stapel: ${text}`);
+      return ok();
+    }
+    case "autoStart":
+      if (typeof action.value !== "boolean") return fail("Ungültige Einstellung.");
+      player.autoStart = action.value;
+      return ok();
+    case "untapStep": {
+      if (game.turn.active !== userId || game.turn.phase !== "untap") return fail("Enttappen geht nur im Enttappen-Schritt deines Zuges.");
+      if (game.turn.untapped) return fail("Du hast bereits enttappt.");
+      const count = untapAll(game, userId);
+      addLog(game, `${player.name} enttappt ${count} Karte${count === 1 ? "" : "n"}.`);
+      return ok();
+    }
+    case "drawStep": {
+      if (game.turn.active !== userId || game.turn.phase !== "draw") return fail("Karten ziehst du im Zieh-Schritt deines Zuges.");
+      if (game.turn.drawBlocked) return fail("Der Startspieler zieht im ersten Zug keine Karte.");
+      if (game.turn.drawn) return fail("Du hast in diesem Zug bereits gezogen.");
+      const drawn = drawCards(game, userId, 1);
+      game.turn.drawn = true;
+      game.turn.drew = drawn > 0;
+      addLog(game, drawn ? `${player.name} zieht eine Karte.` : `${player.name} kann keine Karte ziehen (Bibliothek leer).`);
       return ok();
     }
     case "choose":
@@ -1691,8 +1837,11 @@ function castAction(game, userId, action) {
   const player = game.players[userId];
   if (game.priority !== userId) return fail("Du hast gerade keine Priorität.");
   const found = locate(game, userId, action.id);
-  if (!found || (found.zone !== "hand" && found.zone !== "command")) return fail("Zaubern kannst du nur aus der Hand oder der Kommandozone.");
-  const def = defOf(game, found.card);
+  const def = found ? defOf(game, found.card) : null;
+  const flashback = Boolean(found && found.zone === "graveyard" && def?.rules?.flashback);
+  if (!found || !def || (found.zone !== "hand" && found.zone !== "command" && !flashback)) {
+    return fail("Zaubern kannst du nur aus der Hand, der Kommandozone oder (mit Rückblende) aus dem Friedhof.");
+  }
   if (def.types.land) return fail("Länder werden mit „Land spielen“ gelegt.");
   const instantSpeed = def.types.instant || def.keywords.includes("flash");
   const mainPhase = game.turn.active === userId && (game.turn.phase === "main1" || game.turn.phase === "main2") && game.stack.length === 0;
@@ -1706,24 +1855,20 @@ function castAction(game, userId, action) {
 
   const x = isInt(action.x) ? clampInt(action.x, 0, 99) : 0;
   const tax = found.zone === "command" ? 2 * (player.cmdCasts[found.card.id] ?? 0) : 0;
-  let paid = "";
-  if (action.free === true) {
-    paid = " ohne Manakosten";
-  } else {
-    const plan = planPayment({ manaCost: def.manaCost, x, extraGeneric: tax, pool: player.pool, sources: manaSources(game, userId) });
-    if (!plan.ok) {
-      return fail(`Nicht genug Mana für ${describeCost(def.manaCost, x, tax)}${tax ? " (inkl. Kommandantensteuer)" : ""}. Tappe Quellen oder wirke „ohne Kosten“.`);
-    }
-    for (const id of plan.tap) game.cards[id].tapped = true;
-    for (const color of Object.keys(plan.poolUsed)) player.pool[color] -= plan.poolUsed[color];
-    for (const color of Object.keys(plan.poolAdd)) player.pool[color] += plan.poolAdd[color];
-    if (plan.lifeLoss) player.life -= plan.lifeLoss;
-    paid = ` (${describeCost(def.manaCost, x, tax)})`;
+  const cost = flashback ? def.rules.flashback : def.manaCost;
+  const plan = planPayment({ manaCost: cost, x, extraGeneric: tax, pool: player.pool, sources: manaSources(game, userId) });
+  if (!plan.ok) {
+    return fail(`Nicht genug Mana für ${describeCost(cost, x, tax)}${tax ? " (inkl. Kommandantensteuer)" : ""}.`);
   }
+  for (const id of plan.tap) game.cards[id].tapped = true;
+  for (const color of Object.keys(plan.poolUsed)) player.pool[color] -= plan.poolUsed[color];
+  for (const color of Object.keys(plan.poolAdd)) player.pool[color] += plan.poolAdd[color];
+  if (plan.lifeLoss) player.life -= plan.lifeLoss;
+  const paid = ` (${describeCost(cost, x, tax)}${flashback ? ", Rückblende" : ""})`;
   player[found.zone].splice(found.index, 1);
   if (found.zone === "command") player.cmdCasts[found.card.id] = (player.cmdCasts[found.card.id] ?? 0) + 1;
   found.card.revealed = false;
-  game.stack.push({ sid: newId(game, "s"), kind: "spell", controller: userId, cardId: found.card.id, x, targets: specs.length > 0 ? action.targets : [] });
+  game.stack.push({ sid: newId(game, "s"), kind: "spell", controller: userId, cardId: found.card.id, x, flashback, targets: specs.length > 0 ? action.targets : [] });
   game.priority = userId;
   game.passed = [];
   addLog(game, `${player.name} wirkt ${def.name}${paid}.`);
@@ -1963,6 +2108,23 @@ function moveAction(game, userId, action) {
   const name = hiddenMove ? "eine Karte" : nameOf(game, card.id);
   addLog(game, `${player.name} bewegt ${name}: ${ZONE_LABELS[from]} → ${ZONE_LABELS[to]}${to === "library" ? (action.position === "bottom" ? " (unten)" : " (oben)") : ""}.`);
   return ok();
+}
+
+/**
+ * Selbstheilung: Wartet niemand auf eine Auswahl oder einen Kartentext und hat trotzdem kein lebender Spieler die Priorität,
+ * bekommt der aktive Spieler sie. So kann der Zustand „alle warten auf alle“ nicht entstehen.
+ */
+export function repairGame(game) {
+  if (game.phase !== "playing") return false;
+  if (game.choice || game.manual || game.pendingDiscard || game.combat?.phaseWaiting) return false;
+  const holder = game.priority ? game.players[game.priority] : null;
+  if (holder && !holder.eliminated) return false;
+  const active = game.turn.active && !game.players[game.turn.active]?.eliminated ? game.turn.active : alive(game)[0];
+  if (!active) return false;
+  game.priority = active;
+  game.passed = [];
+  addLog(game, "Der Spielzustand wurde korrigiert.");
+  return true;
 }
 
 /** Spiel abbrechen (Raum geschlossen oder abgelaufen); liefert die Zusammenfassung für den Verlauf. */
