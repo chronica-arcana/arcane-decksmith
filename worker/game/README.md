@@ -40,9 +40,15 @@ Cloudflare Worker mit einem **Durable Object je Raum**. Er ist die Grundlage fü
 - **Kartentext-Engine (`cardText.js`):** Der englische Oracle-Text wird gelesen und ausgeführt: Karten ziehen, Leben gewinnen/verlieren, Schaden
   (beliebiges Ziel, Kreatur, Spieler, alle), Zerstören, Exil, zurück auf die Hand, Tappen/Enttappen, Neutralisieren, Marker, Stärke-Bonus bis
   Zugende, Spielsteine erzeugen, Wühlen, Mahlen, Abwerfen, Bibliothek durchsuchen (z. B. Basic Land), Karten aus dem Friedhof zurückholen,
-  Mana erzeugen. Dazu **Ziele** (nur gültige Ziele, die Auswahl erfolgt beim Wirken), **Auslöser** („When ~ enters the battlefield“, „dies“,
+  Mana erzeugen, Überwachen (Surveil). Dazu **Dauereffekte** („Creatures you control get +1/+1“, „Other creatures you control get +1/+1 and have flying“),
+  **Rückblende** (Flashback aus dem Friedhof, danach Exil) und mehr Auslöser (Kreatur stirbt/betritt, Land betritt, Beginn der Versorgung/Endphase). Dazu **Ziele** (nur gültige Ziele, die Auswahl erfolgt beim Wirken), **Auslöser** („When ~ enters the battlefield“, „dies“,
   „attacks“), **aktivierte Fähigkeiten** (Kosten {T} und Mana) und **Loyalitätsfähigkeiten**.
-- **Nicht automatisch:** Dauereffekte (z. B. „Creatures you control get +1/+1“), Bedingungen, „für jedes“, X-Effekte, Modi, Aura/Ausrüstung,
+- **Zugbeginn:** Enttappen, Versorgung und Ziehen laufen standardmäßig automatisch (Startspieler zieht im ersten Zug nicht). Im ⋯-Menü lässt sich
+  das je Spieler auf **manuell** stellen: dann sind es eigene Schritte mit „Alles enttappen“ und „Karte ziehen“. Ein Endschritt, in dem niemand handeln will,
+  wird übersprungen; ebenso der Kampf, wenn keine Kreatur angreifen kann.
+- **Stabilität:** Wirft die Regel-Engine einen Fehler, wird der Zustand zurückgesetzt und neu gesendet; der Client gleicht den Stand beim Sichtbarwerden
+  und alle 20 Sekunden ab und verbindet sich bei Abbruch automatisch neu. Ein Dauertest spielt 300 Zufallsspiele ohne Stillstand.
+- **Nicht automatisch:** Bedingte Dauereffekte, Bedingungen, „für jedes“, X-Effekte, Modi, Aura/Ausrüstung,
   Auslöser außer Betreten/Sterben/Angriff. Karten mit solchen Texten weisen in der Vorschau darauf hin. Wird ein nicht verstandener Satz
   ausgeführt, öffnet das Spiel ein **manuelles Fenster** nur für diesen Spieler (Karte ziehen, Karten bewegen, Leben, Marker, Spielsteine …),
   das er mit „Fertig“ schließt. Außerhalb dieses Fensters sind manuelle Eingriffe serverseitig gesperrt.

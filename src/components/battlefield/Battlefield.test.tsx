@@ -170,7 +170,7 @@ describe("Spielraum", () => {
   });
 
   it("Weiter-Knopf nur, wenn du handeln darfst", () => {
-    const { send, rerender } = setup(view());
+    const { send, rerender } = setup(view({}, { battlefield: [creature("c1", "Wolf")] }));
     fireEvent.click(screen.getByRole("button", { name: "Weiter zum Kampf" }));
     expect(send).toHaveBeenCalledWith({ type: "pass" });
     rerender(<Battlefield game={view({ priority: "they" })} hostId="me" send={send} onRematch={vi.fn()} onLeave={vi.fn()} />);
@@ -182,7 +182,7 @@ describe("Spielraum", () => {
     const game = view({ stack: [{ sid: "s1", controller: "they", kind: "spell", text: "", card: card("x1", "Blitz", { owner: "they" }) }] });
     setup(game);
     const stack = screen.getByLabelText("Stapel");
-    expect(screen.getByRole("button", { name: "Passen – Stapel auflösen" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Auflösen lassen" })).toBeTruthy();
     fireEvent.contextMenu(within(stack).getByRole("button", { name: "Blitz" }));
     expect(screen.getAllByRole("menuitem").map(item => item.textContent)).toEqual(["Groß ansehen"]);
   });
@@ -306,7 +306,7 @@ describe("Spielraum", () => {
     expect(second.send).toHaveBeenCalledWith({ type: "commanderZone", id: "k1", yes: true });
   });
 
-  it("Vorschau erscheint beim Darüberfahren verzögert und stabil, mit großem Scryfall-Bild und Hinweisen", async () => {
+  it("Vorschau zeigt beim Darüberfahren die ganze Karte als großes Scryfall-Bild, ohne Zusatzkasten", async () => {
     const wolf = creature("c1", "Wolf", "me", {
       manaCost: "{1}{G}", imageUri: "https://cards.scryfall.io/normal/front/a/b/x.jpg", rulesNotes: ["Creatures you control get +1/+1."]
     });
@@ -314,8 +314,7 @@ describe("Spielraum", () => {
     fireEvent.mouseEnter(screen.getByRole("button", { name: "Wolf" }));
     const preview = await screen.findByLabelText("Kartenvorschau");
     expect(within(preview).getByAltText("Wolf").getAttribute("src")).toBe("https://cards.scryfall.io/large/front/a/b/x.jpg");
-    expect(within(preview).getByAltText("Grün")).toBeTruthy();
-    expect(within(preview).getByText(/Wird nicht automatisch berücksichtigt/)).toBeTruthy();
+    expect(within(preview).queryByText(/automatisch/)).toBeNull();
   });
 
   it("Spielende: Sieger, Revanche nur für den Gastgeber", () => {
@@ -327,5 +326,70 @@ describe("Spielraum", () => {
     rerender(<Battlefield game={ended} hostId="me" send={vi.fn()} onRematch={onRematch} onLeave={vi.fn()} />);
     fireEvent.click(screen.getByRole("button", { name: "Revanche" }));
     expect(onRematch).toHaveBeenCalled();
+  });
+});
+
+describe("Zugablauf und Anzeige", () => {
+  it("ohne mögliche Angreifer führt der Knopf direkt zur Hauptphase 2 (kein Kampf angeboten)", () => {
+    setup(view({}, { battlefield: [card("l1", "Wald", { kind: "land", mana: true, manaColors: ["G"] })] }));
+    expect(screen.getByRole("button", { name: "Weiter zur Hauptphase 2" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Weiter zum Kampf" })).toBeNull();
+  });
+
+  it("Zug beenden statt Endschritt, wenn die Gegner automatisch passen", () => {
+    const game = view({ turn: { number: 3, active: "me", phase: "main2", first: "me", landsPlayed: 0 } });
+    setup(game);
+    expect(screen.getByRole("button", { name: "Zug beenden" })).toBeTruthy();
+  });
+
+  it("erklärt den Knopf bei nicht leerem Stapel verständlich", () => {
+    const game = view({ stack: [{ sid: "s1", controller: "they", kind: "spell", text: "", card: card("x1", "Blitz", { owner: "they" }) }] });
+    setup(game);
+    expect(screen.getByRole("button", { name: "Auflösen lassen" })).toBeTruthy();
+    expect(screen.getByText(/Du antwortest nicht/)).toBeTruthy();
+  });
+
+  it("manueller Zugbeginn: Enttappen, Versorgung und Ziehen als eigene Schritte", () => {
+    const base = { manualStart: true, untapped: false, drawn: false, drawBlocked: false };
+    const first = setup(view({ turn: { number: 2, active: "me", phase: "untap", first: "they", landsPlayed: 0, ...base } }));
+    fireEvent.click(screen.getByRole("button", { name: "Alles enttappen" }));
+    expect(first.send).toHaveBeenLastCalledWith({ type: "untapStep" });
+    fireEvent.click(screen.getByRole("button", { name: "Weiter zur Versorgung" }));
+    expect(first.send).toHaveBeenLastCalledWith({ type: "pass" });
+    cleanup();
+    const second = setup(view({ turn: { number: 2, active: "me", phase: "draw", first: "they", landsPlayed: 0, ...base } }));
+    fireEvent.click(screen.getByRole("button", { name: "Karte ziehen" }));
+    expect(second.send).toHaveBeenLastCalledWith({ type: "drawStep" });
+    cleanup();
+    setup(view({ turn: { number: 1, active: "me", phase: "draw", first: "me", landsPlayed: 0, ...base, drawBlocked: true } }));
+    expect(screen.getByRole("button", { name: "Karte ziehen" })).toHaveProperty("disabled", true);
+    expect(screen.getByText(/Startspieler zieht im ersten Zug keine Karte/)).toBeTruthy();
+  });
+
+  it("Menü: Enttappen und Ziehen umstellen", () => {
+    const { send } = setup(view({}, { autoStart: true }));
+    fireEvent.click(screen.getByRole("button", { name: "Weitere Aktionen" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: /auf manuell stellen/ }));
+    expect(send).toHaveBeenCalledWith({ type: "autoStart", value: false });
+  });
+
+  it("Zugwechsel nennt, was automatisch passiert ist", () => {
+    setup(view({ turn: { number: 4, active: "me", phase: "main1", first: "they", landsPlayed: 0, manualStart: false, drew: true } }));
+    expect(screen.getByText("Alles enttappt, Karte gezogen")).toBeTruthy();
+  });
+
+  it("der Raum liegt über der ganzen App (am Dokument verankert), die Vorschau verschwindet beim Verlassen der Karte und bei Berührung daneben", async () => {
+    const wolf = creature("c1", "Wolf", "me", { imageUri: "https://cards.scryfall.io/normal/front/a/b/x.jpg" });
+    setup(view({}, { battlefield: [wolf] }));
+    expect(screen.getByRole("region", { name: "Spieltisch" }).parentElement).toBe(document.body);
+    const tile = screen.getByRole("button", { name: "Wolf" });
+    fireEvent.mouseEnter(tile);
+    expect(await screen.findByLabelText("Kartenvorschau")).toBeTruthy();
+    fireEvent.mouseLeave(tile);
+    await vi.waitFor(() => expect(screen.queryByLabelText("Kartenvorschau")).toBeNull());
+    fireEvent.mouseEnter(tile);
+    await screen.findByLabelText("Kartenvorschau");
+    fireEvent.pointerDown(screen.getByLabelText("Mitte: Stapel und Kampf"));
+    await vi.waitFor(() => expect(screen.queryByLabelText("Kartenvorschau")).toBeNull());
   });
 });

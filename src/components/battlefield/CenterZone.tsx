@@ -42,7 +42,7 @@ export default function CenterZone({ children }: { children: ReactNode }) {
                     {item.card ? (
                       <CardView card={item.card} size="sm" marked={isTarget(item.sid) ? "target" : null} onHover={setHover} onMenu={cardMenu} onSelect={(card, event) => (isTarget(item.sid) ? pickTarget(item.sid) : clickCard(card, event))} />
                     ) : (
-                      <span className="stack-ability">{item.text || "Fähigkeit"}</span>
+                      <span className="stack-ability"><strong>{item.sourceName}</strong> {(item.text || "Fähigkeit").replace(/~/g, item.sourceName ?? "")}</span>
                     )}
                     <span className="muted">{nameOf(item.controller)}</span>
                   </div>

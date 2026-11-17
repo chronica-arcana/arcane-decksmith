@@ -255,6 +255,10 @@ export class GameRoom extends DurableObject {
     );
   }
 
+  sendGame(socket, userId) {
+    if (this.game?.players[userId]) this.send(socket, { type: "game", game: gameView(this.game, userId) });
+  }
+
   broadcastGame(except) {
     if (!this.game) return;
     for (const socket of this.authedSockets(except)) {
@@ -378,14 +382,32 @@ export class GameRoom extends DurableObject {
           this.send(socket, { type: "error", message: "Das Spiel hat noch nicht begonnen." });
           break;
         }
-        const result = applyAction(this.game, attachment.userId, parsed.message.action, { random: randomUnit });
+        // Wirft die Regel-Engine einen Fehler, wird der Zustand vor der Aktion wiederhergestellt und allen neu gesendet,
+        // damit keine Seite mit einem veralteten oder halb geänderten Spiel zurückbleibt.
+        const backup = structuredClone(this.game);
+        let result;
+        try {
+          result = applyAction(this.game, attachment.userId, parsed.message.action, { random: randomUnit });
+        } catch (error) {
+          console.error("Fehler in der Spielregel-Engine:", error);
+          this.game = backup;
+          this.send(socket, { type: "error", message: "Interner Fehler: Die Aktion wurde zurückgenommen." });
+          this.broadcastGame();
+          break;
+        }
         if (!result.ok) {
+          this.game = backup;
           this.send(socket, { type: "error", message: result.error });
+          this.sendGame(socket, attachment.userId);
           break;
         }
         await this.afterGameChange();
         break;
       }
+      case "sync":
+        this.broadcastRoom();
+        this.sendGame(socket, attachment.userId);
+        break;
       case "rematch": {
         if (attachment.userId !== this.room.hostId) {
           this.send(socket, { type: "error", message: "Nur der Gastgeber kann eine Revanche starten." });
