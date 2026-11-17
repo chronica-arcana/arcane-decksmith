@@ -55,6 +55,7 @@ const LIB = [
   ["scythe", "Sense", "Artifact — Equipment", "{2}", 2, {}, "When this Equipment enters, you may attach it to target creature you control. If you do, that creature gains first strike until end of turn.\nEquipped creature gets +2/+1.\nEquip {2}"],
   ["halo", "Heiligenschein", "Enchantment — Aura", "{G}", 2, {}, "Enchant creature\nEnchanted creature gets +1/+1 and has flying."],
   ["revive", "Wiederkehr", "Sorcery", "{1}{G}", 2, {}, "Return target creature card from your graveyard to the battlefield with two additional +1/+1 counters on it. It's a black Zombie in addition to its other colors and types."],
+  ["esper", "Esper-Rückholung", "Sorcery", "{1}{G}", 2, {}, "Create a 3/3 blue Robot Warrior artifact creature token. Then if this spell was cast from a graveyard, put two +1/+1 counters on that token.\nFlashback {5}{U}"],
   ["priest", "Priester", "Creature — Cleric", "{G}", 2, { power: "1", toughness: "1" }, "At the beginning of your end step, you gain 1 life."]
 ];
 const facts = new Map();
@@ -1195,5 +1196,31 @@ describe("Mana selbst wählen", () => {
     expect(game.cards[f1].tapped).toBe(false);
     expect(game.cards[f2].tapped).toBe(true);
     expect(game.cards[f3].tapped).toBe(true);
+  });
+});
+
+describe("Spielstein mit Rückblende-Bonus", () => {
+  const tokens = (game, uid) => game.players[uid].battlefield.filter(id => game.cards[id].token);
+  it("normal gewirkt: 3/3 ohne Marker, kein manuelles Fenster", () => {
+    const { game, random } = started();
+    forest(game, "u0", 3);
+    const esper = put(game, "u0", "Esper-Rückholung", "hand", { only: "library" });
+    expect(act(game, "u0", { type: "cast", id: esper }, random)).toEqual({ ok: true });
+    for (let i = 0; i < 4 && game.stack.length > 0; i += 1) act(game, game.priority, { type: "pass" }, random);
+    const [token] = tokens(game, "u0");
+    expect(game.defs ? game.xdefs[game.cards[token].def].name : "").toBe("Robot Warrior");
+    expect(game.cards[token].counters["+1/+1"]).toBeUndefined();
+    expect(game.manual).toBeNull();
+  });
+  it("aus dem Friedhof: zwei +1/+1-Marker", () => {
+    const { game, random } = started();
+    forest(game, "u0", 5);
+    put(game, "u0", "Klippen", "battlefield");
+    const esper = put(game, "u0", "Esper-Rückholung", "graveyard");
+    expect(act(game, "u0", { type: "cast", id: esper }, random)).toEqual({ ok: true });
+    for (let i = 0; i < 4 && game.stack.length > 0; i += 1) act(game, game.priority, { type: "pass" }, random);
+    const [token] = tokens(game, "u0");
+    expect(game.cards[token].counters["+1/+1"]).toBe(2);
+    expect(game.players.u0.exile).toContain(esper);
   });
 });

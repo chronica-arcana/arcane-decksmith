@@ -614,7 +614,7 @@ function resolveTop(game) {
       addLog(game, `${def.name} verpufft (Ziel nicht mehr gültig).`);
     } else {
       addLog(game, `${def.name} löst sich auf.`);
-      runEffects(game, spell.effects, { controller: item.controller, source: card.id, sourceName: def.name, targets: item.targets ?? [], unparsed: spell.unparsed, x: item.x });
+      runEffects(game, spell.effects, { controller: item.controller, source: card.id, sourceName: def.name, targets: item.targets ?? [], unparsed: spell.unparsed, x: item.x, flashback: Boolean(item.flashback) });
     }
     (item.flashback ? owner.exile : owner.graveyard).push(card.id);
   } else if (def.rules?.aura) {
@@ -1293,6 +1293,11 @@ function runEffect(game, rawEffect, ctx, rest) {
       addLog(game, `${nameOf(game, card.id)} kehrt aus dem Friedhof aufs Schlachtfeld zurück${extra ? ` mit ${extra} +1/+1-Markern` : ""} (${name}).`);
       return false;
     }
+    case "flashbackTokenCounters": {
+      const token = ctx.lastToken ? game.cards[ctx.lastToken] : null;
+      if (ctx.flashback && token) token.counters["+1/+1"] = (token.counters["+1/+1"] ?? 0) + effect.n;
+      return false;
+    }
     case "reanimateCounters":
     case "noop":
       return false;
@@ -1405,7 +1410,13 @@ function runEffect(game, rawEffect, ctx, rest) {
     }
     case "token": {
       let made = 0;
-      for (let i = 0; i < effect.n; i += 1) if (createToken(game, ctx.controller, { name: effect.name, power: effect.p, toughness: effect.th, artifact: effect.artifact })) made += 1;
+      for (let i = 0; i < effect.n; i += 1) {
+        const tokenId = createToken(game, ctx.controller, { name: effect.name, power: effect.p, toughness: effect.th, artifact: effect.artifact });
+        if (tokenId) {
+          made += 1;
+          ctx.lastToken = tokenId;
+        }
+      }
       addLog(game, `${controller.name} erzeugt ${made}× ${effect.name} ${effect.p}/${effect.th} (${name}).`);
       return false;
     }

@@ -138,6 +138,10 @@ function parseSentence(raw, specs) {
     const t = addTarget(specs, m[1]);
     return t === null ? null : [{ type: "attach", t }];
   }
+  if ((m = lower.match(new RegExp(`^(?:then )?if ~ was cast from (?:a|your) graveyard, put ${N} \\+1/\\+1 counters? on (?:that|it|the) token$`)))) {
+    const n = num(m[1]);
+    return n === null || n === "X" ? null : [{ type: "flashbackTokenCounters", n }];
+  }
   if ((m = lower.match(/^if you do, that creature gains ([a-z ]+?) until end of turn(?: and must be blocked this turn if able)?$/))) {
     const kws = m[1].split(/,| and /).map(word => word.trim()).filter(word => KEYWORDS.includes(word));
     return kws.length > 0 ? [{ type: "grantTemp", kws }] : null;
@@ -249,6 +253,7 @@ export function describeEffect(effect) {
     case "attach": return "Hängt diese Karte an die Ziel-Kreatur.";
     case "grantTemp": return `Die Kreatur erhält ${effect.kws.join(", ")} bis zum Zugende.`;
     case "reanimate": return `Holt die Ziel-Karte aus dem Friedhof ${effect.to === "hand" ? "auf die Hand" : "aufs Schlachtfeld"}${effect.counters ? ` (mit ${effect.counters} zusätzlichen +1/+1-Markern)` : ""}.`;
+    case "flashbackTokenCounters": return `Kam der Zauber aus dem Friedhof: ${effect.n} zusätzliche +1/+1-Marker auf den Spielstein.`;
     case "reanimateCounters":
     case "noop": return "";
     case "counters": return `${effect.n}× ${effect.kind}-Marker ${effect.self ? "auf diese Karte" : "auf das Ziel"}.`;
