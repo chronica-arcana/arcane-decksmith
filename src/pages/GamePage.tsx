@@ -103,6 +103,8 @@ function Lobby({
   const [format, setFormat] = useState<RoomFormat>("commander");
   const [maxPlayers, setMaxPlayers] = useState(4);
   const [createDeck, setCreateDeck] = useState<DeckPickerResult>(NO_DECK);
+  const [useBot, setUseBot] = useState(false);
+  const [botDeck, setBotDeck] = useState<DeckPickerResult>(NO_DECK);
   const [createError, setCreateError] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -116,10 +118,16 @@ function Lobby({
 
   const create = async () => {
     if (!createDeck.deckId || !createDeck.ok || busy) return;
+    if (useBot && (!botDeck.deckId || !botDeck.ok)) return;
     setBusy(true);
     setCreateError("");
     try {
-      const result = await api.createRoom({ format, deckId: createDeck.deckId, ...(format === "commander" ? { maxPlayers } : {}) });
+      const result = await api.createRoom({
+        format,
+        deckId: createDeck.deckId,
+        ...(format === "commander" && !useBot ? { maxPlayers } : {}),
+        ...(useBot && botDeck.deckId ? { botDeckId: botDeck.deckId } : {})
+      });
       onEntered(result.code);
     } catch (error) {
       if (error instanceof GameApiError && error.code) onEntered(error.code); // schon in einem Raum
@@ -188,7 +196,7 @@ function Lobby({
             <option value="standard">Standard (2 Spieler)</option>
           </select>
         </label>
-        {format === "commander" && (
+        {format === "commander" && !useBot && (
           <label>
             Plätze
             <select value={maxPlayers} onChange={event => setMaxPlayers(Number(event.target.value))} aria-label="Plätze">
@@ -199,8 +207,18 @@ function Lobby({
           </label>
         )}
         <DeckPicker decks={decks} format={format} api={api} onChange={setCreateDeck} />
+        <label className="check">
+          <input type="checkbox" checked={useBot} onChange={event => setUseBot(event.target.checked)} />
+          Gegen einen Bot spielen
+        </label>
+        {useBot && (
+          <>
+            <p className="muted">Der Bot spielt ein Deck aus deiner eigenen Sammlung. Wähle, womit er antritt:</p>
+            <DeckPicker decks={decks} format={format} api={api} onChange={setBotDeck} />
+          </>
+        )}
         {createError && <div className="error" role="alert">{createError}</div>}
-        <button type="button" className="primary" disabled={!createDeck.ok || busy} onClick={() => void create()}>
+        <button type="button" className="primary" disabled={!createDeck.ok || (useBot && !botDeck.ok) || busy} onClick={() => void create()}>
           Raum erstellen
         </button>
         <p className="muted">Der Einladungscode ist 24 Stunden gültig. Du kannst immer nur in einem Raum gleichzeitig sein.</p>

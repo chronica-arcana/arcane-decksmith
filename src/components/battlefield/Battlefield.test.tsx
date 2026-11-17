@@ -452,3 +452,32 @@ describe("Auswahl: Ja/Nein (Shock-Land)", () => {
     expect(send).toHaveBeenCalledWith({ type: "choose", ids: ["no"] });
   });
 });
+
+describe("Modale Zauber und Cycling", () => {
+  it("Modus wählen, dann Ziel wählen, dann wirken", () => {
+    const modal = card("m1", "Wahlzauber", {
+      play: {
+        kind: "spell", ok: true, targets: [],
+        modes: [{ label: "2 Schaden an das Ziel.", targets: [{ kind: "any", options: ["they"] }], manual: false }, { label: "Du erhältst 5 Leben.", targets: [], manual: false }]
+      }
+    });
+    const { send } = setup(view({}, { hand: [modal] }));
+    fireEvent.click(within(handArea()).getByRole("button", { name: "Wahlzauber" }));
+    const dialog = screen.getByRole("dialog", { name: "Modus wählen" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "2 Schaden an das Ziel." }));
+    fireEvent.click(screen.getByRole("button", { name: "Gegner als Ziel wählen" }));
+    expect(send).toHaveBeenCalledWith({ type: "cast", id: "m1", mode: 0, targets: ["they"] });
+    send.mockClear();
+    fireEvent.click(within(handArea()).getByRole("button", { name: "Wahlzauber" }));
+    fireEvent.click(within(screen.getByRole("dialog", { name: "Modus wählen" })).getByRole("button", { name: "Du erhältst 5 Leben." }));
+    expect(send).toHaveBeenCalledWith({ type: "cast", id: "m1", mode: 1 });
+  });
+
+  it("Cycling im Kartenmenü der Hand", () => {
+    const cycler = card("c1", "Wechsler", { cycle: { ok: true, cost: "{1}", search: null }, play: { kind: "spell", ok: false, targets: [] } });
+    const { send } = setup(view({}, { hand: [cycler] }));
+    fireEvent.contextMenu(within(handArea()).getByRole("button", { name: "Wechsler" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: /Cycling \{1\}/ }));
+    expect(send).toHaveBeenCalledWith({ type: "cycle", id: "c1" });
+  });
+});

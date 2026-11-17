@@ -64,6 +64,14 @@ Cloudflare Worker mit einem **Durable Object je Raum**. Er ist die Grundlage fü
 - **Verlauf:** Durable Object `History` je Konto (letzte 50 Spiele, auch abgebrochene), ohne zusätzliche Datenbank-Einrichtung.
 - Keine Rückgängig-Funktion (sie würde Mogeln ermöglichen: ansehen, dann zurücknehmen).
 
+## Bot-Gegner
+
+Beim Erstellen eines Raums kann „Gegen einen Bot spielen“ gewählt werden. Der Bot spielt ein **Deck aus der eigenen Sammlung** des Gastgebers (gleiche strenge Prüfung wie für Spieler, fremde Decks werden abgelehnt). Er belegt den zweiten Platz (2 Spieler), ist immer bereit und handelt serverseitig im Durable Object (`src/bot.js`): Mulligan, Länder, Zauber mit passenden Zielen, Fähigkeiten, Angriffe, Blocks, Auswahlen und Antworten auf Zauber. Er sieht nur seine eigene Hand. Zwischen zwei Bot-Aktionen liegt eine kurze Pause (Alarm), damit man seine Züge verfolgen kann. Partien gegen den Bot erscheinen nicht im Verlauf. Getestet durch Bot-gegen-Bot-Simulationen (Standard und Commander) und im Ende-zu-Ende-Test.
+
+## Weitere Regelautomatik
+
+Bedingte Länder („enters tapped unless you control a legendary creature“, „… on turn 3 or earlier“), modale Zauber („Choose one“ mit Auswahldialog), X-Zauber (X wird abgefragt) und Cycling sind automatisiert.
+
 ## Bedienung am Spieltisch
 - Der Spielraum füllt den ganzen Bildschirm (ohne Sammlung und App-Menü); oben links „Raum verlassen“. Es ist eine einzige Matte: Gegner oben
   (gespiegelt), Mitte mit Stapel und Kampf, du unten; die Phasen stehen unter der eigenen Hand. Chat und Verlauf liegen optional in einer

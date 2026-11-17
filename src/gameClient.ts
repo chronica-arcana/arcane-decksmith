@@ -32,6 +32,7 @@ export type RoomPlayer = {
   ready: boolean;
   online: boolean;
   isHost: boolean;
+  bot?: boolean;
   deck: { id: string; name: string; cardCount: number };
 };
 
@@ -82,7 +83,9 @@ export type GameCard = {
   /** Farben, die diese Manaquelle erzeugen kann. */
   manaColors?: string[];
   /** Nur für eigene Karten: Was ist jetzt möglich? */
-  play?: { kind: "land" | "spell"; ok: boolean; timingOk?: boolean; targets?: TargetOption[]; manual?: boolean } | null;
+  play?: { kind: "land" | "spell"; ok: boolean; timingOk?: boolean; targets?: TargetOption[]; modes?: { label: string; targets: TargetOption[]; manual: boolean }[]; manual?: boolean } | null;
+  /** Cycling aus der Hand (falls die Karte es hat). */
+  cycle?: { ok: boolean; cost: string; search: string | null } | null;
   /** Nur eigene Karten auf dem Schlachtfeld: aktivierbare Fähigkeiten laut Kartentext. */
   abilities?: CardAbility[];
   /** Textteile, die das Spiel nicht automatisch behandelt (z. B. Dauereffekte). */
@@ -196,7 +199,8 @@ export type GameAction =
   | { type: "tapMana"; id: string; color?: string }
   | { type: "pool"; color: "W" | "U" | "B" | "R" | "G" | "C"; delta: number }
   | { type: "playLand"; id: string }
-  | { type: "cast"; id: string; x?: number; free?: boolean; targets?: string[] }
+  | { type: "cast"; id: string; x?: number; free?: boolean; targets?: string[]; mode?: number }
+  | { type: "cycle"; id: string }
   | { type: "activate"; id: string; index: number; targets?: string[] }
   | { type: "choose"; ids: string[] }
   | { type: "manualDone" }
@@ -479,7 +483,7 @@ export function createGameApi(options: {
     checkDeck: (deckId: string, format: RoomFormat) => call<DeckCheck>("POST", "/api/decks/check", { deckId, format }),
     getMyRoom: async () => (await call<{ room: RoomInfo | null }>("GET", "/api/rooms/mine")).room,
     getRoomInfo: async (code: string) => (await call<{ room: RoomInfo }>("GET", `/api/rooms/${encodeURIComponent(code)}`)).room,
-    createRoom: (input: { format: RoomFormat; deckId: string; maxPlayers?: number }) =>
+    createRoom: (input: { format: RoomFormat; deckId: string; maxPlayers?: number; botDeckId?: string }) =>
       call<{ code: string; expiresAt: number }>("POST", "/api/rooms", input),
     joinRoom: (input: { code: string; deckId: string }) => call<{ code: string }>("POST", "/api/rooms/join", input),
     leaveRoom: () => call<{ ok: true }>("POST", "/api/rooms/leave", {}),

@@ -10,8 +10,8 @@
 import { KEYWORDS, parseManaCost, typesOf } from "./cardFacts.js";
 
 const WORDS = { a: 1, an: 1, one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10 };
-const N = "(a|an|one|two|three|four|five|six|seven|eight|nine|ten|\\d+)";
-const num = text => (/^\d+$/.test(text) ? Number(text) : (WORDS[String(text).toLowerCase()] ?? null));
+const N = "(a|an|one|two|three|four|five|six|seven|eight|nine|ten|\\d+|x)";
+const num = text => (/^\d+$/.test(text) ? Number(text) : String(text).toLowerCase() === "x" ? "X" : (WORDS[String(text).toLowerCase()] ?? null));
 
 const WHO = "(you|target player|target opponent|each opponent|each player)";
 
@@ -102,7 +102,8 @@ function parseSentence(raw, specs) {
   }
   if ((m = lower.match(new RegExp(`^(?:${WHO} )?loses? ${N} life$`)))) {
     const who = parseWho(m[1] ?? "you", specs);
-    return who && num(m[2]) !== null ? [{ type: "life", who, n: -num(m[2]) }] : null;
+    if (!who || num(m[2]) === null) return null;
+    return [num(m[2]) === "X" ? { type: "life", who, n: "X", negate: true } : { type: "life", who, n: -num(m[2]) }];
   }
   if ((m = lower.match(new RegExp(`^(?:${WHO} )?mills? ${N} cards?$`)))) {
     const who = parseWho(m[1] ?? "you", specs);
@@ -201,7 +202,11 @@ export function describeEffect(effect) {
   const signed = value => `${value >= 0 ? "+" : ""}${value}`;
   switch (effect.type) {
     case "draw": return `${who} ${effect.who?.k === "you" ? "ziehst" : "zieht"} ${effect.n} ${plural(effect.n, "Karte", "Karten")}.`;
-    case "life": return effect.n >= 0 ? `${who} ${effect.who?.k === "you" ? "erhältst" : "erhält"} ${effect.n} Leben.` : `${who} ${effect.who?.k === "you" ? "verlierst" : "verliert"} ${-effect.n} Leben.`;
+    case "life": {
+      const loss = effect.negate || (typeof effect.n === "number" && effect.n < 0);
+      const amount = typeof effect.n === "number" ? Math.abs(effect.n) : effect.n;
+      return loss ? `${who} ${effect.who?.k === "you" ? "verlierst" : "verliert"} ${amount} Leben.` : `${who} ${effect.who?.k === "you" ? "erhältst" : "erhält"} ${amount} Leben.`;
+    }
     case "mill": return `${who} mahlt ${effect.n} ${plural(effect.n, "Karte", "Karten")}.`;
     case "discard": return `${who} wirft ${effect.n} ${plural(effect.n, "Karte", "Karten")} ab.`;
     case "scry": return `Wühlen ${effect.n}.`;
@@ -289,9 +294,16 @@ function parseEntryCondition(text) {
     return { kind: "lands", n, op: m[2] === "more" ? "gte" : "lte", basic: m[3] === "basic lands" };
   }
   if ((m = lower.match(/^a player has (\d+) or less life$/))) return { kind: "lowLife", n: Number(m[1]) };
+  if ((m = lower.match(/^it's your ((?:first|second|third|fourth|fifth)(?:,? (?:or )?(?:first|second|third|fourth|fifth))*) turn(?: of the game)?$/))) {
+    const ordinals = { first: 1, second: 2, third: 3, fourth: 4, fifth: 5 };
+    const found = [...m[1].matchAll(/first|second|third|fourth|fifth/g)].map(item => ordinals[item[0]]);
+    return { kind: "turn", n: Math.max(...found) };
+  }
   if ((m = lower.match(/^you control (.+)$/))) {
     const types = basicTypes(m[1]);
     if (types) return { kind: "types", types };
+    const other = m[1].match(/^an? (legendary )?([a-z]+)$/);
+    if (other) return { kind: "controls", legendary: Boolean(other[1]), type: other[2] };
   }
   return null;
 }
@@ -323,10 +335,24 @@ const stripPrefix = line => line.replace(/^[•*]\s*/, "");
  */
 export function parseCardText({ name, typeLine, oracleText }) {
   const types = typesOf(typeLine);
-  const lines = normalizeText(oracleText, name).map(stripPrefix);
-  const result = { spell: null, triggers: [], activated: [], notes: [], statics: [], flashback: null, entersTapped: false, entersTappedUnless: null, shock: null, reveal: null };
+  const rawLines = normalizeText(oracleText, name);
+  const result = { spell: null, triggers: [], activated: [], notes: [], statics: [], flashback: null, cycling: null, entersTapped: false, entersTappedUnless: null, shock: null, reveal: null };
+
+  // Cycling (Abwerfen aus der Hand gegen Mana: eine Karte ziehen oder nach Land suchen)
+  for (const line of rawLines) {
+    const cycling = line.match(/^(basic land|land|plains|island|swamp|mountain|forest)?cycling (\{[^}]+\}(?:\{[^}]+\})*)$/i);
+    if (cycling) result.cycling = { cost: cycling[2], search: cycling[1] ? cycling[1].toLowerCase() : null };
+  }
+  const lines = rawLines.filter(line => !/^(basic land|land|plains|island|swamp|mountain|forest)?cycling \{/i.test(line)).map(stripPrefix);
 
   if (types.instant || types.sorcery) {
+    // Modale Zauber: „Choose one —“ mit Aufzählung; der Spieler wählt beim Wirken einen Modus.
+    const modeLines = rawLines.filter(line => /^[•*]\s*/.test(line)).map(line => line.replace(/^[•*]\s*/, ""));
+    if (rawLines.some(line => /^choose one\s*[—-]/i.test(line)) && modeLines.length >= 2) {
+      const modes = modeLines.map(text => ({ label: text, ...parseEffectText(text) }));
+      result.spell = { effects: [], specs: [], unparsed: [], modes };
+      return result;
+    }
     const body = [];
     for (const line of lines) {
       if (isKeywordLine(line)) continue;

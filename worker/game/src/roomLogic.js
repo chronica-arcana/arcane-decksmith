@@ -37,8 +37,8 @@ export function deckSummary(snapshot) {
   return { id: snapshot.deckId, name: snapshot.name, cardCount: snapshot.totalCards };
 }
 
-export function createRoom({ code, hostId, hostName, format, maxPlayers, deck, now, ttlMs = ROOM_TTL_MS }) {
-  return {
+export function createRoom({ code, hostId, hostName, format, maxPlayers, deck, botDeck, now, ttlMs = ROOM_TTL_MS }) {
+  const room = {
     version: ROOM_VERSION,
     code,
     hostId,
@@ -49,7 +49,15 @@ export function createRoom({ code, hostId, hostName, format, maxPlayers, deck, n
     expiresAt: now + ttlMs,
     players: { [hostId]: { name: hostName, seat: 0, ready: false, deck, joinedAt: now } }
   };
+  // Bot-Gegner: spielt mit einem Deck des Gastgebers, ist immer bereit und besetzt den zweiten Platz.
+  if (botDeck) {
+    room.maxPlayers = 2;
+    room.players[`bot-${code}`] = { name: "Bot", seat: 1, ready: true, bot: true, deck: botDeck, joinedAt: now };
+  }
+  return room;
 }
+
+export const hasBot = room => Object.values(room.players).some(player => player.bot);
 
 export function isExpired(room, now) {
   return now >= room.expiresAt;
@@ -92,7 +100,7 @@ export function removePlayer(room, userId) {
   }
   delete room.players[userId];
   // Bereit-Markierungen zurücksetzen, damit niemand in eine geänderte Runde „hineingestartet“ wird.
-  for (const player of Object.values(room.players)) player.ready = false;
+  for (const player of Object.values(room.players)) if (!player.bot) player.ready = false;
   return { removed: true, closed: false, releasedIds: [userId] };
 }
 
@@ -144,7 +152,8 @@ export function roomView(room, viewerId, onlineIds) {
       name: player.name,
       seat: player.seat,
       ready: player.ready,
-      online: online.has(userId),
+      online: online.has(userId) || Boolean(player.bot),
+      bot: Boolean(player.bot),
       isHost: userId === room.hostId,
       deck: deckSummary(player.deck)
     }));

@@ -321,6 +321,16 @@ function entryConditionMet(game, card, condition) {
     });
   }
   if (condition.kind === "lowLife") return alive(game).some(id => game.players[id].life <= condition.n);
+  if (condition.kind === "turn") return (game.players[card.owner].turnsTaken ?? 1) <= condition.n;
+  if (condition.kind === "controls") {
+    return others.some(other => {
+      const def = defOf(game, other);
+      if (condition.legendary && !def.types.legendary) return false;
+      const word = condition.type;
+      if (def.types[word] !== undefined) return def.types[word];
+      return new RegExp(`\\b${word}\\b`, "i").test(def.typeLine);
+    });
+  }
   return true;
 }
 
@@ -453,6 +463,7 @@ function startTurn(game, userId, { skipDraw = false } = {}) {
   game.turn.drawBlocked = skipDraw;
   game.turn.drew = false;
   game.turn.manualStart = player.autoStart === false && !skipDraw;
+  player.turnsTaken = (player.turnsTaken ?? 0) + 1;
   game.combat = null;
   game.pendingDiscard = null;
   player.turnStartSeq = tick(game);
@@ -575,12 +586,13 @@ function resolveTop(game) {
   const def = defOf(game, card);
   const owner = game.players[card.owner];
   if (def.types.instant || def.types.sorcery) {
-    const spell = def.rules?.spell ?? { effects: [], specs: [], unparsed: [] };
+    const base = def.rules?.spell ?? { effects: [], specs: [], unparsed: [] };
+    const spell = base.modes ? base.modes[item.mode] ?? { effects: [], specs: [], unparsed: [] } : base;
     if (spell.specs.length > 0 && !targetsLegal(game, spell.specs, item.targets ?? [], item.controller)) {
       addLog(game, `${def.name} verpufft (Ziel nicht mehr gültig).`);
     } else {
       addLog(game, `${def.name} löst sich auf.`);
-      runEffects(game, spell.effects, { controller: item.controller, source: card.id, sourceName: def.name, targets: item.targets ?? [], unparsed: spell.unparsed });
+      runEffects(game, spell.effects, { controller: item.controller, source: card.id, sourceName: def.name, targets: item.targets ?? [], unparsed: spell.unparsed, x: item.x });
     }
     (item.flashback ? owner.exile : owner.graveyard).push(card.id);
   } else {
@@ -1097,7 +1109,9 @@ function openChoice(game, choice) {
   return true;
 }
 
-function runEffect(game, effect, ctx, rest) {
+function runEffect(game, rawEffect, ctx, rest) {
+  // X wird mit dem beim Wirken gewählten Wert ersetzt.
+  const effect = rawEffect.n === "X" ? { ...rawEffect, n: Math.max(0, ctx.x ?? 0) * (rawEffect.negate ? -1 : 1) } : rawEffect;
   const controller = game.players[ctx.controller];
   const name = ctx.sourceName ?? "Effekt";
   const sourceCard = ctx.source ? game.cards[ctx.source] : null;
@@ -1467,8 +1481,9 @@ export function playOptions(game, userId, id) {
     kind: "spell",
     ok: timingOk && affordable,
     timingOk,
-    targets: spell && spell.specs.length > 0 ? targetOptions(game, spell.specs, userId) : [],
-    manual: Boolean(spell && spell.unparsed.length > 0)
+    targets: spell && !spell.modes && spell.specs.length > 0 ? targetOptions(game, spell.specs, userId) : [],
+    modes: spell?.modes?.map(mode => ({ label: mode.summary || mode.label, targets: targetOptions(game, mode.specs, userId), manual: mode.unparsed.length > 0 })),
+    manual: Boolean(spell && !spell.modes && spell.unparsed.length > 0)
   };
 }
 
@@ -1531,6 +1546,7 @@ function cardView(game, id, viewerId, { hideFace = false } = {}) {
     power: creature ? (def.powerText !== null && def.power === null ? null : powerOf(game, card)) : null,
     toughness: creature ? (def.toughnessText !== null && def.toughness === null ? null : toughnessOf(game, card)) : null,
     abilities: card.owner === viewerId && onBattlefield(game, id) ? abilityOptions(game, viewerId, card) : [],
+    cycle: card.owner === viewerId ? cycleOptions(game, viewerId, card) : null,
     rulesNotes: (def.rules?.notes ?? []).slice(0, 4).map(note => note.replace(/~/g, def.name)),
     mana: Boolean(def.mana),
     manaColors: def.mana ? [...new Set(def.mana.flat())] : [],
@@ -1836,6 +1852,11 @@ function handleAction(game, userId, action, random, now) {
     }
     case "choose":
       return chooseAction(game, userId, action, random, now);
+    case "cycle": {
+      const result = cycleAction(game, userId, action);
+      if (result.ok) settle(game, random, now);
+      return result;
+    }
     case "activate": {
       const result = activateAction(game, userId, action);
       if (result.ok) settle(game, random, now);
@@ -2015,7 +2036,14 @@ function castAction(game, userId, action) {
   }
   if (game.stack.length >= MAX_STACK) return fail("Der Stapel ist voll.");
   const spellRules = def.rules?.spell;
-  const specs = spellRules?.specs ?? [];
+  let activeRules = spellRules;
+  let mode = null;
+  if (spellRules?.modes) {
+    mode = action.mode;
+    if (!Number.isInteger(mode) || !spellRules.modes[mode]) return fail("Wähle zuerst einen Modus für diesen Zauber.");
+    activeRules = spellRules.modes[mode];
+  }
+  const specs = activeRules?.specs ?? [];
   if (specs.length > 0 && !targetsLegal(game, specs, action.targets, userId)) return fail("Wähle gültige Ziele für diesen Zauber.");
 
   const x = isInt(action.x) ? clampInt(action.x, 0, 99) : 0;
@@ -2033,10 +2061,58 @@ function castAction(game, userId, action) {
   player[found.zone].splice(found.index, 1);
   if (found.zone === "command") player.cmdCasts[found.card.id] = (player.cmdCasts[found.card.id] ?? 0) + 1;
   found.card.revealed = false;
-  game.stack.push({ sid: newId(game, "s"), kind: "spell", controller: userId, cardId: found.card.id, x, flashback, targets: specs.length > 0 ? action.targets : [] });
+  game.stack.push({ sid: newId(game, "s"), kind: "spell", controller: userId, cardId: found.card.id, x, flashback, mode, targets: specs.length > 0 ? action.targets : [] });
   game.priority = userId;
   game.passed = [];
   addLog(game, `${player.name} wirkt ${def.name}${paid}.`);
+  return ok();
+}
+
+/** Cycling: Karte aus der Hand abwerfen und Mana zahlen, dann eine Karte ziehen (oder nach einem Land suchen). */
+function cycleOptions(game, userId, card) {
+  const def = defOf(game, card);
+  const cycling = def.rules?.cycling;
+  if (!cycling || !game.players[userId].hand.includes(card.id)) return null;
+  const player = game.players[userId];
+  const playing = game.phase === "playing" && !player.eliminated && !game.pendingDiscard && !game.choice && !game.manual;
+  const payable = playing && game.priority === userId && planPayment({ manaCost: cycling.cost, pool: player.pool, sources: manaSources(game, userId) }).ok;
+  return { ok: payable, cost: cycling.cost, search: cycling.search };
+}
+
+function cycleAction(game, userId, action) {
+  if (game.priority !== userId) return fail("Du hast gerade keine Priorität.");
+  const found = locate(game, userId, action.id);
+  if (!found || found.zone !== "hand") return fail("Cycling geht nur mit Karten aus deiner Hand.");
+  const def = defOf(game, found.card);
+  const cycling = def.rules?.cycling;
+  if (!cycling) return fail("Diese Karte hat kein Cycling.");
+  const player = game.players[userId];
+  const plan = planPayment({ manaCost: cycling.cost, pool: player.pool, sources: manaSources(game, userId) });
+  if (!plan.ok) return fail(`Nicht genug Mana für Cycling ${describeCost(cycling.cost)}.`);
+  for (const id of plan.tap) game.cards[id].tapped = true;
+  for (const color of Object.keys(plan.poolUsed)) player.pool[color] -= plan.poolUsed[color];
+  for (const color of Object.keys(plan.poolAdd)) player.pool[color] += plan.poolAdd[color];
+  toGraveyard(game, found.card, "hand");
+  const search = cycling.search;
+  const effects = search
+    ? [{ type: "search", what: ["plains", "island", "swamp", "mountain", "forest"].includes(search) ? "basic land" : search, to: "hand", tapped: false }]
+    : [{ type: "draw", who: { k: "you" }, n: 1 }];
+  game.stack.push({
+    sid: newId(game, "s"),
+    kind: "ability",
+    controller: userId,
+    cardId: null,
+    source: found.card.id,
+    sourceName: def.name,
+    text: search ? `Durchsucht die Bibliothek nach einem ${search === "basic land" ? "Basic Land" : "Land"} und legt es auf die Hand.` : "Du ziehst 1 Karte.",
+    effects,
+    specs: [],
+    targets: [],
+    unparsed: []
+  });
+  game.priority = userId;
+  game.passed = [];
+  addLog(game, `${player.name} spielt Cycling: ${def.name} wird abgeworfen.`);
   return ok();
 }
 
@@ -2312,3 +2388,6 @@ export function playerLeft(game, userId, { random = Math.random, now = Date.now(
 }
 
 export { poolTotal };
+
+/** Hilfsfunktionen für den Bot (nur lesend). */
+export const _internals = { defOf, powerOf, toughnessOf, hasKeyword, onBattlefield, alive };

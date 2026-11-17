@@ -46,6 +46,12 @@ const LIB = [
   ["shock", "Schock", "Land — Forest Mountain", "", 2, {}, "As Schock enters the battlefield, you may pay 2 life. If you don't, it enters the battlefield tapped."],
   ["reveal", "Zeigland", "Land", "", 2, {}, "As Zeigland enters the battlefield, you may reveal a Mountain card from your hand. If you don't, it enters the battlefield tapped."],
   ["karoo", "Rücklauf", "Land", "", 2, {}, "Rücklauf enters the battlefield tapped.\nWhen Rücklauf enters the battlefield, return a land you control to its owner's hand.\n{T}: Add {G}{R}."],
+  ["legend", "Legendär", "Land", "", 2, {}, "Legendär enters tapped unless you control a legendary creature."],
+  ["town", "Startstadt", "Land", "", 2, {}, "Startstadt enters tapped unless it's your first, second, or third turn of the game."],
+  ["modal", "Wahlzauber", "Instant", "{G}", 2, {}, "Choose one —\n• Wahlzauber deals 2 damage to any target.\n• You gain 5 life."],
+  ["xdraw", "Flutwelle", "Sorcery", "{X}{G}", 2, {}, "Draw X cards."],
+  ["cycler", "Wechsler", "Creature — Elf", "{3}{G}{G}", 2, { power: "2", toughness: "2" }, "Cycling {1}"],
+  ["landcycler", "Landwechsler", "Creature — Elf", "{5}{G}", 2, { power: "2", toughness: "2" }, "Basic landcycling {1}"],
   ["priest", "Priester", "Creature — Cleric", "{G}", 2, { power: "1", toughness: "1" }, "At the beginning of your end step, you gain 1 life."]
 ];
 const facts = new Map();
@@ -181,8 +187,8 @@ describe("Mulligan und Spielbeginn", () => {
 describe("Länder, Mana und Zaubern", () => {
   it("Land spielen: nur eines pro Zug, nur in der Hauptphase", () => {
     const { game, random } = started();
-    const a = put(game, "u0", "Forest", "hand");
-    const b = put(game, "u0", "Forest", "hand");
+    const a = put(game, "u0", "Forest", "hand", { only: "library" });
+    const b = put(game, "u0", "Forest", "hand", { only: "library" });
     expect(act(game, "u0", { type: "playLand", id: a }, random).ok).toBe(true);
     expect(game.players.u0.battlefield).toContain(a);
     expect(act(game, "u0", { type: "playLand", id: b }, random).error).toMatch(/schon ein Land/);
@@ -1016,5 +1022,70 @@ describe("Rückfrage nur bei leuchtenden Karten", () => {
     act(game, "u0", { type: "cast", id: bear }, random);
     expect(game.stack).toHaveLength(1);
     expect(game.priority).toBe("u1");
+  });
+});
+
+describe("Bedingungen, Modi, X und Cycling", () => {
+  const playLand = (game, random, name) => {
+    const land = put(game, "u0", name, "hand", { only: "library" });
+    expect(act(game, "u0", { type: "playLand", id: land }, random).ok).toBe(true);
+    return land;
+  };
+
+  it("„unless you control a legendary creature“ und „first, second, or third turn“", () => {
+    const { game, random } = started();
+    expect(game.cards[playLand(game, random, "Legendär")].tapped).toBe(true);
+    const second = started();
+    const legend = put(second.game, "u0", "Bär", "battlefield");
+    second.game.defs[second.game.cards[legend].def].types.legendary = true;
+    expect(second.game.cards[playLand(second.game, second.random, "Legendär")].tapped).toBe(false);
+    const third = started();
+    expect(third.game.players.u0.turnsTaken).toBe(1);
+    expect(third.game.cards[playLand(third.game, third.random, "Startstadt")].tapped).toBe(false);
+    const late = started();
+    late.game.players.u0.turnsTaken = 4;
+    expect(late.game.cards[playLand(late.game, late.random, "Startstadt")].tapped).toBe(true);
+  });
+
+  it("Modale Zauber: Modus wählen, dann Ziele des gewählten Modus", () => {
+    const { game, random } = started();
+    forest(game, "u0", 2);
+    const id = put(game, "u0", "Wahlzauber", "hand", { only: "library" });
+    const play = view(game, "u0").players[0].hand.find(c => c.id === id).play;
+    expect(play.modes).toHaveLength(2);
+    expect(play.modes[0].targets[0].options).toContain("u1");
+    expect(play.modes[1].targets).toEqual([]);
+    expect(act(game, "u0", { type: "cast", id }, random).error).toMatch(/Modus/);
+    expect(act(game, "u0", { type: "cast", id, mode: 0 }, random).ok).toBe(false); // Ziel fehlt
+    expect(act(game, "u0", { type: "cast", id, mode: 1 }, random).ok).toBe(true);
+    expect(game.players.u0.life).toBe(25);
+  });
+
+  it("X-Zauber: der gewählte Wert bestimmt die Menge", () => {
+    const { game, random } = started();
+    forest(game, "u0", 4);
+    const id = put(game, "u0", "Flutwelle", "hand", { only: "library" });
+    const hand = game.players.u0.hand.length;
+    expect(act(game, "u0", { type: "cast", id, x: 3 }, random).ok).toBe(true);
+    expect(game.players.u0.hand.length).toBe(hand - 1 + 3);
+  });
+
+  it("Cycling: abwerfen, Mana zahlen, eine Karte ziehen; Landcycling sucht ein Basic Land", () => {
+    const { game, random } = started();
+    forest(game, "u0", 2);
+    const cycler = put(game, "u0", "Wechsler", "hand", { only: "library" });
+    const info = view(game, "u0").players[0].hand.find(c => c.id === cycler).cycle;
+    expect(info).toMatchObject({ ok: true, cost: "{1}" });
+    const hand = game.players.u0.hand.length;
+    expect(act(game, "u0", { type: "cycle", id: cycler }, random).ok).toBe(true);
+    expect(game.players.u0.graveyard).toContain(cycler);
+    expect(game.players.u0.hand.length).toBe(hand); // −1 abgeworfen, +1 gezogen
+    const lc = put(game, "u0", "Landwechsler", "hand", { only: "library" });
+    act(game, "u0", { type: "cycle", id: lc }, random);
+    expect(game.choice).toMatchObject({ kind: "cards" });
+    const land = game.choice.options[0];
+    act(game, "u0", { type: "choose", ids: [land] }, random);
+    expect(game.players.u0.hand).toContain(land);
+    expect(act(game, "u0", { type: "cycle", id: put(game, "u0", "Bär", "hand", { only: "library" }) }, random).ok).toBe(false);
   });
 });

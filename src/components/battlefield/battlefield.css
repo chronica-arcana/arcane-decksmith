@@ -280,3 +280,5 @@
 @keyframes roulette { 0% { opacity: 0.1; transform: scale(0.9); } 50% { opacity: 1; background: #c9a24b55; } 100% { opacity: 0.35; } }
 @keyframes roulette-win { 0% { opacity: 0.35; } 100% { opacity: 1; background: #c9a24b88; transform: scale(1.12); } }
 .coin-face.has-image { background-color: transparent; background-size: contain; background-repeat: no-repeat; background-position: center; border: 0; box-shadow: none; filter: drop-shadow(0 10px 18px #000c); }
+.mode-list { display: grid; gap: 8px; }
+.mode-list button { text-align: left; padding: 8px 12px; }
