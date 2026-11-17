@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import type { GameAction, GameCard, GamePlayer, GameStep, GameView } from "../../gameClient";
 
 
@@ -224,9 +225,19 @@ export default function ActionBar(props: ActionBarProps) {
           : game.priority
             ? `${nameOf(game.priority)} überlegt …`
             : "";
-  return waiting ? (
-    <div className="action-bar" role="status">
-      <span className="muted">{waiting}</span>
+  return waiting ? <TransientHint key={waiting} text={waiting} /> : null;
+}
+
+/** Wartehinweise („… überlegt …“) erscheinen nur kurz und verschwinden dann von selbst; bei neuem Text kommen sie wieder. */
+function TransientHint({ text }: { text: string }) {
+  const [visible, setVisible] = useState(true);
+  useEffect(() => {
+    const timer = window.setTimeout(() => setVisible(false), 2800);
+    return () => window.clearTimeout(timer);
+  }, []);
+  return visible ? (
+    <div className="action-bar hint" role="status">
+      <span className="muted">{text}</span>
     </div>
   ) : null;
 }

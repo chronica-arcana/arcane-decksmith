@@ -1,3 +1,4 @@
+import { useLayoutEffect, useRef } from "react";
 import type { GameCard, GamePlayer } from "../../gameClient";
 import { useBattlefield } from "./BattlefieldContext";
 import CardView from "./CardView";
@@ -10,7 +11,44 @@ import { LibraryPile, ZonePile } from "./Pile";
  * Platz eines Spielers auf der gemeinsamen Matte. Dein Platz liegt unten (Feld oben, darunter HUD, Hand und Ablagen),
  * der gegnerische oben und gespiegelt (HUD, Hand und Ablagen am oberen Rand, Länder vor Kreaturen zur Mitte hin).
  */
+/**
+ * Passt das Feld dem Platz an: Reichen die Reihen nicht in die Höhe, überlappen sie (Karten bleiben anwählbar);
+ * reicht auch das nicht, werden die Karten bis zu 45 % kleiner. Setzt nur CSS-Variablen, damit nichts neu gerendert wird.
+ */
+function useFieldFit(ref: React.RefObject<HTMLDivElement | null>) {
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const apply = () => {
+      const rows = [...el.querySelectorAll<HTMLElement>(":scope > .field-row")];
+      const available = el.clientHeight;
+      if (rows.length === 0 || available <= 0) return;
+      const fit0 = parseFloat(el.style.getPropertyValue("--fit")) || 1;
+      const heights = rows.map(row => row.offsetHeight / fit0);
+      const gap = parseFloat(getComputedStyle(el).rowGap) || 0;
+      const total = heights.reduce((sum, h) => sum + h, 0) + gap * (rows.length - 1);
+      let fit = 1;
+      let overlap = 0;
+      if (total > available + 1) {
+        const need = total - available;
+        const boundaries = rows.length - 1;
+        if (boundaries > 0) overlap = Math.min(need / boundaries, 0.6 * Math.min(...heights));
+        fit = Math.min(1, Math.max(0.55, (available + overlap * boundaries) / total));
+      }
+      el.style.setProperty("--fit", fit.toFixed(3));
+      el.style.setProperty("--row-overlap", `${Math.round(overlap)}px`);
+    };
+    apply();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(apply);
+    observer.observe(el);
+    return () => observer.disconnect();
+  });
+}
+
 export default function PlayerZone({ player }: { player: GamePlayer }) {
+  const fieldRef = useRef<HTMLDivElement>(null);
+  useFieldFit(fieldRef);
   const { game, canAct, dropProps, dropKey, dropOnTable, clickCard, cardMenu, setHover, onDragStart, markOf, inCombat } = useBattlefield();
   const own = player.userId === game.you;
   const active = game.turn.active === player.userId && game.phase === "playing";
@@ -47,7 +85,7 @@ export default function PlayerZone({ player }: { player: GamePlayer }) {
   );
 
   const field = (
-    <div className="zone-field">
+    <div className="zone-field" ref={fieldRef}>
       {own ? (
         <>
           {creatureRow}
