@@ -102,11 +102,23 @@ function staticEffects(game, card) {
       }
     }
   }
+  // Ausrüstung und Auren, die an dieser Kreatur hängen
+  for (const userId of game.seats) {
+    for (const id of game.players[userId].battlefield) {
+      const source = game.cards[id];
+      if (source.attachedTo !== card.id) continue;
+      const attach = defOf(game, source).rules?.attach;
+      if (!attach) continue;
+      result.p += attach.p;
+      result.th += attach.th;
+      result.grants.push(...attach.grants);
+    }
+  }
   return result;
 }
 const keywordsOfCard = (game, card) => {
   const base = defOf(game, card).keywords ?? [];
-  const grants = staticEffects(game, card).grants;
+  const grants = [...staticEffects(game, card).grants, ...(card.tk ?? [])];
   return grants.length > 0 ? [...base, ...grants] : base;
 };
 const hasKeyword = (game, card, keyword) => keywordsOfCard(game, card).includes(keyword);
@@ -289,6 +301,8 @@ function resetCardState(card) {
   card.revealed = false;
   card.damage = 0;
   card.deathtouched = false;
+  card.attachedTo = null;
+  card.tk = [];
 }
 
 function enterBattlefield(game, card) {
@@ -343,6 +357,13 @@ function manaSources(game, userId) {
     sources.push({ id, units: def.mana });
   }
   return sources;
+}
+
+/** Hat der Spieler beim Wirken bestimmte Länder gewählt (`action.tap`), zahlen nur diese; sonst sucht das Spiel selbst die beste Zahlung. */
+function chosenSources(sources, action) {
+  if (!Array.isArray(action?.tap) || action.tap.length === 0 || action.tap.length > 60) return sources;
+  const wanted = new Set(action.tap.filter(id => typeof id === "string"));
+  return sources.filter(source => wanted.has(source.id));
 }
 
 /** Kommandanten verlassen Spielzonen: Der Besitzer darf sie in die Kommandozone zurücklegen. */
@@ -503,6 +524,7 @@ function finishTurn(game) {
     card.deathtouched = false;
     card.tp = 0;
     card.tt = 0;
+    card.tk = [];
   }
   clearPools(game);
   const next = orderFrom(game, game.turn.active)[1] ?? orderFrom(game, game.turn.active)[0];
@@ -595,11 +617,31 @@ function resolveTop(game) {
       runEffects(game, spell.effects, { controller: item.controller, source: card.id, sourceName: def.name, targets: item.targets ?? [], unparsed: spell.unparsed, x: item.x });
     }
     (item.flashback ? owner.exile : owner.graveyard).push(card.id);
+  } else if (def.rules?.aura) {
+    const specs = def.rules.spell?.specs ?? [];
+    if (specs.length > 0 && !targetsLegal(game, specs, item.targets ?? [], item.controller)) {
+      addLog(game, `${def.name} verpufft (Ziel nicht mehr gültig).`);
+      toGraveyard(game, card, "stack");
+      return;
+    }
+    owner.battlefield.push(card.id);
+    enterBattlefield(game, card);
+    card.attachedTo = item.targets?.[0] ?? null;
+    addLog(game, `${def.name} löst sich auf → hängt an ${card.attachedTo ? nameOf(game, card.attachedTo) : "…"}.`);
   } else {
     owner.battlefield.push(card.id);
     enterBattlefield(game, card);
     addLog(game, `${def.name} löst sich auf → Schlachtfeld.`);
   }
+}
+
+/**
+ * Darf der Spieler jetzt Sofortzauber und Fähigkeiten nutzen? Mit Priorität – und im Blockschritt, während die Verteidiger noch
+ * entscheiden, jeder lebende Spieler (Antwort auf den Angriff, bevor Blocker bestimmt sind).
+ */
+function hasWindow(game, userId) {
+  if (game.priority === userId) return true;
+  return Boolean(game.combat?.phaseWaiting && game.stack.length === 0 && !game.players[userId].eliminated);
 }
 
 /** Entscheidet nach jeder Änderung, wer Priorität hat bzw. ob der Stapel aufgelöst oder der Schritt beendet wird. */
@@ -636,7 +678,7 @@ function canRespond(game, userId) {
 
 function settleLoop(game, random, now) {
   for (let guard = 0; guard < 50; guard += 1) {
-    if (game.pendingDiscard || game.choice || game.manual || game.combat?.phaseWaiting) return;
+    if (game.pendingDiscard || game.choice || game.manual || (game.combat?.phaseWaiting && game.stack.length === 0)) return;
     const order = orderFrom(game, game.priority ?? game.turn.active);
     const waiting = order.filter(userId => !game.passed.includes(userId));
     if (waiting.length === 0) {
@@ -656,7 +698,9 @@ function settleLoop(game, random, now) {
     const next = waiting[0];
     if (game.stack.length === 0) {
       // Ohne Stapel wird nur der aktive Spieler gefragt (Phasen weiterschalten); alle anderen passen von selbst.
-      if (next !== game.turn.active) {
+      // Ausnahme: vor dem Kampfschaden darf auch ein Verteidiger mit leuchtendem Sofortzauber antworten.
+      const damageWindow = game.turn.phase === "damage" && game.players[next].askResponse !== false && canRespond(game, next);
+      if (next !== game.turn.active && !damageWindow) {
         game.passed.push(next);
         continue;
       }
@@ -795,6 +839,10 @@ function checkStateBased(game, now) {
           else if (!hasKeyword(game, card, "indestructible") && (card.damage >= toughness || (card.deathtouched && card.damage > 0))) dies = true;
         }
         if (def.types.planeswalker && def.loyalty !== null && counterOf(card, "loyalty") <= 0) dies = true;
+        if (card.attachedTo && (!game.cards[card.attachedTo] || !onBattlefield(game, card.attachedTo))) {
+          card.attachedTo = null;
+          if (def.rules?.aura) dies = true; // eine Aura ohne Ziel kommt auf den Friedhof
+        }
         if (dies) {
           addLog(game, `${def.name} (${game.players[userId].name}) kommt auf den Friedhof.`);
           toGraveyard(game, card);
@@ -843,6 +891,18 @@ function validTargets(game, spec, controller) {
     case "player": return players;
     case "opponent": return players.filter(id => id !== controller);
     case "creature": return pick(t => t.creature);
+    case "myCreature": return battlefield.filter(item => item.def.types.creature && game.cards[item.id].owner === controller).map(item => item.id);
+    case "gyCreature":
+    case "gyArtifact":
+    case "gyEnchantment":
+    case "gyLand":
+    case "gyPermanent": {
+      const what = spec.kind.slice(2).toLowerCase();
+      return game.players[controller].graveyard.filter(id => {
+        const def = defOf(game, game.cards[id]);
+        return what === "permanent" ? !def.types.instant && !def.types.sorcery : typeMatches(def, what);
+      });
+    }
     case "planeswalker": return pick(t => t.planeswalker);
     case "artifact": return pick(t => t.artifact);
     case "enchantment": return pick(t => t.enchantment);
@@ -876,7 +936,7 @@ function targetsLegal(game, specs, targets, controller) {
   return specs.every((spec, index) => validTargets(game, spec, controller).includes(targets[index]));
 }
 
-function createToken(game, userId, { name, power, toughness }) {
+function createToken(game, userId, { name, power, toughness, artifact = false }) {
   const tokens = Object.values(game.cards).filter(card => card.token && card.owner === userId).length;
   if (tokens >= MAX_TOKENS) return null;
   const id = newId(game, "t");
@@ -884,11 +944,11 @@ function createToken(game, userId, { name, power, toughness }) {
   const creature = power !== null && power !== undefined;
   game.xdefs[key] = {
     name,
-    typeLine: creature ? "Token Creature" : "Token",
+    typeLine: `Token${artifact ? " Artifact" : ""}${creature ? " Creature" : ""}`,
     manaValue: 0,
     imageUri: null,
     manaCost: "",
-    types: { creature, land: false, instant: false, sorcery: false, artifact: false, enchantment: false, planeswalker: false, battle: false, legendary: false, basicLand: false },
+    types: { creature, land: false, instant: false, sorcery: false, artifact, enchantment: false, planeswalker: false, battle: false, legendary: false, basicLand: false },
     power: creature ? power : null,
     toughness: creature ? toughness : null,
     powerText: creature ? String(power) : null,
@@ -1205,6 +1265,37 @@ function runEffect(game, rawEffect, ctx, rest) {
     case "destroy":
       if (targetCard) destroyCard(game, targetCard);
       return false;
+    case "attach": {
+      const host = targetCard;
+      if (!sourceCard || !host || !onBattlefield(game, sourceCard.id) || !onBattlefield(game, host.id)) return false;
+      sourceCard.attachedTo = host.id;
+      addLog(game, `${nameOf(game, sourceCard.id)} wird an ${nameOf(game, host.id)} gehängt.`);
+      return false;
+    }
+    case "grantTemp": {
+      const host = sourceCard?.attachedTo ? game.cards[sourceCard.attachedTo] : null;
+      if (host) host.tk = [...(host.tk ?? []), ...effect.kws];
+      return false;
+    }
+    case "reanimate": {
+      const card = targetCard;
+      if (!card || !controller.graveyard.includes(card.id)) return false;
+      controller.graveyard.splice(controller.graveyard.indexOf(card.id), 1);
+      if (effect.to === "hand") {
+        controller.hand.push(card.id);
+        addLog(game, `${nameOf(game, card.id)} kommt aus dem Friedhof auf die Hand (${name}).`);
+        return false;
+      }
+      controller.battlefield.push(card.id);
+      enterBattlefield(game, card);
+      const extra = (effect.counters ?? 0) + (rest.find(item => item.type === "reanimateCounters")?.n ?? 0);
+      if (extra > 0) card.counters["+1/+1"] = (card.counters["+1/+1"] ?? 0) + extra;
+      addLog(game, `${nameOf(game, card.id)} kehrt aus dem Friedhof aufs Schlachtfeld zurück${extra ? ` mit ${extra} +1/+1-Markern` : ""} (${name}).`);
+      return false;
+    }
+    case "reanimateCounters":
+    case "noop":
+      return false;
     case "destroyAll":
       for (const userId of game.seats) {
         for (const id of [...game.players[userId].battlefield]) {
@@ -1314,7 +1405,7 @@ function runEffect(game, rawEffect, ctx, rest) {
     }
     case "token": {
       let made = 0;
-      for (let i = 0; i < effect.n; i += 1) if (createToken(game, ctx.controller, { name: effect.name, power: effect.p, toughness: effect.th })) made += 1;
+      for (let i = 0; i < effect.n; i += 1) if (createToken(game, ctx.controller, { name: effect.name, power: effect.p, toughness: effect.th, artifact: effect.artifact })) made += 1;
       addLog(game, `${controller.name} erzeugt ${made}× ${effect.name} ${effect.p}/${effect.th} (${name}).`);
       return false;
     }
@@ -1345,7 +1436,7 @@ function runEffect(game, rawEffect, ctx, rest) {
         options,
         min: 1,
         max: 1,
-        step: { type: "gyReturn", to: effect.to },
+        step: { type: "gyReturn", to: effect.to, counters: rest.find(item => item.type === "reanimateCounters")?.n ?? 0 },
         queue: rest,
         ctx
       });
@@ -1437,6 +1528,7 @@ function chooseAction(game, userId, action, random, now) {
           player.battlefield.push(id);
           enterBattlefield(game, card);
           if (step.tapped) card.tapped = true;
+          if (step.counters) card.counters["+1/+1"] = (card.counters["+1/+1"] ?? 0) + step.counters;
         } else player.hand.push(id);
         addLog(game, `${player.name} nimmt ${nameOf(game, id)} ${step.to === "hand" ? "auf die Hand" : "aufs Schlachtfeld"}.`);
       }
@@ -1470,7 +1562,7 @@ export function playOptions(game, userId, id) {
     return { kind: "land", ok: okNow };
   }
   const instantSpeed = def.types.instant || def.keywords.includes("flash");
-  const timingOk = playing && game.priority === userId && (instantSpeed || mainPhase);
+  const timingOk = playing && hasWindow(game, userId) && (instantSpeed || mainPhase);
   let affordable = false;
   if (timingOk) {
     const tax = found.zone === "command" ? 2 * (player.cmdCasts[id] ?? 0) : 0;
@@ -1496,7 +1588,7 @@ export function abilityOptions(game, userId, card) {
   const playing = game.phase === "playing" && !player.eliminated && !game.pendingDiscard && !game.choice && !game.manual;
   const mainPhase = game.turn.active === userId && (game.turn.phase === "main1" || game.turn.phase === "main2") && game.stack.length === 0;
   return list.map(ability => {
-    let okNow = playing && game.priority === userId && (!ability.sorcery || mainPhase) && ability.effects.length + ability.unparsed.length > 0;
+    let okNow = playing && hasWindow(game, userId) && (!ability.sorcery || mainPhase) && ability.effects.length + ability.unparsed.length > 0;
     if (okNow && ability.cost.tap && (card.tapped || isSick(game, card))) okNow = false;
     if (okNow && ability.cost.loyalty !== undefined) {
       okNow = card.loyaltyTurn !== game.turn.number && (card.counters.loyalty ?? 0) + ability.cost.loyalty >= 0;
@@ -1516,6 +1608,18 @@ export function abilityOptions(game, userId, card) {
   });
 }
 
+let attachmentCache = null;
+function attachmentMap(game) {
+  if (attachmentCache?.game === game) return attachmentCache.map;
+  const map = new Map();
+  for (const other of Object.values(game.cards)) {
+    if (!other.attachedTo) continue;
+    if (!map.has(other.attachedTo)) map.set(other.attachedTo, []);
+    map.get(other.attachedTo).push(other.id);
+  }
+  return map;
+}
+
 function cardView(game, id, viewerId, { hideFace = false } = {}) {
   const card = game.cards[id];
   const def = defOf(game, card);
@@ -1530,6 +1634,9 @@ function cardView(game, id, viewerId, { hideFace = false } = {}) {
     sick: isSick(game, card),
     cmd: Boolean(card.cmd),
     kind: def.types.land ? "land" : def.types.creature ? "creature" : "other",
+    attachedTo: card.attachedTo ?? null,
+    attachedName: card.attachedTo && game.cards[card.attachedTo] ? nameOf(game, card.attachedTo) : null,
+    attachments: (attachmentMap(game).get(id) ?? []).map(otherId => nameOf(game, otherId)),
     attacking: Boolean(game.combat?.attackers.some(a => a.id === id)),
     blocking: game.combat?.blocks.find(b => b.blocker === id)?.attacker ?? null
   };
@@ -1556,6 +1663,16 @@ function cardView(game, id, viewerId, { hideFace = false } = {}) {
 
 /** Sicht eines Spielers auf das Spiel. Verdeckte Karten anderer (Hand, Bibliothek, verdeckt gelegte) werden nie mitgeschickt. */
 export function gameView(game, viewerId) {
+  attachmentCache = null;
+  attachmentCache = { game, map: attachmentMap(game) };
+  try {
+    return buildGameView(game, viewerId);
+  } finally {
+    attachmentCache = null;
+  }
+}
+
+function buildGameView(game, viewerId) {
   const players = game.seats.map(userId => {
     const p = game.players[userId];
     const mine = userId === viewerId;
@@ -2021,7 +2138,7 @@ function playLandAction(game, userId, action) {
 
 function castAction(game, userId, action) {
   const player = game.players[userId];
-  if (game.priority !== userId) return fail("Du hast gerade keine Priorität.");
+  if (!hasWindow(game, userId)) return fail("Du hast gerade keine Priorität.");
   const found = locate(game, userId, action.id);
   const def = found ? defOf(game, found.card) : null;
   const flashback = Boolean(found && found.zone === "graveyard" && def?.rules?.flashback);
@@ -2049,7 +2166,7 @@ function castAction(game, userId, action) {
   const x = isInt(action.x) ? clampInt(action.x, 0, 99) : 0;
   const tax = found.zone === "command" ? 2 * (player.cmdCasts[found.card.id] ?? 0) : 0;
   const cost = flashback ? def.rules.flashback : def.manaCost;
-  const plan = planPayment({ manaCost: cost, x, extraGeneric: tax, pool: player.pool, sources: manaSources(game, userId) });
+  const plan = planPayment({ manaCost: cost, x, extraGeneric: tax, pool: player.pool, sources: chosenSources(manaSources(game, userId), action) });
   if (!plan.ok) {
     return fail(`Nicht genug Mana für ${describeCost(cost, x, tax)}${tax ? " (inkl. Kommandantensteuer)" : ""}.`);
   }
@@ -2075,19 +2192,19 @@ function cycleOptions(game, userId, card) {
   if (!cycling || !game.players[userId].hand.includes(card.id)) return null;
   const player = game.players[userId];
   const playing = game.phase === "playing" && !player.eliminated && !game.pendingDiscard && !game.choice && !game.manual;
-  const payable = playing && game.priority === userId && planPayment({ manaCost: cycling.cost, pool: player.pool, sources: manaSources(game, userId) }).ok;
+  const payable = playing && hasWindow(game, userId) && planPayment({ manaCost: cycling.cost, pool: player.pool, sources: manaSources(game, userId) }).ok;
   return { ok: payable, cost: cycling.cost, search: cycling.search };
 }
 
 function cycleAction(game, userId, action) {
-  if (game.priority !== userId) return fail("Du hast gerade keine Priorität.");
+  if (!hasWindow(game, userId)) return fail("Du hast gerade keine Priorität.");
   const found = locate(game, userId, action.id);
   if (!found || found.zone !== "hand") return fail("Cycling geht nur mit Karten aus deiner Hand.");
   const def = defOf(game, found.card);
   const cycling = def.rules?.cycling;
   if (!cycling) return fail("Diese Karte hat kein Cycling.");
   const player = game.players[userId];
-  const plan = planPayment({ manaCost: cycling.cost, pool: player.pool, sources: manaSources(game, userId) });
+  const plan = planPayment({ manaCost: cycling.cost, pool: player.pool, sources: chosenSources(manaSources(game, userId), action) });
   if (!plan.ok) return fail(`Nicht genug Mana für Cycling ${describeCost(cycling.cost)}.`);
   for (const id of plan.tap) game.cards[id].tapped = true;
   for (const color of Object.keys(plan.poolUsed)) player.pool[color] -= plan.poolUsed[color];
@@ -2118,7 +2235,7 @@ function cycleAction(game, userId, action) {
 
 function activateAction(game, userId, action) {
   const player = game.players[userId];
-  if (game.priority !== userId) return fail("Du hast gerade keine Priorität.");
+  if (!hasWindow(game, userId)) return fail("Du hast gerade keine Priorität.");
   const found = locate(game, userId, action.id);
   if (!found || found.zone !== "battlefield") return fail("Die Karte muss auf deinem Schlachtfeld liegen.");
   const card = found.card;
@@ -2136,7 +2253,7 @@ function activateAction(game, userId, action) {
   if (ability.specs.length > 0 && !targetsLegal(game, ability.specs, action.targets, userId)) return fail("Wähle gültige Ziele für diese Fähigkeit.");
 
   if (ability.cost.mana) {
-    const sources = manaSources(game, userId).filter(source => source.id !== card.id);
+    const sources = chosenSources(manaSources(game, userId).filter(source => source.id !== card.id), action);
     const plan = planPayment({ manaCost: ability.cost.mana, pool: player.pool, sources });
     if (!plan.ok) return fail(`Nicht genug Mana für ${describeCost(ability.cost.mana)}.`);
     for (const id of plan.tap) game.cards[id].tapped = true;
@@ -2220,6 +2337,7 @@ function declareAttackersAction(game, userId, action, random, now) {
 function declareBlockersAction(game, userId, action) {
   const combat = game.combat;
   if (!combat || !combat.phaseWaiting || game.turn.phase !== "blockers") return fail("Es werden gerade keine Blocker bestimmt.");
+  if (game.stack.length > 0) return fail("Der Stapel muss zuerst aufgelöst werden.");
   if (!defendersOf(game).includes(userId) || combat.done.includes(userId)) return fail("Du musst nicht (mehr) blocken.");
   const list = Array.isArray(action.blocks) ? action.blocks : [];
   const usedBlockers = new Set();

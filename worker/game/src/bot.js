@@ -14,7 +14,7 @@ export const BOT_PREFIX = "bot-";
 export const isBotId = userId => typeof userId === "string" && userId.startsWith(BOT_PREFIX);
 
 const HOSTILE = new Set(["damage", "destroy", "exile", "bounce", "tap", "counterSpell"]);
-const FRIENDLY = new Set(["counters", "pump", "untap"]);
+const FRIENDLY = new Set(["counters", "pump", "untap", "attach", "grantTemp"]);
 
 const value = card => (card.manaValue ?? 0) * 2 + (card.power ?? 0) + (card.toughness ?? 0);
 
@@ -25,6 +25,7 @@ export function waitingPlayer(game) {
   if (game.choice) return game.choice.userId;
   if (game.manual) return game.manual.userId;
   if (game.pendingDiscard) return game.pendingDiscard.userId;
+  if (game.stack.length > 0) return game.priority;
   if (game.combat?.phaseWaiting) {
     return [...new Set(game.combat.attackers.map(a => a.target))].find(id => !game.combat.done.includes(id) && !game.players[id].eliminated) ?? null;
   }
@@ -277,6 +278,13 @@ function mainPhaseAction(game, botId) {
     if (rules && rules.effects.length === 0 && (def.types.instant || def.types.sorcery)) continue;
     const specs = card.play.targets ?? [];
     let targets = [];
+    if (def.rules?.aura) {
+      const attach = def.rules.attach;
+      const intent = attach && (attach.p < 0 || attach.th < 0) ? "hostile" : "friendly";
+      const target = pickTarget(game, botId, specs[0]?.options ?? [], intent);
+      if (!target) continue;
+      return { type: "cast", id: card.id, targets: [target] };
+    }
     if (specs.length > 0) {
       targets = chooseTargets(game, botId, rules.effects, specs);
       if (!targets) continue;
@@ -291,6 +299,7 @@ function mainPhaseAction(game, botId) {
       if (!ability.ok || ability.manual) continue;
       const rules = def.rules.activated[ability.index];
       if (rules.cost.sacrifice) continue;
+      if (rules.effects.some(effect => effect.type === "attach") && card.attachedTo && game.cards[card.attachedTo]?.owner === botId) continue;
       let targets = [];
       if (ability.targets.length > 0) {
         targets = chooseTargets(game, botId, rules.effects, ability.targets);
@@ -340,9 +349,8 @@ export function nextBotAction(game, botId) {
     return { type: "discard", ids: worstFirst(game, botId, me.hand).slice(0, game.pendingDiscard.count) };
   }
   if (me.prompts.length > 0) return { type: "commanderZone", id: me.prompts[0].id, yes: true };
-  if (game.combat?.phaseWaiting) return declareBlockers(game, botId);
-
   if (game.stack.length > 0) return respondAction(game, botId);
+  if (game.combat?.phaseWaiting) return declareBlockers(game, botId);
   if (game.turn.active !== botId) return { type: "pass" };
 
   switch (game.turn.phase) {

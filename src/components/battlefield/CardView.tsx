@@ -121,6 +121,8 @@ export default function CardView({
       )}
       {card.token && <span className="gc-badge token">Token</span>}
       {card.cmd && <span className="gc-badge cmd">Kommandant</span>}
+      {card.attachedName && <span className="gc-badge attach" title={`Hängt an ${card.attachedName}`}>↳ {card.attachedName}</span>}
+      {(card.attachments?.length ?? 0) > 0 && <span className="gc-badge attached" title={card.attachments!.join(", ")}>+ {card.attachments!.join(", ")}</span>}
       {hasStats && (
         <span className={`gc-stats${card.damage > 0 ? " hurt" : ""}`} aria-label={`Stärke ${card.power}, Widerstandskraft ${card.toughness}${card.damage ? `, ${card.damage} Schaden` : ""}`}>
           {card.power}/{card.toughness! - card.damage}

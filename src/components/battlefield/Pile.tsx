@@ -14,7 +14,7 @@ const ZONE_LABELS: Record<GameZone, string> = {
 
 /** Ablagestapel (Friedhof oder Exil): zeigt die oberste Karte; Klick öffnet die Zone, eigene Karten lassen sich hineinziehen. */
 export function ZonePile({ player, zone }: { player: GamePlayer; zone: "graveyard" | "exile" }) {
-  const { game, moveCard, openZone, dropProps, dropKey, setHover } = useBattlefield();
+  const { game, moveCard, openZone, dropProps, dropKey } = useBattlefield();
   const own = player.userId === game.you;
   const key = `${player.userId}:${zone}`;
   const top = player[zone].at(-1);
@@ -27,7 +27,7 @@ export function ZonePile({ player, zone }: { player: GamePlayer; zone: "graveyar
       onOpen={open}
       dropHandlers={own ? dropProps(key, card => moveCard(card, zone)) : undefined}
     >
-      {top ? <CardView card={top} size="sm" onHover={setHover} /> : <span className="pile-empty" />}
+      {top ? <CardView card={top} size="sm" /> : <span className="pile-empty" />}
     </PileFrame>
   );
 }

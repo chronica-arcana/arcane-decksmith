@@ -148,7 +148,7 @@ export default function ActionBar(props: ActionBarProps) {
     );
   }
 
-  if (props.awaitingMe && step === "blockers") {
+  if (props.awaitingMe && step === "blockers" && game.stack.length === 0) {
     const count = Object.keys(props.blocks).length;
     return (
       <div className="action-bar" role="status">
@@ -199,7 +199,7 @@ export default function ActionBar(props: ActionBarProps) {
         : step === "attackers"
           ? "Kein Angriff"
           : step === "damage"
-            ? "Kampfschaden verursachen"
+            ? props.isActive ? "Kampfschaden verursachen" : "Nicht antworten"
             : "Zug beenden";
     return (
       <div className="action-bar" role="status">

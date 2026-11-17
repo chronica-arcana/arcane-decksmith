@@ -68,6 +68,9 @@ export type GameCard = {
   cmd: boolean;
   kind: "land" | "creature" | "other";
   attacking: boolean;
+  attachedTo?: string | null;
+  attachedName?: string | null;
+  attachments?: string[];
   /** ID des angegriffenen Angreifers, den diese Karte blockt. */
   blocking: string | null;
   /** Fehlen bei verdeckten Karten anderer Spieler. */
@@ -199,9 +202,9 @@ export type GameAction =
   | { type: "tapMana"; id: string; color?: string }
   | { type: "pool"; color: "W" | "U" | "B" | "R" | "G" | "C"; delta: number }
   | { type: "playLand"; id: string }
-  | { type: "cast"; id: string; x?: number; free?: boolean; targets?: string[]; mode?: number }
-  | { type: "cycle"; id: string }
-  | { type: "activate"; id: string; index: number; targets?: string[] }
+  | { type: "cast"; id: string; x?: number; free?: boolean; targets?: string[]; mode?: number; tap?: string[] }
+  | { type: "cycle"; id: string; tap?: string[] }
+  | { type: "activate"; id: string; index: number; targets?: string[]; tap?: string[] }
   | { type: "choose"; ids: string[] }
   | { type: "manualDone" }
   | { type: "ability"; text: string }

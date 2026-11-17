@@ -16,6 +16,7 @@ import FxLayer from "./FxLayer";
 import MulliganScreen from "./MulliganScreen";
 import PhaseStrip from "./PhaseStrip";
 import PlayerZone from "./PlayerZone";
+import ManaPick from "./ManaPick";
 import SettingsDialog from "./SettingsDialog";
 import TurnToast from "./TurnToast";
 import "./battlefield.css";
@@ -73,6 +74,22 @@ export default function Battlefield({
   const [dropKey, setDropKey] = useState<string | null>(null);
   const [targeting, setTargeting] = useState<Targeting | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [chooseMana, setChooseManaState] = useState(() => {
+    try {
+      return localStorage.getItem("ad-choose-mana") === "1";
+    } catch {
+      return false;
+    }
+  });
+  const setChooseMana = (value: boolean) => {
+    setChooseManaState(value);
+    try {
+      localStorage.setItem("ad-choose-mana", value ? "1" : "0");
+    } catch {
+      // ohne Speicher: gilt nur für diese Sitzung
+    }
+  };
+  const [payPick, setPayPick] = useState<{ action: GameAction; name: string; cost: string } | null>(null);
   const [modePick, setModePick] = useState<{ card: GameCard; x?: number } | null>(null);
   const [coinDone, setCoinDone] = useState<number | null>(null);
   const [mountedAt] = useState(() => Date.now());
@@ -168,13 +185,30 @@ export default function Battlefield({
     if (!targeting || !currentSpec?.options.includes(id)) return;
     const picked = [...targeting.picked, id];
     if (picked.length >= targeting.specs.length) {
-      act(targeting.run(picked));
+      payOrAct(targeting.run(picked));
       setTargeting(null);
+      setZoneView(current => (current?.zone === "graveyard" ? null : current));
     } else setTargeting({ ...targeting, picked });
   };
   const startTargeting = (name: string, specs: TargetOption[], run: (targets: string[]) => GameAction) => {
-    if (specs.length === 0) return act(run([]));
+    if (specs.length === 0) return payOrAct(run([]));
     setTargeting({ name, specs, picked: [], run });
+    // Ziele im eigenen Friedhof: gleich öffnen, damit man die Karte anklicken kann
+    if (specs.some(spec => spec.kind.startsWith("gy"))) setZoneView({ owner: game.you, zone: "graveyard" });
+  };
+
+  /** Mit „Mana selbst wählen“ erst die Länder wählen lassen, sonst sofort ausführen. */
+  const payOrAct = (action: GameAction) => {
+    if (!chooseMana || (action.type !== "cast" && action.type !== "activate" && action.type !== "cycle")) return act(action);
+    const card = allCards.get(action.id);
+    if (!card) return act(action);
+    let cost = "";
+    if (action.type === "cast") cost = (card.manaCost ?? "").replace(/\{X\}/gi, () => `{${action.x ?? 0}}`);
+    else if (action.type === "cycle") cost = card.cycle?.cost ?? "";
+    else cost = (card.abilities?.find(ability => ability.index === action.index)?.costLabel ?? "").replace(/\{T\}/g, "");
+    const sources = me.battlefield.filter(item => item.mana && !item.tapped && !item.sick && item.id !== (action.type === "activate" ? action.id : ""));
+    if (!/\{[^}]+\}/.test(cost) || sources.length === 0) return act(action);
+    setPayPick({ action, name: card.name ?? "Karte", cost });
   };
 
   const startCast = (card: GameCard, x?: number, mode?: number) => {
@@ -247,7 +281,7 @@ export default function Battlefield({
         { label: "→ Bibliothek unten", onClick: () => moveCard(card, "library", { position: "bottom" }) }
       ];
       if (zone === "hand" && card.cycle) {
-        items.push({ label: `Cycling ${card.cycle.cost}${card.cycle.search ? " (Land suchen)" : " (Karte ziehen)"}`, disabled: !card.cycle.ok, onClick: () => act({ type: "cycle", id: card.id }) });
+        items.push({ label: `Cycling ${card.cycle.cost}${card.cycle.search ? " (Land suchen)" : " (Karte ziehen)"}`, disabled: !card.cycle.ok, onClick: () => payOrAct({ type: "cycle", id: card.id }) });
       }
       if ((zone === "hand" || zone === "command" || zone === "graveyard") && card.play) {
         items.push({ label: card.play.kind === "land" ? "Land spielen" : zone === "graveyard" ? "Mit Rückblende wirken" : "Wirken", disabled: !card.play.ok, onClick: () => startCast(card) });
@@ -578,7 +612,23 @@ export default function Battlefield({
             </div>
           )}
 
-          {settingsOpen && <SettingsDialog me={me} act={act} onClose={() => setSettingsOpen(false)} />}
+          {settingsOpen && <SettingsDialog me={me} act={act} onClose={() => setSettingsOpen(false)} chooseMana={chooseMana} onChooseMana={setChooseMana} />}
+          {payPick && (
+            <ManaPick
+              name={payPick.name}
+              cost={payPick.cost}
+              sources={me.battlefield.filter(item => item.mana && !item.tapped && !item.sick && !(payPick.action.type === "activate" && item.id === payPick.action.id))}
+              onPay={ids => {
+                act({ ...payPick.action, tap: ids } as GameAction);
+                setPayPick(null);
+              }}
+              onAuto={() => {
+                act(payPick.action);
+                setPayPick(null);
+              }}
+              onCancel={() => setPayPick(null)}
+            />
+          )}
 
           {game.choice && game.choice.userId === game.you && <ChoiceDialog key={game.choice.prompt} choice={game.choice} act={act} onHover={setHoverStable} />}
 
