@@ -20,7 +20,7 @@ export function normalizeText(oracleText, name) {
   let text = String(oracleText ?? "").split("//")[0].replace(/\([^)]*\)/g, "");
   const names = [...new Set([name, String(name ?? "").split(",")[0]])].filter(Boolean).sort((a, b) => b.length - a.length);
   for (const item of names) text = text.split(item).join("~");
-  text = text.replace(/\bthis (creature|permanent|artifact|enchantment|land|planeswalker|spell)\b/gi, "~");
+  text = text.replace(/\bthis (creature|permanent|artifact|enchantment|land|planeswalker|spell|equipment|aura|vehicle)\b/gi, "~");
   return text
     .split("\n")
     .map(line => line.trim())
@@ -39,6 +39,12 @@ const TARGET_KINDS = [
   [/^target creature or planeswalker$/, "creatureOrPlaneswalker"],
   [/^target artifact or enchantment$/, "artifactOrEnchantment"],
   [/^target nonland permanent$/, "nonland"],
+  [/^target creature you control$/, "myCreature"],
+  [/^target creature card (?:from|in) your graveyard$/, "gyCreature"],
+  [/^target artifact card (?:from|in) your graveyard$/, "gyArtifact"],
+  [/^target enchantment card (?:from|in) your graveyard$/, "gyEnchantment"],
+  [/^target land card (?:from|in) your graveyard$/, "gyLand"],
+  [/^target permanent card (?:from|in) your graveyard$/, "gyPermanent"],
   [/^target creature$/, "creature"],
   [/^target artifact$/, "artifact"],
   [/^target enchantment$/, "enchantment"],
@@ -128,6 +134,29 @@ function parseSentence(raw, specs) {
     return t === null ? null : [{ type: "damage", n, to: { k: "target", t } }];
   }
 
+  if ((m = lower.match(/^(?:you may )?attach (?:~|it) to (target creature you control|target creature)$/))) {
+    const t = addTarget(specs, m[1]);
+    return t === null ? null : [{ type: "attach", t }];
+  }
+  if ((m = lower.match(new RegExp(`^(?:then )?if ~ was cast from (?:a|your) graveyard, put ${N} \\+1/\\+1 counters? on (?:that|it|the) token$`)))) {
+    const n = num(m[1]);
+    return n === null || n === "X" ? null : [{ type: "flashbackTokenCounters", n }];
+  }
+  if ((m = lower.match(/^if you do, that creature gains ([a-z ]+?) until end of turn(?: and must be blocked this turn if able)?$/))) {
+    const kws = m[1].split(/,| and /).map(word => word.trim()).filter(word => KEYWORDS.includes(word));
+    return kws.length > 0 ? [{ type: "grantTemp", kws }] : null;
+  }
+  if ((m = lower.match(new RegExp(`^return (target (?:creature|artifact|enchantment|land|permanent) card (?:from|in) your graveyard) to (the battlefield|your hand)(?: with ${N} additional (\\+1/\\+1) counters? on it)$`)))) {
+    const t = addTarget(specs, m[1]);
+    const n = num(m[3]);
+    if (t === null || n === null || n === "X") return null;
+    return [{ type: "reanimate", t, to: m[2] === "your hand" ? "hand" : "battlefield", counters: n }];
+  }
+  if ((m = lower.match(new RegExp(`^(?:it|that creature) enters with ${N} additional \\+1/\\+1 counters? on it$`)))) {
+    const n = num(m[1]);
+    return n === null || n === "X" ? null : [{ type: "reanimateCounters", n }];
+  }
+  if (/^(?:it|that creature)(?:'s| is) an? [a-z ]+ in addition to its other (?:colors and )?types?$|^it'?s a [a-z ]+ in addition to its other colors and types$/.test(lower)) return [{ type: "noop" }];
   if ((m = lower.match(/^destroy all (creatures|lands|artifacts|enchantments)$/))) {
     return [{ type: "destroyAll", what: { creatures: "creature", lands: "land", artifacts: "artifact", enchantments: "enchantment" }[m[1]] }];
   }
@@ -173,12 +202,13 @@ function parseSentence(raw, specs) {
   if ((m = s.match(new RegExp(`^[Cc]reate ${N} (\\d+)/(\\d+) ([A-Za-z ,]+?) creature tokens?$`)))) {
     const n = num(m[1]);
     if (n === null) return null;
-    const colors = new Set(["white", "blue", "black", "red", "green", "colorless", "and", ","]);
+    const colors = new Set(["white", "blue", "black", "red", "green", "colorless", "and", ",", "artifact", "enchantment", "legendary", "snow"]);
+    const artifact = /\bartifact\b/i.test(m[4]);
     const name = m[4]
       .split(/[ ,]+/)
       .filter(word => word && !colors.has(word.toLowerCase()))
       .join(" ");
-    return [{ type: "token", n, p: Number(m[2]), th: Number(m[3]), name: name || "Token" }];
+    return [{ type: "token", n, p: Number(m[2]), th: Number(m[3]), name: name || "Token", ...(artifact ? { artifact: true } : {}) }];
   }
 
   if ((m = lower.match(new RegExp(`^search your library for (?:a|an|up to one) ((?:basic land|land|creature|artifact|enchantment|planeswalker|instant|sorcery) )?card(?:,| and)? (?:reveal (?:it|that card),? )?(?:and )?put (?:it|that card) (into your hand|onto the battlefield( tapped)?)(?:,)? ?(?:then shuffle)?$`)))) {
@@ -220,6 +250,12 @@ export function describeEffect(effect) {
     case "tap": return "Tappt das Ziel.";
     case "untap": return "Enttappt das Ziel.";
     case "counterSpell": return "Neutralisiert den Zielzauber.";
+    case "attach": return "Hängt diese Karte an die Ziel-Kreatur.";
+    case "grantTemp": return `Die Kreatur erhält ${effect.kws.join(", ")} bis zum Zugende.`;
+    case "reanimate": return `Holt die Ziel-Karte aus dem Friedhof ${effect.to === "hand" ? "auf die Hand" : "aufs Schlachtfeld"}${effect.counters ? ` (mit ${effect.counters} zusätzlichen +1/+1-Markern)` : ""}.`;
+    case "flashbackTokenCounters": return `Kam der Zauber aus dem Friedhof: ${effect.n} zusätzliche +1/+1-Marker auf den Spielstein.`;
+    case "reanimateCounters":
+    case "noop": return "";
     case "counters": return `${effect.n}× ${effect.kind}-Marker ${effect.self ? "auf diese Karte" : "auf das Ziel"}.`;
     case "pump": return `${effect.self ? "Diese Kreatur" : "Das Ziel"} erhält ${signed(effect.p)}/${signed(effect.th)} bis zum Zugende.`;
     case "pumpAll": return `${{ you: "Deine Kreaturen", opp: "Kreaturen deiner Gegner", all: "Alle Kreaturen" }[effect.scope ?? "you"]} erhalten ${signed(effect.p)}/${signed(effect.th)} bis zum Zugende.`;
@@ -327,7 +363,7 @@ function triggerEvent(word, condition) {
   return null;
 }
 
-const stripPrefix = line => line.replace(/^[•*]\s*/, "");
+const stripPrefix = line => line.replace(/^[•*]\s*/, "").replace(/^[A-Z][^—.:]{0,60}[!.]?\s*[—-]\s*(?=(?:When|Whenever|At)\b)/, "");
 
 /**
  * Zerlegt den Text einer Karte in Zauber-Effekt, Auslöser, aktivierte Fähigkeiten und nicht automatisch behandelbare Hinweise.
@@ -370,6 +406,36 @@ export function parseCardText({ name, typeLine, oracleText }) {
   }
 
   for (const line of lines) {
+    // Ausrüsten: „Equip {2}“ (nur Manakosten) hängt die Karte an eine eigene Kreatur (nur als Zauberspruch).
+    const equip = line.match(/^equip (\{[^}]+\}(?:\{[^}]+\})*)$/i);
+    if (equip) {
+      result.activated.push({
+        index: result.activated.length,
+        text: line,
+        cost: { tap: false, sacrifice: false, mana: equip[1] },
+        sorcery: true,
+        effects: [{ type: "attach", t: 0 }],
+        specs: [{ kind: "myCreature" }],
+        unparsed: [],
+        summary: "Hängt diese Karte an eine eigene Kreatur."
+      });
+      continue;
+    }
+    // Verzauberung (Aura): Ziel beim Wirken, bleibt danach an der Karte hängen.
+    const enchant = line.match(/^enchant (creature you control|creature|land|artifact|permanent)$/i);
+    if (enchant) {
+      const kind = { "creature you control": "myCreature", creature: "creature", land: "land", artifact: "artifact", permanent: "permanent" }[enchant[1].toLowerCase()];
+      result.aura = true;
+      result.spell = { effects: [], specs: [{ kind }], unparsed: [], summary: "Verzauberung: hängt sich beim Auflösen an das Ziel." };
+      continue;
+    }
+    // Dauerbonus durch Anhängen: „Equipped creature gets +2/+1 and has first strike.“
+    const attach = line.match(/^(?:equipped|enchanted) creature (?:gets ([+-]\d+)\/([+-]\d+))?(?: and )?(?:has ([a-z, ]+))?\.?$/i);
+    if (attach && (attach[1] !== undefined || attach[3])) {
+      const grants = (attach[3] ?? "").split(/,| and /).map(word => word.trim().toLowerCase()).filter(word => KEYWORDS.includes(word));
+      result.attach = { p: attach[1] !== undefined ? Number(attach[1]) : 0, th: attach[2] !== undefined ? Number(attach[2]) : 0, grants };
+      continue;
+    }
     if (isKeywordLine(line)) continue;
 
     // Loyalitätsfähigkeit

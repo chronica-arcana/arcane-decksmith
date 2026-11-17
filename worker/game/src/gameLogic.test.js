@@ -52,6 +52,10 @@ const LIB = [
   ["xdraw", "Flutwelle", "Sorcery", "{X}{G}", 2, {}, "Draw X cards."],
   ["cycler", "Wechsler", "Creature — Elf", "{3}{G}{G}", 2, { power: "2", toughness: "2" }, "Cycling {1}"],
   ["landcycler", "Landwechsler", "Creature — Elf", "{5}{G}", 2, { power: "2", toughness: "2" }, "Basic landcycling {1}"],
+  ["scythe", "Sense", "Artifact — Equipment", "{2}", 2, {}, "When this Equipment enters, you may attach it to target creature you control. If you do, that creature gains first strike until end of turn.\nEquipped creature gets +2/+1.\nEquip {2}"],
+  ["halo", "Heiligenschein", "Enchantment — Aura", "{G}", 2, {}, "Enchant creature\nEnchanted creature gets +1/+1 and has flying."],
+  ["revive", "Wiederkehr", "Sorcery", "{1}{G}", 2, {}, "Return target creature card from your graveyard to the battlefield with two additional +1/+1 counters on it. It's a black Zombie in addition to its other colors and types."],
+  ["esper", "Esper-Rückholung", "Sorcery", "{1}{G}", 2, {}, "Create a 3/3 blue Robot Warrior artifact creature token. Then if this spell was cast from a graveyard, put two +1/+1 counters on that token.\nFlashback {5}{U}"],
   ["priest", "Priester", "Creature — Cleric", "{G}", 2, { power: "1", toughness: "1" }, "At the beginning of your end step, you gain 1 life."]
 ];
 const facts = new Map();
@@ -1087,5 +1091,136 @@ describe("Bedingungen, Modi, X und Cycling", () => {
     act(game, "u0", { type: "choose", ids: [land] }, random);
     expect(game.players.u0.hand).toContain(land);
     expect(act(game, "u0", { type: "cycle", id: put(game, "u0", "Bär", "hand", { only: "library" }) }, random).ok).toBe(false);
+  });
+});
+
+describe("Sofortzauber im Kampf", () => {
+  it("der Verteidiger kann vor dem Blocken einen Sofortzauber wirken und blockt danach weiter", () => {
+    const { game, random } = started();
+    const ogre = put(game, "u0", "Bär", "battlefield");
+    const wall = put(game, "u1", "Mauer", "battlefield");
+    put(game, "u1", "Mountain", "battlefield");
+    const bolt = put(game, "u1", "Blitz", "hand", { only: "library" });
+    toAttackers(game, random);
+    act(game, "u0", { type: "declareAttackers", attackers: [{ id: ogre, target: "u1" }] }, random);
+    expect(game.combat.phaseWaiting).toBe(true);
+    expect(view(game, "u1").players[1].hand.find(card => card.id === bolt).play.ok).toBe(true);
+    expect(act(game, "u1", { type: "cast", id: bolt, targets: ["u0"] }, random)).toEqual({ ok: true });
+    for (let i = 0; i < 4 && game.stack.length > 0; i += 1) act(game, game.priority, { type: "pass" }, random);
+    expect(game.stack).toHaveLength(0);
+    expect(game.players.u0.life).toBe(17);
+    expect(game.combat.phaseWaiting).toBe(true);
+    expect(act(game, "u1", { type: "declareBlockers", blocks: [{ blocker: wall, attacker: ogre }] }, random).ok).toBe(true);
+  });
+
+  it("vor dem Kampfschaden wird auch der Verteidiger mit leuchtendem Sofortzauber gefragt", () => {
+    const { game, random } = started();
+    const bear = put(game, "u0", "Bär", "battlefield");
+    put(game, "u1", "Mountain", "battlefield");
+    put(game, "u1", "Blitz", "hand", { only: "library" });
+    toAttackers(game, random);
+    act(game, "u0", { type: "declareAttackers", attackers: [{ id: bear, target: "u1" }] }, random);
+    // u1 hat keinen Blocker: Schadensschritt; erst u0, dann u1 gefragt
+    expect(game.turn.phase).toBe("damage");
+    act(game, "u0", { type: "pass" }, random);
+    expect(game.priority).toBe("u1");
+    act(game, "u1", { type: "pass" }, random);
+    expect(game.players.u1.life).toBe(18);
+  });
+});
+
+describe("Ausrüstung, Auren und Wiederbelebung", () => {
+  it("Ausrüstung kommt ins Spiel, hängt sich automatisch an und gibt Bonus (Rüsten kostet Mana, nur Zauberspruchtempo)", () => {
+    const { game, random } = started();
+    forest(game, "u0", 6);
+    const bear = put(game, "u0", "Bär", "battlefield");
+    const scythe = put(game, "u0", "Sense", "hand", { only: "library" });
+    expect(act(game, "u0", { type: "cast", id: scythe }, random)).toEqual({ ok: true });
+    // Auslöser verlangt ein Ziel (nur eine Kreatur → Auswahl)
+    if (game.choice) act(game, "u0", { type: "choose", ids: [bear] }, random);
+    for (let i = 0; i < 4 && game.stack.length > 0; i += 1) act(game, game.priority, { type: "pass" }, random);
+    expect(game.cards[scythe].attachedTo).toBe(bear);
+    const card = view(game, "u0").players[0].battlefield.find(c => c.id === bear);
+    expect(card.power).toBe(4);
+    expect(card.toughness).toBe(3);
+    expect(card.attachments).toEqual(["Sense"]);
+    // Umrüsten auf eine zweite Kreatur
+    const bear2 = put(game, "u0", "Bär", "battlefield");
+    const options = view(game, "u0").players[0].battlefield.find(c => c.id === scythe).abilities[0];
+    expect(options.ok).toBe(true);
+    expect(act(game, "u0", { type: "activate", id: scythe, index: 0, targets: [bear2] }, random)).toEqual({ ok: true });
+    for (let i = 0; i < 4 && game.stack.length > 0; i += 1) act(game, game.priority, { type: "pass" }, random);
+    expect(game.cards[scythe].attachedTo).toBe(bear2);
+    expect(view(game, "u0").players[0].battlefield.find(c => c.id === bear).power).toBe(2);
+  });
+
+  it("stirbt die Kreatur, bleibt die Ausrüstung liegen; eine Aura geht mit", () => {
+    const { game, random } = started();
+    forest(game, "u0", 4);
+    const bear = put(game, "u0", "Bär", "battlefield");
+    const halo = put(game, "u0", "Heiligenschein", "hand", { only: "library" });
+    expect(act(game, "u0", { type: "cast", id: halo, targets: [bear] }, random)).toEqual({ ok: true });
+    for (let i = 0; i < 4 && game.stack.length > 0; i += 1) act(game, game.priority, { type: "pass" }, random);
+    expect(game.cards[halo].attachedTo).toBe(bear);
+    expect(view(game, "u0").players[0].battlefield.find(c => c.id === bear).keywords).toContain("flying");
+    game.cards[bear].damage = 99;
+    act(game, "u0", { type: "pass" }, random);
+    expect(game.players.u0.graveyard).toContain(bear);
+    expect(game.players.u0.graveyard).toContain(halo);
+  });
+
+  it("Wiederbelebung holt eine Kreatur aus dem Friedhof zurück, mit Zusatzmarkern", () => {
+    const { game, random } = started();
+    forest(game, "u0", 4);
+    const bear = put(game, "u0", "Bär", "graveyard");
+    const revive = put(game, "u0", "Wiederkehr", "hand", { only: "library" });
+    const targets = view(game, "u0").players[0].hand.find(c => c.id === revive).play.targets;
+    expect(targets[0].options).toContain(bear);
+    expect(act(game, "u0", { type: "cast", id: revive, targets: [bear] }, random)).toEqual({ ok: true });
+    for (let i = 0; i < 4 && game.stack.length > 0; i += 1) act(game, game.priority, { type: "pass" }, random);
+    expect(game.players.u0.battlefield).toContain(bear);
+    expect(game.cards[bear].counters["+1/+1"]).toBe(2);
+    expect(game.manual).toBeNull();
+  });
+});
+
+describe("Mana selbst wählen", () => {
+  it("zahlt nur mit den gewählten Ländern, sonst Fehler", () => {
+    const { game, random } = started();
+    const f1 = put(game, "u0", "Forest", "battlefield");
+    const f2 = put(game, "u0", "Forest", "battlefield");
+    const f3 = put(game, "u0", "Forest", "battlefield");
+    const bear = put(game, "u0", "Bär", "hand", { only: "library" });
+    expect(act(game, "u0", { type: "cast", id: bear, tap: [f3] }, random).ok).toBe(false);
+    expect(act(game, "u0", { type: "cast", id: bear, tap: [f2, f3] }, random).ok).toBe(true);
+    expect(game.cards[f1].tapped).toBe(false);
+    expect(game.cards[f2].tapped).toBe(true);
+    expect(game.cards[f3].tapped).toBe(true);
+  });
+});
+
+describe("Spielstein mit Rückblende-Bonus", () => {
+  const tokens = (game, uid) => game.players[uid].battlefield.filter(id => game.cards[id].token);
+  it("normal gewirkt: 3/3 ohne Marker, kein manuelles Fenster", () => {
+    const { game, random } = started();
+    forest(game, "u0", 3);
+    const esper = put(game, "u0", "Esper-Rückholung", "hand", { only: "library" });
+    expect(act(game, "u0", { type: "cast", id: esper }, random)).toEqual({ ok: true });
+    for (let i = 0; i < 4 && game.stack.length > 0; i += 1) act(game, game.priority, { type: "pass" }, random);
+    const [token] = tokens(game, "u0");
+    expect(game.defs ? game.xdefs[game.cards[token].def].name : "").toBe("Robot Warrior");
+    expect(game.cards[token].counters["+1/+1"]).toBeUndefined();
+    expect(game.manual).toBeNull();
+  });
+  it("aus dem Friedhof: zwei +1/+1-Marker", () => {
+    const { game, random } = started();
+    forest(game, "u0", 5);
+    put(game, "u0", "Klippen", "battlefield");
+    const esper = put(game, "u0", "Esper-Rückholung", "graveyard");
+    expect(act(game, "u0", { type: "cast", id: esper }, random)).toEqual({ ok: true });
+    for (let i = 0; i < 4 && game.stack.length > 0; i += 1) act(game, game.priority, { type: "pass" }, random);
+    const [token] = tokens(game, "u0");
+    expect(game.cards[token].counters["+1/+1"]).toBe(2);
+    expect(game.players.u0.exile).toContain(esper);
   });
 });

@@ -72,6 +72,8 @@ Beim Erstellen eines Raums kann „Gegen einen Bot spielen“ gewählt werden. D
 
 Bedingte Länder („enters tapped unless you control a legendary creature“, „… on turn 3 or earlier“), modale Zauber („Choose one“ mit Auswahldialog), X-Zauber (X wird abgefragt) und Cycling sind automatisiert.
 
+Außerdem automatisiert: Ausrüstung („Equip {N}“, „Equipped creature gets …“, Anhängen beim Ins-Spiel-Kommen) und Auren („Enchant creature“ mit Bonus), Wiederbelebung gezielt aus dem eigenen Friedhof, Sofortzauber im Angriff (Antwort vor dem Blocken und vor dem Kampfschaden) sowie „Mana selbst wählen“ (Einstellung; der Server bezahlt dann nur mit den gewählten Ländern).
+
 ## Bedienung am Spieltisch
 - Der Spielraum füllt den ganzen Bildschirm (ohne Sammlung und App-Menü); oben links „Raum verlassen“. Es ist eine einzige Matte: Gegner oben
   (gespiegelt), Mitte mit Stapel und Kampf, du unten; die Phasen stehen unter der eigenen Hand. Chat und Verlauf liegen optional in einer

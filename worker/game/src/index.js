@@ -46,8 +46,9 @@ const AUTH_TIMEOUT_MS = 10_000;
 const MAX_BODY_BYTES = 2048;
 /** Verbindungen pro Raum inklusive noch nicht angemeldeter. */
 const MAX_SOCKETS = 8;
-/** Pause zwischen zwei Bot-Aktionen. */
-const BOT_DELAY_MS = 700;
+/** Pause vor einer Bot-Aktion: Passen geht schneller, alles andere (Land, Zauber, Angriff, Block) bekommt Zeit zum Nachvollziehen. */
+const BOT_PASS_DELAY_MS = 1200;
+const BOT_ACTION_DELAY_MS = 2600;
 
 const randomUnit = () => crypto.getRandomValues(new Uint32Array(1))[0] / 2 ** 32;
 
@@ -330,7 +331,11 @@ export class GameRoom extends DurableObject {
   async scheduleAlarm() {
     const times = [];
     if (this.room) times.push(this.room.expiresAt);
-    if (this.botWaiting()) times.push(Date.now() + BOT_DELAY_MS);
+    const botId = this.botWaiting();
+    if (botId) {
+      const action = nextBotAction(this.game, botId);
+      times.push(Date.now() + (action?.type === "pass" ? BOT_PASS_DELAY_MS : BOT_ACTION_DELAY_MS));
+    }
     for (const socket of this.ctx.getWebSockets()) {
       if (socket.readyState !== 1) continue;
       const attachment = socket.deserializeAttachment();

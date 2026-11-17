@@ -27,6 +27,9 @@ const LIB = [
   ["anthem", "Hymne", "Enchantment", "{G}", 2, {}, "Creatures you control get +1/+1."],
   ["shock", "Schock", "Land — Forest Mountain", "", 2, {}, "As Schock enters the battlefield, you may pay 2 life. If you don't, it enters the battlefield tapped."],
   ["modal", "Wahlzauber", "Instant", "{G}", 2, {}, "Choose one —\n• Wahlzauber deals 2 damage to any target.\n• You gain 5 life."],
+  ["scythe", "Sense", "Artifact — Equipment", "{2}", 2, {}, "When this Equipment enters, you may attach it to target creature you control.\nEquipped creature gets +2/+1.\nEquip {2}"],
+  ["halo", "Heiligenschein", "Enchantment — Aura", "{G}", 2, {}, "Enchant creature\nEnchanted creature gets +1/+1 and has flying."],
+  ["revive", "Wiederkehr", "Sorcery", "{1}{G}", 2, {}, "Return target creature card from your graveyard to the battlefield with two additional +1/+1 counters on it."],
   ["cycler", "Wechsler", "Creature — Elf", "{3}{G}{G}", 2, { power: "2", toughness: "2" }, "Cycling {1}"]
 ];
 

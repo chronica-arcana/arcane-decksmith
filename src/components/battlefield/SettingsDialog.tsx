@@ -16,7 +16,19 @@ function Switch({ label, hint, on, onChange }: { label: string; hint: string; on
 }
 
 /** Einstellungen mit An/Aus-Schaltern. */
-export default function SettingsDialog({ me, act, onClose }: { me: GamePlayer; act: (action: GameAction) => void; onClose: () => void }) {
+export default function SettingsDialog({
+  me,
+  act,
+  onClose,
+  chooseMana,
+  onChooseMana
+}: {
+  me: GamePlayer;
+  act: (action: GameAction) => void;
+  onClose: () => void;
+  chooseMana: boolean;
+  onChooseMana: (value: boolean) => void;
+}) {
   return (
     <div className="modal-back" onClick={onClose}>
       <div className="modal small" role="dialog" aria-label="Einstellungen" onClick={event => event.stopPropagation()}>
@@ -35,6 +47,12 @@ export default function SettingsDialog({ me, act, onClose }: { me: GamePlayer; a
           hint="An: Wirkt dein Gegner etwas und du kannst mit einem Sofortzauber oder einer Fähigkeit antworten, hält das Spiel an. Aus: Es läuft immer durch."
           on={me.askResponse ?? true}
           onChange={value => act({ type: "askResponse", value })}
+        />
+        <Switch
+          label="Mana selbst wählen"
+          hint="An: Beim Wirken wählst du, welche Länder bezahlen (praktisch bei mehrfarbigen Decks). Aus: Das Spiel bezahlt automatisch."
+          on={chooseMana}
+          onChange={onChooseMana}
         />
       </div>
     </div>
