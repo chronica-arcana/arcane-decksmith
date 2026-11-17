@@ -2,6 +2,7 @@ import { useRef } from "react";
 import type { CSSProperties, DragEvent, MouseEvent, PointerEvent } from "react";
 import type { GameCard } from "../../gameClient";
 import cardBack from "../../assets/game/cardback.webp";
+import { ManaSymbol } from "./ManaSymbol";
 import { imageFor } from "./scryfallAssets";
 
 export type TileSize = "sm" | "md" | "lg" | "fill";
@@ -33,7 +34,7 @@ export default function CardView({
   selected?: boolean;
   /** Spielbar/zahlbar: grüner Schein. */
   glow?: boolean;
-  marked?: "attack" | "block" | "pick" | null;
+  marked?: "attack" | "block" | "pick" | "target" | null;
   onSelect?: (card: GameCard, event: MouseEvent) => void;
   onHover?: (card: GameCard | null) => void;
   onMenu?: (card: GameCard, x: number, y: number) => void;
@@ -110,6 +111,11 @@ export default function CardView({
         <span className="gc-text">
           <strong>{card.name}</strong>
           <small>{card.typeLine}</small>
+        </span>
+      )}
+      {card.mana && !card.tapped && !card.sick && (card.manaColors?.length ?? 0) > 0 && (
+        <span className="gc-mana" title="Anklicken für Mana">
+          <ManaSymbol symbol={`{${card.manaColors![0]}}`} size={15} />
         </span>
       )}
       {card.token && <span className="gc-badge token">Token</span>}

@@ -118,6 +118,21 @@ export default function GameRoomPanel({
   const everyoneReady = Boolean(room && room.players.length >= 2 && room.players.every(player => player.ready));
   const connected = status.state === "open";
 
+  // Läuft das Spiel, gehört der ganze Bildschirm dem Spieltisch (kein Menü, keine Sammlung).
+  if (game && room) {
+    return (
+      <Battlefield
+        game={game}
+        hostId={room.hostId}
+        send={sendAction}
+        onRematch={() => connection.current?.send({ type: "rematch" })}
+        onLeave={leave}
+        chat={{ lines: log, onSend: text => connection.current?.send({ type: "chat", text }), connected }}
+        notice={error}
+      />
+    );
+  }
+
   return (
     <section>
       <div className="pagehead">
@@ -153,7 +168,7 @@ export default function GameRoomPanel({
         )}
       </div>
 
-      {room && !game && (
+      {room && (
         <div className="panel">
           <h3>Spieler</h3>
           <ul className="game-player-list">
@@ -208,18 +223,8 @@ export default function GameRoomPanel({
           {open && isHost && !everyoneReady && (
             <p className="muted">Zum Starten brauchst du mindestens 2 Spieler, und alle müssen „bereit“ sein.</p>
           )}
-          {!open && !game && <div className="notice" role="status">Das Spiel wird vorbereitet …</div>}
+          {!open && <div className="notice" role="status">Das Spiel wird vorbereitet …</div>}
         </div>
-      )}
-
-      {game && room && (
-        <Battlefield
-          game={game}
-          hostId={room.hostId}
-          send={sendAction}
-          onRematch={() => connection.current?.send({ type: "rematch" })}
-          onLeave={leave}
-        />
       )}
 
       <div className="panel">

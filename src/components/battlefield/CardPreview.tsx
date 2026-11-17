@@ -2,7 +2,7 @@ import type { GameCard } from "../../gameClient";
 import { ManaCost } from "./ManaSymbol";
 import { imageFor } from "./scryfallAssets";
 
-/** Große Detailansicht beim Darüberfahren: hochauflösendes Scryfall-Bild (large), Kosten als Symbole, Typ und Schlüsselwörter. */
+/** Große Detailansicht beim Darüberfahren (rechts, immer über allem): hochauflösendes Scryfall-Bild, Kosten als Symbole, Typ und Hinweise. */
 export default function CardPreview({ card }: { card: GameCard | null }) {
   if (!card || card.name === undefined) return null;
   const image = imageFor(card.imageUri, "large");
@@ -27,6 +27,9 @@ export default function CardPreview({ card }: { card: GameCard | null }) {
           </span>
         )}
         {card.keywords && card.keywords.length > 0 && <span className="preview-kw">{card.keywords.join(", ")}</span>}
+        {card.rulesNotes && card.rulesNotes.length > 0 && (
+          <span className="preview-note">Wird nicht automatisch berücksichtigt: {card.rulesNotes.join(" · ")}</span>
+        )}
       </div>
     </aside>
   );

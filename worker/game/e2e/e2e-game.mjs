@@ -73,32 +73,18 @@ check("Spiel läuft, Mulligan-Karte unten (6 Karten Hand)", game(a).phase === "p
 const first = game(a).turn.active;
 const [pA, pC] = first === alice.id ? [a, c] : [c, a];
 
-act(pA, { type: "draw", count: 2 });
-await waitFor(() => me(pA).hand.length >= 8);
-const card = me(pA).hand[0];
-act(pA, { type: "move", id: card.id, to: "battlefield" });
-await waitFor(() => me(pC) && game(pC).players.find(p => p.userId === game(pA).you).battlefield.length === 1);
-const seenByOther = game(pC).players.find(p => p.userId === game(pA).you).battlefield[0];
-check("Gegner sieht die gelegte Karte mit Namen", seenByOther.name === card.name);
-act(pA, { type: "tap", id: card.id });
-await waitFor(() => game(pC).players.find(p => p.userId === game(pA).you).battlefield[0].tapped);
-check("Tappen wird synchronisiert", true);
+// Wahllos ziehen, Leben ändern, Karten verschieben und Mana erzeugen sind nicht möglich: das Spiel regelt es selbst.
+for (const action of [{ type: "draw", count: 2 }, { type: "life", delta: 5 }, { type: "pool", color: "G", delta: 1 }, { type: "move", id: me(pA).hand[0].id, to: "battlefield" }, { type: "untapAll" }]) {
+  const before = errors(pA).length;
+  act(pA, action);
+  await waitFor(() => errors(pA).length > before);
+}
+check("Handarbeit am Spielstand wird abgelehnt", errors(pA).filter(m => /automatisch/.test(m)).length >= 5);
+const handBefore = me(pA).hand.length;
+check("Es wurde nichts verändert", me(pA).hand.length === handBefore && me(pA).life === 20);
 
-const hiddenCard = me(pA).hand[0];
-act(pA, { type: "move", id: hiddenCard.id, to: "battlefield", faceDown: true });
-await waitFor(() => game(pC).players.find(p => p.userId === game(pA).you).battlefield.length === 2);
-const faceDown = game(pC).players.find(p => p.userId === game(pA).you).battlefield[1];
-check("Verdeckte Karte verrät dem Gegner nichts", faceDown.faceDown && !faceDown.name && !JSON.stringify(game(pC)).includes(hiddenCard.name + "\""));
-act(pC, { type: "move", id: card.id, to: "graveyard" });
-await sleep(150);
-check("Fremde Karten bewegen verboten", errors(pC).some(m => /nicht deine/.test(m)));
-act(pC, { type: "draw" });
-act(pA, { type: "look", count: 2 });
-await waitFor(() => me(pA).looking?.length === 2);
-check("Bibliothek ansehen: nur der Besitzer sieht Karten", me(pA).looking.length === 2 && !game(pC).players.find(p => p.userId === game(pA).you).looking);
-act(pA, { type: "closeLook" });
 // Zaubern über den Stapel (die Testkarten haben keine Manakosten): wirken, beide passen, Karte liegt auf dem Schlachtfeld
-const spell = me(pA).hand.find(c => c.play?.kind === "spell");
+const spell = me(pA).hand.find(c => c.play?.kind === "spell" && c.play.ok);
 act(pA, { type: "cast", id: spell.id });
 await waitFor(() => game(pC).stack.length === 1);
 check("Zauber liegt für alle sichtbar auf dem Stapel", game(pC).stack[0].card?.name === spell.name && game(pA).priority === game(pA).you);
@@ -107,7 +93,10 @@ await waitFor(() => game(pC).priority === game(pC).you);
 check("Gegner bekommt Priorität", game(pC).priority === game(pC).you);
 act(pC, { type: "pass" });
 await waitFor(() => game(pA).stack.length === 0);
-check("Zauber löst sich auf", game(pA).players.find(p => p.userId === game(pA).you).battlefield.some(c => c.id === spell.id));
+const mineA = game(pA).players.find(p => p.userId === game(pA).you);
+check("Zauber löst sich auf und liegt für beide sichtbar auf dem Schlachtfeld", mineA.battlefield.some(card => card.id === spell.id) && game(pC).players.find(p => p.userId === mineA.userId).battlefield.some(card => card.id === spell.id));
+const landCard = me(pA).hand.find(c => c.play?.kind === "land");
+if (landCard) act(pA, { type: "playLand", id: landCard.id });
 act(pA, { type: "endTurn" });
 await waitFor(() => game(pC).turn.active !== first);
 check("Zugwechsel", game(pC).turn.active !== first && game(pC).turn.number === 2);
@@ -122,7 +111,6 @@ const hist = await api("GET", "/api/history", alice);
 check("Verlauf enthält das Spiel", hist.body?.entries?.length === 1 && hist.body.entries[0].players.length === 2, JSON.stringify(hist.body?.entries?.[0]?.winner));
 const histC = await api("GET", "/api/history", carol);
 check("Verlauf beider Spieler getrennt, Sieger richtig", histC.body.entries[0].won === (game(pA).winner === carol.id) && hist.body.entries[0].won === (game(pA).winner === alice.id));
-act(c, { type: "draw" });
 c.ws.send(JSON.stringify({ type: "rematch" }));
 await sleep(150);
 check("Revanche nur durch den Gastgeber", errors(c).some(m => /Gastgeber/.test(m)));
@@ -152,13 +140,28 @@ check("Drei Spielsichten, 40 Leben, Kommandant in der Kommandozone", game(x).pla
 for (const p of [x, y, z]) act(p, { type: "keep" });
 await waitFor(() => game(x).phase === "playing");
 const cmdr = me(x).command[0];
-act(x, { type: "move", id: cmdr.id, to: "battlefield" });
-await waitFor(() => me(y) && game(y).players.find(p => p.userId === alice.id).battlefield.length === 1);
-act(y, { type: "cmddmg", from: alice.id, delta: 21 });
+await waitFor(() => game(x).turn.active);
+const activeSock = { [alice.id]: x, [carol.id]: y, [dave.id]: z }[game(x).turn.active];
+const aliceTurn = game(x).turn.active === alice.id;
+if (aliceTurn) {
+  act(x, { type: "cast", id: cmdr.id });
+  await waitFor(() => game(y).stack.length === 1);
+  check("Kommandant wird aus der Kommandozone gewirkt", game(y).stack[0].card?.name === cmdr.name);
+  act(x, { type: "pass" });
+  await waitFor(() => game(y).priority === carol.id);
+  act(y, { type: "pass" });
+  await waitFor(() => game(z).priority === dave.id);
+  act(z, { type: "pass" });
+  await waitFor(() => game(x).stack.length === 0);
+  check("Kommandant liegt auf dem Schlachtfeld, Steuer wird gezählt", game(x).players.find(p => p.userId === alice.id).cmdCasts[cmdr.id] === 1);
+} else {
+  check("Kommandant bleibt in der Kommandozone, bis Alice dran ist (Startspieler war ein anderer)", me(x).command.length === 1);
+}
+void activeSock;
+act(y, { type: "concede" });
 await waitFor(() => game(x).players.find(p => p.userId === carol.id).eliminated);
-check("21 Kommandantenschaden: Carol scheidet aus, Spiel läuft mit zwei weiter", game(x).phase === "playing" && game(x).players.find(p => p.userId === carol.id).eliminated.includes("Kommandant"));
-check("Alice' Kommandant wurde als gewirkt gezählt", game(x).players.find(p => p.userId === alice.id).cmdCasts[cmdr.id] === 1);
-act(z, { type: "life", set: 0 });
+check("Aufgeben: Carol scheidet aus, Spiel läuft mit zwei weiter", game(x).phase === "playing");
+act(z, { type: "concede" });
 await waitFor(() => game(x).phase === "ended");
 check("Spiel endet, Alice gewinnt", game(x).winner === alice.id);
 

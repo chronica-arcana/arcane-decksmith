@@ -21,29 +21,27 @@ const ITEMS: Item[] = [
   { key: "end", label: "Zugende", steps: ["end"] }
 ];
 
-/** Zeitleiste des Zuges: Enttappen, Versorgung und Ziehen laufen automatisch, danach Haupt-, Kampf- und Endphasen. */
-export default function PhaseBar({ game, activeName }: { game: GameView; activeName: string }) {
+/** Zeitleiste des Zuges unter der eigenen Hand: Enttappen, Versorgung und Ziehen laufen automatisch, danach Haupt-, Kampf- und Endphasen. */
+export default function PhaseStrip({ game, activeName }: { game: GameView; activeName: string }) {
   const current = game.turn.phase;
+  const currentIndex = ITEMS.findIndex(item => item.steps.includes(current));
   return (
-    <nav className="phase-bar" aria-label="Phasen">
-      <div className="phase-head">
-        <span className="phase-turn">Zug {game.turn.number}</span>
-        <span className="phase-active">{activeName}</span>
-      </div>
+    <nav className="phase-strip" aria-label="Phasen">
+      <span className="phase-turn">Zug {game.turn.number} · {activeName}</span>
       <ol className="phase-list">
-        {ITEMS.map(item => {
+        {ITEMS.map((item, index) => {
           const on = item.steps.includes(current);
-          const done = item.auto || ITEMS.findIndex(other => other.steps.includes(current)) > ITEMS.indexOf(item);
+          const done = item.auto || currentIndex > index;
           return (
             <li key={item.key} className={`phase${on ? " on" : ""}${done ? " done" : ""}${item.auto ? " auto" : ""}`} aria-current={on ? "step" : undefined}>
               <span className="phase-dot" aria-hidden="true" />
               <span className="phase-label">{item.label}</span>
               {item.sub && on && (
-                <ul className="phase-sub">
+                <span className="phase-sub">
                   {item.sub.map(sub => (
-                    <li key={sub.step} className={sub.step === current ? "on" : ""}>{sub.label}</li>
+                    <span key={sub.step} className={sub.step === current ? "on" : ""}>{sub.label}</span>
                   ))}
-                </ul>
+                </span>
               )}
             </li>
           );

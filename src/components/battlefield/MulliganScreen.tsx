@@ -1,6 +1,5 @@
 import { useState } from "react";
 import type { GameAction, GameCard, GamePlayer, GameView } from "../../gameClient";
-import CardPreview from "./CardPreview";
 import CardView from "./CardView";
 
 /** Starthand: alle Karten in Bildschirmbreite, beim Darüberfahren groß; Behalten oder Mulligan (London-Regel). */
@@ -8,19 +7,18 @@ export default function MulliganScreen({
   game,
   me,
   act,
-  background
+  onHover
 }: {
   game: GameView;
   me: GamePlayer;
   act: (action: GameAction) => void;
-  background: string;
+  onHover: (card: GameCard | null) => void;
 }) {
   const [bottomPick, setBottomPick] = useState<string[]>([]);
-  const [hover, setHover] = useState<GameCard | null>(null);
   const bottomNeeded = Math.max(0, me.mulligans - (game.format === "commander" ? 1 : 0));
 
   return (
-    <section className="arena arena-start" style={{ backgroundImage: `url(${background})` }} aria-label="Spieltisch">
+    <main className="mat mat-start">
       <div className="start-panel">
         <h3>Deine Starthand</h3>
         <p className="muted">
@@ -38,7 +36,7 @@ export default function MulliganScreen({
                   card={card}
                   size="fill"
                   marked={bottomPick.includes(card.id) ? "pick" : null}
-                  onHover={setHover}
+                  onHover={onHover}
                   onSelect={c =>
                     bottomNeeded > 0 &&
                     setBottomPick(current => (current.includes(c.id) ? current.filter(id => id !== c.id) : [...current, c.id]))
@@ -86,7 +84,6 @@ export default function MulliganScreen({
           ))}
         </ul>
       </div>
-      <CardPreview card={hover} />
-    </section>
+    </main>
   );
 }

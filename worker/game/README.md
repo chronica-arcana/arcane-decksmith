@@ -31,30 +31,35 @@ Cloudflare Worker mit einem **Durable Object je Raum**. Er ist die Grundlage fü
 ## Spieltisch und Regelautomatik
 - **Server-geführter Spielstand** (`gameLogic.js`): Bibliotheken werden auf dem Server mit `crypto.getRandomValues` gemischt. Jeder Spieler
   bekommt nur seine Sicht: eigene Hand, bei anderen nur Kartenzahlen; Bibliotheken und verdeckte Karten sieht nie jemand.
-- **Kartendaten:** Beim Spielstart holt der Worker Stärke, Widerstandskraft, Loyalität und Schlüsselwörter bei Scryfall (best effort; ohne
-  Antwort läuft das Spiel ohne diese Werte). Manakosten und Regeltext kommen aus der Sammlung.
-- **Automatisiert:** Zugstruktur (Enttappen, Ziehen, Schritte: Hauptphase 1, Angriff, Blocker, Kampfschaden, Hauptphase 2, Zugende), Priorität und
-  Stapel (Zauber wirken, Passen, Auflösen, Neutralisieren, Fähigkeiten auf den Stapel), Mana (Manapool, Quellen werden beim Wirken automatisch
-  getappt; Hybrid, X, Phyrexian, Kommandantensteuer), ein Land pro Zug, Beschwörungsmüdigkeit, Kampf (Angreifer, Blocker, Erstschlag,
-  Doppelschlag, Todesberührung, Lebensverbindung, Trampeln, Flug/Reichweite, Drohung, Verteidiger, Wachsamkeit, Eile, unzerstörbar),
-  Sterben bei tödlichem Schaden, Handkartenlimit 7, Kommandantenschaden aus dem Kampf, Rückfrage zur Kommandozone, Ausscheiden und Spielende.
-- **Nicht automatisiert:** Kartentexte (Fähigkeiten, Auslöser, Ziele, Ersatzeffekte). Das klären die Spieler; Hilfen dafür sind „Fähigkeit auf
-  den Stapel“, Marker, Spielsteine, Leben/Zähler und das manuelle Bewegen von Karten.
-- **Manuelle Wege bleiben:** Wer eine Karte trotz Regeln legen muss (z. B. Effekte, die ein zweites Land erlauben), nutzt „Manuell auslegen“.
+- **Kartendaten:** Beim Spielstart holt der Worker Stärke, Widerstandskraft, Loyalität, Typzeile und Schlüsselwörter bei Scryfall (best effort);
+  Manakosten und Regeltext kommen aus der Sammlung bzw. ebenfalls von Scryfall.
+- **Die Regeln setzt das Spiel durch:** Zugstruktur, Priorität und Stapel, Mana (Pool, Quellen werden automatisch getappt, Hybrid, X, Phyrexian,
+  Kommandantensteuer), ein Land pro Zug, Beschwörungsmüdigkeit, Kampf (Angreifer, Blocker, Erstschlag, Doppelschlag, Todesberührung,
+  Lebensverbindung, Trampeln, Flug/Reichweite, Drohung, Verteidiger, Wachsamkeit, Eile, unzerstörbar, Hexproof/Shroud bei Zielen),
+  Handkartenlimit, Kommandantenschaden, Ausscheiden und Spielende. **Karten werden nur gezogen, wenn Regeln oder Kartentexte es verlangen.**
+- **Kartentext-Engine (`cardText.js`):** Der englische Oracle-Text wird gelesen und ausgeführt: Karten ziehen, Leben gewinnen/verlieren, Schaden
+  (beliebiges Ziel, Kreatur, Spieler, alle), Zerstören, Exil, zurück auf die Hand, Tappen/Enttappen, Neutralisieren, Marker, Stärke-Bonus bis
+  Zugende, Spielsteine erzeugen, Wühlen, Mahlen, Abwerfen, Bibliothek durchsuchen (z. B. Basic Land), Karten aus dem Friedhof zurückholen,
+  Mana erzeugen. Dazu **Ziele** (nur gültige Ziele, die Auswahl erfolgt beim Wirken), **Auslöser** („When ~ enters the battlefield“, „dies“,
+  „attacks“), **aktivierte Fähigkeiten** (Kosten {T} und Mana) und **Loyalitätsfähigkeiten**.
+- **Nicht automatisch:** Dauereffekte (z. B. „Creatures you control get +1/+1“), Bedingungen, „für jedes“, X-Effekte, Modi, Aura/Ausrüstung,
+  Auslöser außer Betreten/Sterben/Angriff. Karten mit solchen Texten weisen in der Vorschau darauf hin. Wird ein nicht verstandener Satz
+  ausgeführt, öffnet das Spiel ein **manuelles Fenster** nur für diesen Spieler (Karte ziehen, Karten bewegen, Leben, Marker, Spielsteine …),
+  das er mit „Fertig“ schließt. Außerhalb dieses Fensters sind manuelle Eingriffe serverseitig gesperrt.
 - **Commander mit 2 bis 4 Spielern**, Revanche (Gastgeber), Verlassen mitten im Spiel zählt als Aufgabe.
 - **Verlauf:** Durable Object `History` je Konto (letzte 50 Spiele, auch abgebrochene), ohne zusätzliche Datenbank-Einrichtung.
 - Keine Rückgängig-Funktion (sie würde Mogeln ermöglichen: ansehen, dann zurücknehmen).
 
 ## Bedienung am Spieltisch
-- Gegner sitzen oben (gespiegelt), du unten; Friedhof, Exil und Kommandozone liegen links, die Bibliothek rechts, der Stapel rechts am Tisch.
-- **Klick** = Hauptaktion: spielbare Handkarte (grün) spielen oder wirken, Land/Manaquelle für Mana tappen, Kreatur tappen; im Angriffsschritt
-  Angreifer wählen, beim Blocken Blocker und dann Angreifer. **Ziehen** einer Karte auf den Tisch spielt sie, auf einen Stapel legt sie dorthin.
-- **Bibliothek anklicken** zieht eine Karte. **Rechtsklick oder langes Drücken** auf eine Karte (oder die Bibliothek) zeigt nur die gerade möglichen Aktionen.
-- Leben ändert sich automatisch (Kampf, Lebensverbindung, Kosten); eine manuelle Korrektur steht hinter einem Klick auf die eigene Lebenszahl.
-- Hintergrund und Kartenrückseite liegen in `src/assets/game`.
-- Die Oberfläche ist das Modul `src/components/battlefield` (`Battlefield.tsx` mit Zonen für Gegner, Mitte mit Stapel und Kampf, eigenen Platz,
-  Phasenleiste, HUD, Manapool, Handfächer, Ablagen und Kommandozone). Kartenbilder (small, normal, large) und Mana-Symbole kommen direkt von
-  Scryfall (`svgs.scryfall.io/card-symbols`); Schrift „Cinzel“ wird von Google Fonts geladen und fällt auf Serifenschrift zurück.
+- Der Spielraum füllt den ganzen Bildschirm (ohne Sammlung und App-Menü); oben links „Raum verlassen“. Es ist eine einzige Matte: Gegner oben
+  (gespiegelt), Mitte mit Stapel und Kampf, du unten; die Phasen stehen unter der eigenen Hand. Chat und Verlauf liegen optional in einer
+  Seitenleiste links, die große Kartenvorschau erscheint rechts.
+- **Klick** = Hauptaktion: spielbare Handkarte (grün) spielen oder wirken, Land/Manaquelle für Mana tappen, Fähigkeit aktivieren; bei Zielen
+  leuchten die gültigen Ziele auf (auch die Spieler-Avatare), im Angriffsschritt Angreifer wählen, beim Blocken Blocker und dann Angreifer.
+  **Ziehen** auf den Tisch spielt eine Karte. **Rechtsklick oder langes Drücken** zeigt nur die gerade möglichen Aktionen.
+- Wer am Zug ist, blendet kurz ein; Prioritäts-Anzeigen gibt es nicht.
+- Oberfläche: Modul `src/components/battlefield`. Kartenbilder (small, normal, large) und Mana-Symbole kommen von Scryfall
+  (`svgs.scryfall.io/card-symbols`); Schrift „Cinzel“ von Google Fonts mit Serifenschrift als Rückfall.
 
 ## Einrichtung ohne Terminal (GitHub-Workflow)
 1. **Cloudflare-Token erzeugen:** Cloudflare Dashboard → *My Profile → API Tokens → Create Token* → Vorlage
