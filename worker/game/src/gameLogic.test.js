@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { abortGame, applyAction, cannotBlockReason, createGame as createRawGame, gameView, joinGame, playerLeft, repairGame, splitGame } from "./gameLogic.js";
+import { abortGame, applyAction, cannotBlockReason, manualHints, createGame as createRawGame, gameView, joinGame, playerLeft, repairGame, splitGame } from "./gameLogic.js";
 
 /** Die Tests gehen vom automatischen Ziehen aus (im Spiel ist „per Klick ziehen“ voreingestellt). */
 const createGame = options => {
@@ -170,6 +170,12 @@ const LIB = [
   ["blinker", "Lichtsprung", "Instant", "{G}", 2, {}, "Exile target creature you control. Return that card to the battlefield under its owner's control at the beginning of the next end step."],
   ["metalling", "Metallwesen", "Artifact Creature — Construct", "{1}", 2, { power: "1", toughness: "1" }],
   ["core", "Energiekern", "Artifact", "{1}", 2, {}, "Whenever one or more artifact creatures you control deal combat damage to a player, you gain 1 life."],
+  ["howler", "Heulende Mine", "Artifact", "{1}", 2, {}, "At the beginning of each player's draw step, if ~ is untapped, that player draws an additional card."],
+  ["borgnode", "Borgknoten", "Artifact", "{1}", 2, {}, "Artifact creatures you control have \"Whenever this creature deals combat damage to a player, you gain 2 life.\""],
+  ["klingonlord", "Klingonenherr", "Creature — Klingon Warrior", "{1}", 2, { power: "2", toughness: "2" }, "Klingons and Warriors you control have vigilance."],
+  ["klingon", "Klingone", "Creature — Klingon", "{1}", 2, { power: "2", toughness: "2" }],
+  ["bigstrider", "Großläufer", "Creature — Giant", "{1}", 2, { power: "3", toughness: "3" }, "~ can't be blocked by creatures with power 2 or less."],
+  ["unearther", "Ausgräber", "Creature — Zombie", "{1}", 2, { power: "2", toughness: "1" }, "Unearth {G}"],
   ["convoker", "Einberufer", "Sorcery", "{3}{G}", 2, {}, "Convoke\nDraw a card."],
   ["delver", "Schürfer", "Sorcery", "{4}{G}", 2, {}, "Delve\nDraw a card."],
   ["sculptor", "Bildhauer", "Creature — Vedalken", "{G}", 2, { power: "1", toughness: "1" }, "Artifact spells you cast cost {1} less to cast."],
@@ -2784,6 +2790,60 @@ describe("Neue Mechaniken aus den Commander-Decks", () => {
     }
     go(game, random);
     expect(game.players.u0.life).toBe(life + 1);
+  });
+
+  it("Star Trek/FF-Paket: Typ-Dauereffekt, verliehener Kampfschaden-Auslöser, Block nur ab Stärke 3, Unearth", () => {
+    const { game, random } = started();
+    put(game, "u0", "Klingonenherr", "battlefield");
+    const k = put(game, "u0", "Klingone", "battlefield");
+    const bear = put(game, "u0", "Bär", "battlefield");
+    const kws = id => view(game, "u0").players[0].battlefield.find(c => c.id === id).keywords;
+    expect(kws(k)).toContain("vigilance");
+    expect(kws(bear)).not.toContain("vigilance");
+    const strider = put(game, "u0", "Großläufer", "battlefield");
+    const small = put(game, "u1", "Bär", "battlefield");
+    expect(cannotBlockReason(game, game.cards[strider], game.cards[small])).toBeTruthy();
+    forest(game, "u0", 1);
+    const zombie = put(game, "u0", "Ausgräber", "graveyard");
+    expect(act(game, "u0", { type: "activate", id: zombie, index: 0 }, random).ok).toBe(true);
+    go(game, random);
+    expect(game.players.u0.battlefield).toContain(zombie);
+    expect(game.cards[zombie].exileEnd).toBe(true);
+    expect(kws(zombie)).toContain("haste");
+  });
+
+  it("Verliehener Auslöser für Artefaktkreaturen und „Its controller creates two Treasure tokens“", () => {
+    const { game, random } = started();
+    put(game, "u0", "Borgknoten", "battlefield");
+    const a = put(game, "u0", "Metallwesen", "battlefield");
+    const life = game.players.u0.life;
+    game.turn.phase = "attackers";
+    expect(act(game, "u0", { type: "declareAttackers", attackers: [{ id: a, target: "u1" }] }, random).ok).toBe(true);
+    act(game, "u1", { type: "declareBlockers", blocks: [] }, random);
+    for (let i = 0; i < 12 && game.turn.phase !== "main2"; i += 1) act(game, game.priority ?? "u0", { type: "pass" }, random);
+    go(game, random);
+    expect(game.players.u0.life).toBe(life + 2);
+  });
+
+  it("Howling Mine: zusätzliche Karte zu Beginn des Zuges, solange ungetappt", () => {
+    const { game, random } = started();
+    put(game, "u0", "Heulende Mine", "battlefield");
+    const before = game.players.u1.hand.length;
+    for (let i = 0; i < 60 && game.turn.active === "u0"; i += 1) {
+      if (game.choice) act(game, game.choice.userId, { type: "choose", ids: game.choice.options.slice(0, Math.max(1, game.choice.min)) }, random);
+      else if (game.pendingDiscard) act(game, game.pendingDiscard.userId, { type: "discard", ids: game.players[game.pendingDiscard.userId].hand.slice(0, game.pendingDiscard.count) }, random);
+      else act(game, game.priority ?? "u0", { type: "pass" }, random);
+    }
+    go(game, random);
+    expect(game.players.u1.hand.length).toBe(before + 2); // normale Karte + Howling Mine
+  });
+
+  it("Vorschläge im manuellen Fenster", () => {
+    const hints = manualHints("Each player draws two cards. You gain 3 life. Create two 1/1 colorless Borg artifact creature tokens. Destroy target creature.");
+    expect(hints.find(h => h.action?.type === "draw")?.action).toEqual({ type: "draw", count: 2 });
+    expect(hints.find(h => h.action?.type === "life")?.action).toEqual({ type: "life", delta: 3 });
+    expect(hints.find(h => h.action?.type === "token")).toMatchObject({ action: { type: "token", name: "Borg 1/1" }, repeat: 2 });
+    expect(hints.some(h => !h.action && /Zerstören/.test(h.label))).toBe(true);
   });
 
   it("Convoke und Delve bezahlen fehlendes Mana mit Kreaturen bzw. Friedhofskarten", () => {

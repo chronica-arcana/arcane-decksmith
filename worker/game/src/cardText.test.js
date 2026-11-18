@@ -320,3 +320,26 @@ describe("cardText: Marker-Paket, Hideaway, Storm, Support, Madness, modale Ausl
     expect(parsed.notes).toEqual([]);
   });
 });
+
+describe("cardText: Star-Trek- und Final-Fantasy-Paket", () => {
+  const parse = (typeLine, oracleText) => parseCardText({ name: "Karte", typeLine, oracleText });
+
+  it("Typ-Dauereffekte, verliehene Auslöser, Evasion, Unearth, Affinity für Typen", () => {
+    expect(parse("Creature — X", "Klingons and Warriors you control have vigilance.").statics[0]).toMatchObject({ anyOf: ["klingon", "warrior"], grants: ["vigilance"] });
+    expect(parse("Artifact", "Historic creatures you control have flying.").statics[0]).toMatchObject({ anyOf: ["artifact", "legendary"] });
+    expect(parse("Artifact", "Artifact creatures you control have \"Whenever this creature deals combat damage to a player, draw a card.\"").grantedTriggers[0]).toMatchObject({ what: "artifact", trigger: { event: "dealsCombatDamage" } });
+    expect(parse("Creature — X", "~ can't be blocked by creatures with power 2 or less.").blockMinPower).toBe(3);
+    expect(parse("Creature — X", "Unearth {3}{B}").activated[0]).toMatchObject({ zone: "graveyard", effects: [{ type: "unearth" }] });
+    expect(parse("Creature — X", "Affinity for Vulcans").costReduction).toEqual({ amount: 1, per: "vulcan", mine: true });
+  });
+
+  it("Einzeltexte der Decks", () => {
+    expect(parse("Instant", "Counter target noncreature spell. Its controller creates two Treasure tokens.").spell.effects[1]).toMatchObject({ type: "namedToken", n: 2, forTargetController: 0 });
+    expect(parse("Sorcery", "Destroy target artifact, target creature, target enchantment, and target land.").spell.specs).toHaveLength(4);
+    expect(parse("Sorcery", "Destroy all creatures with no counters on them.").spell.effects[0]).toMatchObject({ noCounters: true });
+    expect(parse("Sorcery", "Each player shuffles their hand and graveyard into their library, then draws seven cards.").spell.effects[0]).toEqual({ type: "wheel", n: 7 });
+    expect(parse("Creature — X", "When ~ enters, destroy up to one target artifact or enchantment.").triggers[0].specs[0]).toMatchObject({ optional: true });
+    expect(parse("Artifact", "At the beginning of each player's draw step, if ~ is untapped, that player draws an additional card.").triggers[0]).toMatchObject({ event: "drawStep", effects: [{ type: "ifCond", cond: { kind: "selfUntapped" } }] });
+    expect(parse("Instant", "You gain 2 life, draw two cards, then discard two cards.").spell.effects.map(effect => effect.type)).toEqual(["life", "draw", "discard"]);
+  });
+});

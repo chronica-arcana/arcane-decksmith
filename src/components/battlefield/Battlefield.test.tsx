@@ -163,6 +163,15 @@ describe("Spielraum", () => {
     expect(send).toHaveBeenLastCalledWith({ type: "manualDone" });
   });
 
+  it("manuelles Fenster zeigt Vorschläge: Knöpfe führen die Aktion aus, Tipps erklären den Klick", () => {
+    const game = view({ manual: { userId: "me", text: "Create two 1/1 Borg tokens. Destroy target creature.", source: "Borg", hints: [{ label: "2× Spielstein Borg 1/1 erzeugen", action: { type: "token", name: "Borg 1/1" }, repeat: 2 }, { label: "Zerstören: Karte rechtsklicken" }] } });
+    const { send } = setup(game);
+    fireEvent.click(screen.getByRole("button", { name: "2× Spielstein Borg 1/1 erzeugen" }));
+    expect(send).toHaveBeenCalledTimes(2);
+    expect(send).toHaveBeenLastCalledWith({ type: "token", name: "Borg 1/1" });
+    expect(screen.getByText("Zerstören: Karte rechtsklicken")).toBeTruthy();
+  });
+
   it("andere sehen nur, dass jemand einen Kartentext umsetzt", () => {
     setup(view({ priority: null, manual: { userId: "they", text: "x", source: "y" } }));
     expect(screen.getByText("Gegner setzt einen Kartentext um …")).toBeTruthy();

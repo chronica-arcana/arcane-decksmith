@@ -174,7 +174,7 @@ export type GameView = {
     options: { id: string; card?: GameCard | null; player?: { userId: string; name: string }; spell?: boolean; label?: string }[];
   } | null;
   /** Ein Kartentext, den das Spiel nicht umsetzen kann: Nur dieser Spieler darf jetzt von Hand eingreifen. */
-  manual: { userId: string; text: string; source: string } | null;
+  manual: { userId: string; text: string; source: string; hints?: { label: string; action?: GameAction; repeat?: number }[] } | null;
   monarch?: string | null;
   winner: string | null;
   startedAt: number;
