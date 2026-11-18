@@ -301,6 +301,17 @@ function parseSentence(raw, specs) {
     const n = num(m[1]);
     return n === null || n === "X" ? null : [{ type: "countersAll", n, kind: m[2], other: true, subtype: m[3] }];
   }
+  if ((m = lower.match(/^put that many ([+-]1\/[+-]1) counters on ~$/))) return [{ type: "counters", n: 0, kind: m[1], self: true, nFrom: { damage: true } }];
+  if (lower === "draw that many cards") return [{ type: "draw", who: { k: "you" }, n: 0, nFrom: { damage: true } }];
+  if ((m = lower.match(/^target creature you control can't be blocked this turn$/))) {
+    const t = addTarget(specs, "target creature you control");
+    return t === null ? null : [{ type: "grantKw", kws: ["unblockable"], t }];
+  }
+  if ((m = lower.match(new RegExp(`^put ${N} ([+-]1/[+-]1) counters? on each ([a-z]+) (you control|your opponents control)$`))) && m[3] !== "other") {
+    const n = num(m[1]);
+    if (n === null || n === "X") return null;
+    return [{ type: "countersAll", n, kind: m[2], ...(m[3] === "creature" ? {} : { subtype: m[3] }), ...(m[4] === "your opponents control" ? { opp: true } : {}) }];
+  }
   if ((m = lower.match(new RegExp(`^put ${N} ([+-]1/[+-]1) counters? on that creature$`)))) {
     const n = num(m[1]);
     return n === null || n === "X" ? null : [{ type: "counters", n, kind: m[2], subjectCard: true }];
@@ -339,6 +350,10 @@ function parseSentence(raw, specs) {
   if ((m = lower.match(/^double the number of each kind of counter on (target (?:permanent|creature|artifact|planeswalker))$/))) {
     const t = addTarget(specs, m[1]);
     return t === null ? null : [{ type: "doubleCounters", t }];
+  }
+  if ((m = lower.match(/^(target creature you control) explores$/))) {
+    const t = addTarget(specs, m[1]);
+    return t === null ? null : [{ type: "explore", t }];
   }
   if ((m = lower.match(/^(~|it|that creature) explores$/))) return [{ type: "explore", who: m[1] === "~" ? "self" : "subject" }];
   if (/^(?:that creature|it|those creatures) doesn't untap during (?:its|their) controller's next untap step$/.test(lower)) return [{ type: "freeze", t: specs.length > 0 ? 0 : null }];
@@ -484,7 +499,7 @@ function parseSentence(raw, specs) {
     return [{ type: "chooseFromRevealed", exclude: excluded }];
   }
   if (lower === "that player discards that card") return [{ type: "discardChosen" }];
-  if ((m = lower.match(/^(?:you |)(?:create|creates) (a|an|one|two|three) (treasure|food|clue|blood) tokens?$/i))) {
+  if ((m = lower.match(/^(?:you |)(?:create|creates) (a|an|one|two|three) (treasure|food|clue|blood|lander|map|gold|powerstone) tokens?$/i))) {
     return [{ type: "namedToken", n: num(m[1]), name: m[2][0].toUpperCase() + m[2].slice(1) }];
   }
   if (lower === "investigate") return [{ type: "namedToken", n: 1, name: "Clue" }];
@@ -906,6 +921,11 @@ function triggerEvent(word, condition) {
   if (condition === "you cycle a card" || condition === "you cycle another card") return { event: "youCycle", scope: { owner: "you", another: false } };
   if (/^you (?:cycle or discard|discard or cycle|discard) (?:a|another) card$/.test(condition)) return { event: "youDiscard", scope: { owner: "you", another: false } };
   if (condition === "you cycle ~" || condition === "you cycle this card") return { event: "cycled" };
+  if (/^~ is dealt damage$/.test(condition)) return { event: "dealtDamage" };
+  if (condition === "you attack" || condition === "you attack a player") return { event: "youAttack", scope: { owner: "you", another: false } };
+  if ((m = condition.match(/^you attack with (two|three|four|five|six|seven|eight|\d+) or more creatures$/))) {
+    return { event: "youAttack", minAttackers: /^\d+$/.test(m[1]) ? Number(m[1]) : { two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8 }[m[1]], scope: { owner: "you", another: false } };
+  }
   if (/^~ mutates$/.test(condition)) return { event: "mutates" };
   if (/^~ dies$/.test(condition) || /^~ is put into a graveyard from the battlefield$/.test(condition)) return { event: "dies" };
   if ((m = condition.match(/^~ or another (nontoken )?creature you control dies$/))) return { event: "creatureDies", scope: { owner: "you", another: false, ...(m[1] ? { nontoken: true } : {}) } };
@@ -1218,6 +1238,14 @@ export function parseCardText({ name, typeLine, oracleText }) {
       result.oppEnterTapped = true;
       continue;
     }
+    if (/^creatures your opponents control attack each combat if able\.?$/i.test(line)) {
+      result.statics.push({ scope: "opp", p: 0, th: 0, grants: ["must-attack"] });
+      continue;
+    }
+    if (/^if one or more \+1\/\+1 counters would be put on a creature you control, that many plus one \+1\/\+1 counters are put on it instead\.?$/i.test(line)) {
+      result.counterBonus = 1;
+      continue;
+    }
     const counterBan = line.match(/^creatures your opponents control with counters on them can't (attack or block|attack|block)\.?$/i);
     if (counterBan) {
       result.statics.push({ scope: "opp", counter: "any", p: 0, th: 0, grants: counterBan[1] === "attack or block" ? ["cant-attack", "cant-block"] : [`cant-${counterBan[1].toLowerCase()}`] });
@@ -1436,7 +1464,7 @@ export function parseCardText({ name, typeLine, oracleText }) {
         ? [triggerEvent(trigger[1], "~ enters"), triggerEvent(trigger[1], "~ attacks")]
         : [triggerEvent(trigger[1], condition)];
       if (events.every(Boolean)) {
-        const selfEvent = events.every(event => ["etb", "attacks", "dealsCombatDamage", "dies"].includes(event.event));
+        const selfEvent = events.every(event => ["etb", "attacks", "dealsCombatDamage", "dies", "dealtDamage"].includes(event.event));
         const effectText = selfEvent ? trigger[3].replace(/\b(on|it deals|returns?|gets?) it\b/g, match => match.replace(/\bit\b/, "~")) : trigger[3];
         const parsed = parseEffectText(effectText);
         if (parsed.specs.length <= 3) {

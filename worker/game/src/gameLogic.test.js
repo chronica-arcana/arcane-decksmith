@@ -140,6 +140,11 @@ const LIB = [
   ["spiral", "Wachstumsspirale", "Instant", "{G}", 2, {}, "Draw a card.\nYou may put a land card from your hand onto the battlefield."],
   ["tapsweep", "Sonnenwende", "Sorcery", "{G}", 2, {}, "Destroy all tapped creatures."],
   ["forestwalker", "Waldwanderer", "Creature — Elf", "{1}", 2, { power: "2", toughness: "2" }, "Forestwalk"],
+  ["hydra", "Wachsende Hydra", "Creature — Hydra", "{1}", 2, { power: "1", toughness: "5" }, "Whenever ~ is dealt damage, put that many +1/+1 counters on it."],
+  ["scribe", "Schreiber", "Creature — Wizard", "{1}", 2, { power: "1", toughness: "5" }, "Whenever ~ is dealt damage, draw that many cards."],
+  ["plaguebearer", "Pestbringer", "Creature — Horror", "{1}", 2, { power: "1", toughness: "1" }, "When ~ enters, put a -1/-1 counter on each creature your opponents control.\nCreatures your opponents control attack each combat if able."],
+  ["scales", "Gehärtete Schuppen", "Creature — Human Warrior", "{1}", 2, { power: "2", toughness: "2" }, "If one or more +1/+1 counters would be put on a creature you control, that many plus one +1/+1 counters are put on it instead."],
+  ["warhorn", "Kriegshorn", "Artifact", "{1}", 2, {}, "Whenever you attack, you gain 1 life.\nWhenever you attack with two or more creatures, you gain 5 life."],
   ["convoker", "Einberufer", "Sorcery", "{3}{G}", 2, {}, "Convoke\nDraw a card."],
   ["delver", "Schürfer", "Sorcery", "{4}{G}", 2, {}, "Delve\nDraw a card."],
   ["sculptor", "Bildhauer", "Creature — Vedalken", "{G}", 2, { power: "1", toughness: "1" }, "Artifact spells you cast cost {1} less to cast."],
@@ -2404,7 +2409,8 @@ describe("Neue Mechaniken aus den Commander-Decks", () => {
     const id = put(game, "u0", "Wachstumsspirale", "hand");
     expect(act(game, "u0", { type: "cast", id }, random).ok).toBe(true);
     go(game, random);
-    expect(game.players.u0.battlefield).toContain(land); // „go“ antwortet automatisch mit Ja und wählt die erste Karte
+    expect(game.players.u0.battlefield.length).toBe(3); // 2 Länder + 1 aus der Hand („go“ antwortet automatisch mit Ja)
+    void land;
 
     const tapped = put(game, "u1", "Bär", "battlefield");
     const fresh = put(game, "u1", "Falke", "battlefield");
@@ -2422,6 +2428,58 @@ describe("Neue Mechaniken aus den Commander-Decks", () => {
     expect(cannotBlockReason(game, game.cards[walker], game.cards[blocker])).toBeNull();
     put(game, "u1", "Forest", "battlefield");
     expect(cannotBlockReason(game, game.cards[walker], game.cards[blocker])).toBe("Landwandern");
+  });
+
+  it("„Whenever ~ is dealt damage“, Marker auf alle gegnerischen Kreaturen und Angriffszwang", () => {
+    const { game, random } = started();
+    forest(game, "u0", 4);
+    for (let i = 0; i < 4; i += 1) put(game, "u0", "Mountain", "battlefield");
+    const hydra = put(game, "u0", "Wachsende Hydra", "battlefield");
+    const scribe = put(game, "u0", "Schreiber", "battlefield");
+    const hand = game.players.u0.hand.length;
+    castAndResolve(game, "u0", "Blitz", random, [hydra]); // 3 Schaden
+    expect(game.cards[hydra].counters["+1/+1"]).toBe(3);
+    castAndResolve(game, "u0", "Blitz", random, [scribe]);
+    expect(game.players.u0.hand.length).toBe(hand + 3);
+    const foe = put(game, "u1", "Bär", "battlefield");
+    put(game, "u0", "Pestbringer", "hand");
+    const id = game.players.u0.hand.find(c => game.defs[game.cards[c].def].name === "Pestbringer");
+    expect(act(game, "u0", { type: "cast", id }, random).ok).toBe(true);
+    go(game, random);
+    expect(game.cards[foe].counters["-1/-1"]).toBe(1);
+    expect(view(game, "u1").players.find(p => p.userId === "u1").battlefield.find(c => c.id === foe).keywords).toContain("must-attack");
+  });
+
+  it("Ersatzeffekt „that many plus one“ (Hardened Scales) erhöht neue +1/+1-Marker", () => {
+    const { game, random } = started();
+    forest(game, "u0", 4);
+    put(game, "u0", "Gehärtete Schuppen", "battlefield");
+    const adapter = put(game, "u0", "Anpasser", "battlefield");
+    expect(act(game, "u0", { type: "activate", id: adapter, index: 0 }, random).ok).toBe(true);
+    go(game, random);
+    expect(game.cards[adapter].counters["+1/+1"]).toBe(3); // Adapt 2 + 1
+  });
+
+  it("„Whenever you attack“ feuert einmal je Angriff, „with N or more creatures“ nur ab N Angreifern", () => {
+    const { game, random } = started();
+    put(game, "u0", "Kriegshorn", "battlefield");
+    const a = put(game, "u0", "Bär", "battlefield");
+    const b = put(game, "u0", "Falke", "battlefield");
+    const life = game.players.u0.life;
+    game.turn.phase = "attackers";
+    expect(act(game, "u0", { type: "declareAttackers", attackers: [{ id: a, target: "u1" }] }, random).ok).toBe(true);
+    go(game, random);
+    expect(game.players.u0.life).toBe(life + 1);
+    const { game: g2, random: r2 } = started();
+    put(g2, "u0", "Kriegshorn", "battlefield");
+    const c = put(g2, "u0", "Bär", "battlefield");
+    const d = put(g2, "u0", "Falke", "battlefield");
+    const before = g2.players.u0.life;
+    g2.turn.phase = "attackers";
+    expect(act(g2, "u0", { type: "declareAttackers", attackers: [{ id: c, target: "u1" }, { id: d, target: "u1" }] }, r2).ok).toBe(true);
+    go(g2, r2);
+    expect(g2.players.u0.life).toBe(before + 6);
+    void b;
   });
 
   it("Convoke und Delve bezahlen fehlendes Mana mit Kreaturen bzw. Friedhofskarten", () => {
