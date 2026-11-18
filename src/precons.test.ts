@@ -10,11 +10,12 @@ describe("precons", () => {
       data: [
         { fileName: "Old_C13", name: "Old", code: "c13", type: "Commander Deck", releaseDate: "2013-11-01" },
         { fileName: "../evil", name: "Evil", code: "x", type: "Deck", releaseDate: "2030-01-01" },
+        { fileName: "Éldrazi_Unleashed_C99", name: "Eldrazi", code: "c99", type: "Commander Deck", releaseDate: "2015-01-01" },
         summary
       ]
     });
-    expect(decks.map(deck => deck.fileName)).toEqual(["Test_C21", "Old_C13"]);
-    expect(decks[1].code).toBe("C13");
+    expect(decks.map(deck => deck.fileName)).toEqual(["Test_C21", "Éldrazi_Unleashed_C99", "Old_C13"]);
+    expect(decks[2].code).toBe("C13");
   });
 
   it("übernimmt Commander, Hauptdeck und Zusatzkarten mit exakten Printings", () => {
