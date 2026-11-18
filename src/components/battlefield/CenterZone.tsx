@@ -37,9 +37,16 @@ export default function CenterZone({ children }: { children?: ReactNode }) {
           {game.stack.length > 0 && (
             <div className="stack" aria-label="Stapel">
               <div className="stack-cards">
-                {[...game.stack].reverse().filter(item => item.card).map((item, index) => (
+                {[...game.stack].reverse().map((item, index) => (
                   <div key={item.sid} className={`stack-item${index === 0 ? " top" : ""}`}>
-                    <CardView card={item.card!} size="lg" marked={isTarget(item.sid) ? "target" : null} onHover={setHover} onMenu={cardMenu} onSelect={(card, event) => (isTarget(item.sid) ? pickTarget(item.sid) : clickCard(card, event))} />
+                    {item.card ? (
+                      <CardView card={item.card} size="lg" marked={isTarget(item.sid) ? "target" : null} onHover={setHover} onMenu={cardMenu} onSelect={(card, event) => (isTarget(item.sid) ? pickTarget(item.sid) : clickCard(card, event))} />
+                    ) : (
+                      // Fähigkeiten auf dem Stapel (z. B. Ausrüsten): nur ein kleines Schild, damit man sieht, dass sie noch wartet
+                      <span className="stack-chip" title={`${item.sourceName ?? ""}: ${item.text}`}>
+                        ⏳ {item.sourceName ?? "Fähigkeit"}
+                      </span>
+                    )}
                   </div>
                 ))}
               </div>

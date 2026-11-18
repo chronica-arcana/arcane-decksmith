@@ -70,6 +70,7 @@ export type GameCard = {
   kind: "land" | "creature" | "other";
   attacking: boolean;
   chosenType?: string | null;
+  foretell?: { ok: boolean; cost: string } | null;
   attachedTo?: string | null;
   attachedName?: string | null;
   attachments?: string[];
@@ -206,6 +207,7 @@ export type GameAction =
   | { type: "playLand"; id: string }
   | { type: "cast"; id: string; x?: number; free?: boolean; targets?: string[]; mode?: number; tap?: string[]; pay?: string[] }
   | { type: "cycle"; id: string; tap?: string[] }
+  | { type: "foretell"; id: string; tap?: string[] }
   | { type: "damage"; id: string; delta: number }
   | { type: "moveOther"; id: string; to: "graveyard" | "exile" | "hand" }
   | { type: "activate"; id: string; index: number; targets?: string[]; tap?: string[]; pay?: string[] }

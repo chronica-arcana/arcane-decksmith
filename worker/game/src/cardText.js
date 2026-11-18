@@ -199,6 +199,30 @@ function parseSentence(raw, specs) {
     specs.push({ kind: "gyPermanent", mvMax: Number(m[2]) });
     return [{ type: "reanimate", t: specs.length - 1, to: "battlefield", counters: 0 }];
   }
+  if ((m = lower.match(/^draw x cards, where x is the greatest power among creatures you controlled as you cast ~$/))) {
+    return [{ type: "draw", who: { k: "you" }, n: 0, xFrom: { cast: "greatestPower" } }];
+  }
+  if ((m = lower.match(/^if ~ was cast from exile, you gain (twice )?x life$/))) {
+    return [{ type: "life", who: { k: "you" }, n: 0, onlyFromExile: true, nFrom: { cast: "greatestPower", mult: m[1] ? 2 : 1 } }];
+  }
+  if ((m = lower.match(/^destroy up to one target (artifact|creature|enchantment|land|permanent) that player controls$/))) {
+    specs.push({ kind: m[1], ctrl: "subject", optional: true });
+    return [{ type: "destroy", t: specs.length - 1 }];
+  }
+  if ((m = lower.match(/^if a counter was put on ~ this turn, (.+)$/))) {
+    const inner = parseSentence(s.slice(s.toLowerCase().indexOf("this turn, ") + 11), specs);
+    return inner ? [{ type: "ifCounterThisTurn", effects: inner }] : null;
+  }
+  if ((m = lower.match(new RegExp(`^put ${N} ([+-]1/[+-]1) counters? on each (other )?creature you control$`)))) {
+    const n = num(m[1]);
+    return n === null || n === "X" ? null : [{ type: "countersAll", n, kind: m[2], other: Boolean(m[3]) }];
+  }
+  if (lower === "reveal cards from the top of your library until you reveal a creature card") return [{ type: "digUntil", what: "creature" }];
+  if (lower === "put that card into your hand and the rest on the bottom of your library in a random order") return [{ type: "digRest" }];
+  if ((m = lower.match(/^when you reveal a creature card this way, put x ([+-]1\/[+-]1) counters on (target creature you control), where x is the mana value of that card$/))) {
+    const t = addTarget(specs, m[2]);
+    return t === null ? null : [{ type: "counters", n: 0, kind: m[1], t, xFrom: { digMv: true } }];
+  }
   // „… for each …“: der Effekt wird mit der Anzahl multipliziert.
   if ((m = lower.match(/^(.+?) for each (creature you control|land you control|artifact you control|creature your opponents control|creature|land|artifact|card in your hand|opponent)$/))) {
     const head = parseSentence(s.slice(0, m[1].length), specs);
@@ -479,6 +503,30 @@ function parseSentence(raw, specs) {
 const WHO_DE = { you: "Du", eachOpp: "Jeder Gegner", each: "Jeder Spieler", target: "Der Zielspieler" };
 const plural = (n, one, many) => (n === 1 ? one : many);
 
+/** „gets +2/+1 and has trample and lifelink and loses flying“ → Bonus, gewährte und entzogene Schlüsselwörter (`null`, wenn etwas nicht verstanden wird). */
+function parseAttachClauses(text) {
+  const out = { p: 0, th: 0, grants: [], revokes: [] };
+  let mode = null;
+  for (const raw of text.split(/,\s*(?:and )?|\s+and\s+/)) {
+    let part = raw.trim().toLowerCase();
+    if (!part) continue;
+    let m;
+    if ((m = part.match(/^gets ([+-]\d+)\/([+-]\d+)$/))) {
+      out.p += Number(m[1]);
+      out.th += Number(m[2]);
+      mode = null;
+      continue;
+    }
+    if ((m = part.match(/^(has|loses) (.+)$/))) {
+      mode = m[1] === "has" ? "grants" : "revokes";
+      part = m[2];
+    } else if (mode === null) return null;
+    if (!KEYWORDS.includes(part) && part !== "protection") return null;
+    out[mode].push(part);
+  }
+  return out;
+}
+
 const COUNT_WORD = { a: 1, an: 1, one: 1, two: 2, three: 3 };
 
 /** Kosten einer aktivierten Fähigkeit; `null`, wenn etwas nicht unterstützt wird. */
@@ -516,9 +564,12 @@ function describeBase(effect) {
   const who = effect.who ? WHO_DE[effect.who.k] ?? "Spieler" : "Du";
   const signed = value => `${value >= 0 ? "+" : ""}${value}`;
   switch (effect.type) {
-    case "draw": return `${who} ${effect.who?.k === "you" ? "ziehst" : "zieht"} ${effect.n} ${plural(effect.n, "Karte", "Karten")}.`;
+    case "draw":
+      if (effect.xFrom?.cast) return `${who} ${effect.who?.k === "you" ? "ziehst" : "zieht"} X Karten (X = größte Stärke deiner Kreaturen beim Wirken).`;
+      return `${who} ${effect.who?.k === "you" ? "ziehst" : "zieht"} ${effect.n} ${plural(effect.n, "Karte", "Karten")}.`;
     case "life": {
       const loss = effect.negate || (typeof effect.n === "number" && effect.n < 0);
+      if (effect.nFrom?.cast) return `Wurde der Zauber aus dem Exil gewirkt: ${effect.nFrom.mult === 2 ? "doppelt so viel" : "so viel"} Leben wie X.`;
       const amount = typeof effect.n === "number" ? Math.abs(effect.n) : effect.n;
       return loss ? `${who} ${effect.who?.k === "you" ? "verlierst" : "verliert"} ${amount} Leben.` : `${who} ${effect.who?.k === "you" ? "erhältst" : "erhält"} ${amount} Leben.`;
     }
@@ -549,6 +600,10 @@ function describeBase(effect) {
     case "prevent": return `Verhindert die nächsten ${effect.n} Schaden in diesem Zug.`;
     case "noCombat": return "Verhindert allen Kampfschaden an und von dieser Kreatur in diesem Zug.";
     case "counterTo": return "";
+    case "ifCounterThisTurn": return `Wenn in diesem Zug ein Marker auf diese Karte kam: ${effect.effects.map(describeEffect).join(" ")}`;
+    case "countersAll": return `${effect.n}× ${effect.kind}-Marker auf jede ${effect.other ? "andere " : ""}eigene Kreatur.`;
+    case "digUntil": return "Deckt Karten auf, bis eine Kreatur erscheint; sie kommt auf die Hand, der Rest unter die Bibliothek.";
+    case "digRest": return "";
     case "bounceOwn": return "Du legst ein eigenes Permanent zurück auf die Hand.";
     case "tapOrUntap": return "Tappt oder enttappt das Ziel.";
     case "flicker": return "Das Ziel wird exiliert und kommt sofort zurück.";
@@ -571,7 +626,10 @@ function describeBase(effect) {
     case "flashbackTokenCounters": return `Kam der Zauber aus dem Friedhof: ${effect.n} zusätzliche +1/+1-Marker auf den Spielstein.`;
     case "reanimateCounters":
     case "noop": return "";
-    case "counters": return `${effect.n}× ${effect.kind}-Marker ${effect.self ? "auf diese Karte" : "auf das Ziel"}.`;
+    case "counters":
+      if (effect.xFrom?.digMv) return `X ${effect.kind}-Marker auf das Ziel (X = Manawert der aufgedeckten Kreatur).`;
+      if (effect.xFrom?.stat) return `X ${effect.kind}-Marker auf das Ziel (X = ${effect.xFrom.stat === "power" ? "Stärke" : "Widerstandskraft"} des Ziels).`;
+      return `${effect.n}× ${effect.kind}-Marker ${effect.self ? "auf diese Karte" : "auf das Ziel"}.`;
     case "pump": return `${effect.self ? "Diese Kreatur" : "Das Ziel"} erhält ${signed(effect.p)}/${signed(effect.th)} bis zum Zugende.`;
     case "pumpAll": return `${{ you: "Deine Kreaturen", opp: "Kreaturen deiner Gegner", all: "Alle Kreaturen" }[effect.scope ?? "you"]} erhalten ${signed(effect.p)}/${signed(effect.th)} bis zum Zugende.`;
     case "token": return `Erzeugt ${effect.n}× ${effect.name} ${effect.p}/${effect.th}.`;
@@ -767,6 +825,11 @@ export function parseCardText({ name, typeLine, oracleText }) {
         result.costReduction = { amount: Number(reduce[1]), per: reduce[2].toLowerCase() };
         continue;
       }
+      const foretell = line.match(/^foretell (\{[^}]+\}(?:\{[^}]+\})*)$/i);
+      if (foretell) {
+        result.foretell = foretell[1];
+        continue;
+      }
       const additional = line.match(/^as an additional cost to cast ~, (sacrifice|discard) (a|an|one|two|three) (creature|artifact|land|enchantment|permanent|card)s?\.?$/i);
       if (additional) {
         const kind = additional[1].toLowerCase();
@@ -880,12 +943,19 @@ export function parseCardText({ name, typeLine, oracleText }) {
       result.spell = { effects: [], specs: [{ kind }], unparsed: [], summary: "Verzauberung: hängt sich beim Auflösen an das Ziel." };
       continue;
     }
-    // Dauerbonus durch Anhängen: „Equipped creature gets +2/+1 and has first strike.“
-    const attach = line.match(/^(?:equipped|enchanted) creature (?:gets ([+-]\d+)\/([+-]\d+))?(?: and )?(?:has ([a-z, ]+))?\.?$/i);
-    if (attach && (attach[1] !== undefined || attach[3])) {
-      const grants = (attach[3] ?? "").split(/,| and /).map(word => word.trim().toLowerCase()).filter(word => KEYWORDS.includes(word));
-      result.attach = { p: attach[1] !== undefined ? Number(attach[1]) : 0, th: attach[2] !== undefined ? Number(attach[2]) : 0, grants };
-      continue;
+    // Dauerbonus durch Anhängen: „Equipped creature gets +2/+1, has trample and loses flying.“
+    const attach = line.match(/^(?:equipped|enchanted) creature (gets|has|loses) (.+?)\.?$/i);
+    if (attach) {
+      const clauses = parseAttachClauses(`${attach[1]} ${attach[2]}`);
+      if (clauses) {
+        result.attach = {
+          p: (result.attach?.p ?? 0) + clauses.p,
+          th: (result.attach?.th ?? 0) + clauses.th,
+          grants: [...(result.attach?.grants ?? []), ...clauses.grants],
+          ...(clauses.revokes.length || result.attach?.revokes?.length ? { revokes: [...(result.attach?.revokes ?? []), ...clauses.revokes] } : {})
+        };
+        continue;
+      }
     }
     if (isKeywordLine(line)) continue;
 

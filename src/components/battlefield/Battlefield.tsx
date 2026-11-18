@@ -210,12 +210,13 @@ export default function Battlefield({
 
   /** Mit „Mana selbst wählen“ erst die Länder wählen lassen, sonst sofort ausführen. */
   const payOrAct = (action: GameAction) => {
-    if (!chooseMana || (action.type !== "cast" && action.type !== "activate" && action.type !== "cycle")) return act(action);
+    if (!chooseMana || (action.type !== "cast" && action.type !== "activate" && action.type !== "cycle" && action.type !== "foretell")) return act(action);
     const card = allCards.get(action.id);
     if (!card) return act(action);
     let cost = "";
     if (action.type === "cast") cost = (card.manaCost ?? "").replace(/\{X\}/gi, () => `{${action.x ?? 0}}`);
     else if (action.type === "cycle") cost = card.cycle?.cost ?? "";
+    else if (action.type === "foretell") cost = "{2}";
     else cost = (card.abilities?.find(ability => ability.index === action.index)?.costLabel ?? "").replace(/\{T\}/g, "");
     const sources = me.battlefield.filter(item => item.mana && !item.tapped && !item.sick && item.id !== (action.type === "activate" ? action.id : ""));
     if (!/\{[^}]+\}/.test(cost) || sources.length === 0) return act(action);
@@ -288,10 +289,13 @@ export default function Battlefield({
         { label: "→ Bibliothek oben", onClick: () => moveCard(card, "library", { position: "top" }) },
         { label: "→ Bibliothek unten", onClick: () => moveCard(card, "library", { position: "bottom" }) }
       ];
+      if (zone === "hand" && card.foretell) {
+        items.push({ label: `Vorhersagen (Foretell) {2} – später für ${card.foretell.cost}`, disabled: !card.foretell.ok, onClick: () => payOrAct({ type: "foretell", id: card.id }) });
+      }
       if (zone === "hand" && card.cycle) {
         items.push({ label: `Cycling ${card.cycle.cost}${card.cycle.search ? " (Land suchen)" : " (Karte ziehen)"}`, disabled: !card.cycle.ok, onClick: () => payOrAct({ type: "cycle", id: card.id }) });
       }
-      if ((zone === "hand" || zone === "command" || zone === "graveyard") && card.play) {
+      if ((zone === "hand" || zone === "command" || zone === "graveyard" || zone === "exile") && card.play) {
         items.push({ label: card.play.kind === "land" ? "Land spielen" : zone === "graveyard" ? "Mit Rückblende wirken" : "Wirken", disabled: !card.play.ok, onClick: () => startCast(card) });
       }
       if (zone === "battlefield") {
@@ -452,7 +456,7 @@ export default function Battlefield({
       }
       return;
     }
-    if ((zone === "hand" || zone === "command" || zone === "graveyard") && canAct && card.play?.ok) {
+    if ((zone === "hand" || zone === "command" || zone === "graveyard" || zone === "exile") && canAct && card.play?.ok) {
       startCast(card);
     }
   };

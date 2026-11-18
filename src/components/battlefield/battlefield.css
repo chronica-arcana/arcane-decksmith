@@ -315,3 +315,5 @@
 
 .mode-list button { display: grid; gap: 2px; text-align: left; }
 .mode-list button small { font-size: 0.72rem; }
+
+.stack-chip { display: inline-block; padding: 3px 10px; border-radius: 999px; background: #c9a24b26; border: 1px solid var(--gold-dim); font-size: 0.72rem; color: var(--gold-bright); }
