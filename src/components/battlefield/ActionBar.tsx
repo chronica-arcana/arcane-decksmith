@@ -35,7 +35,7 @@ const TARGET_LABELS: Record<string, string> = {
   any: "ein beliebiges Ziel", player: "einen Spieler", opponent: "einen Gegner", creature: "eine Kreatur", planeswalker: "einen Planeswalker",
   artifact: "ein Artefakt", enchantment: "eine Verzauberung", land: "ein Land", permanent: "einen Permanent", nonland: "einen Nichtland-Permanent",
   creatureOrPlaneswalker: "eine Kreatur oder einen Planeswalker", artifactOrEnchantment: "ein Artefakt oder eine Verzauberung",
-  paySacrifice: "eine Karte, die du opferst", payDiscard: "eine Karte, die du abwirfst", spell: "einen Zauber", creatureSpell: "einen Kreaturenzauber", noncreatureSpell: "einen Nichtkreaturenzauber", instantOrSorcerySpell: "einen Spontan- oder Hexereizauber"
+  paySacrifice: "eine Karte, die du opferst", payDiscard: "eine Karte, die du abwirfst", payTap: "ein Permanent, das du tappst", spell: "einen Zauber", creatureSpell: "einen Kreaturenzauber", noncreatureSpell: "einen Nichtkreaturenzauber", instantOrSorcerySpell: "einen Spontan- oder Hexereizauber"
 };
 
 /** Die einzige Schaltflächenleiste: zeigt nur, was im aktuellen Moment wirklich möglich ist. Prioritäts-Hinweise gibt es bewusst nicht. */
@@ -193,7 +193,7 @@ export default function ActionBar(props: ActionBarProps) {
       <div className="action-bar" role="alert">
         <strong>Reaktion ausspielen? {nameOf(top.controller)} spielt {what}</strong>
         <span className="muted">Die leuchtenden Karten kannst du jetzt spielen.</span>
-        <button type="button" className="primary go" onClick={() => act({ type: "pass" })}>Nicht antworten</button>
+        <button type="button" className="primary go" onClick={() => act({ type: "pass" })}>Nein</button>
       </div>
     );
   }
@@ -204,7 +204,7 @@ export default function ActionBar(props: ActionBarProps) {
       <div className="action-bar" role="alert">
         <strong>Reaktion ausspielen?</strong>
         <span className="muted">Die leuchtenden Karten kannst du jetzt spielen.</span>
-        <button type="button" className="primary go" onClick={() => act({ type: "pass" })}>Nicht antworten</button>
+        <button type="button" className="primary go" onClick={() => act({ type: "pass" })}>Nein</button>
       </div>
     );
   }
@@ -216,7 +216,7 @@ export default function ActionBar(props: ActionBarProps) {
         : step === "attackers"
           ? "Kein Angriff"
           : step === "damage"
-            ? props.isActive ? "Kampfschaden verursachen" : "Nicht antworten"
+            ? props.isActive ? "Kampfschaden verursachen" : "Nein"
             : "Zug beenden";
     return (
       <div className="action-bar" role="status">

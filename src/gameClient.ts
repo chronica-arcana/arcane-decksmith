@@ -53,7 +53,7 @@ export type PlayerCounterKind = "poison" | "energy" | "experience";
 /** Gültige Ziele für eine Zielangabe eines Zaubers oder einer Fähigkeit (Karten-, Spieler- oder Stapel-IDs). */
 export type TargetOption = { kind: string; options: string[] };
 
-export type PayRequirement = { kind: "sacrifice" | "discard" | "life"; what?: string; n: number; options: string[] };
+export type PayRequirement = { kind: "sacrifice" | "discard" | "life" | "tap" | "removeCounter"; what?: string; n: number; options: string[] };
 export type CardAbility = { index: number; text: string; costLabel?: string; ok: boolean; pays?: PayRequirement[]; targets: TargetOption[]; manual: boolean };
 
 export type GameCard = {
@@ -70,6 +70,7 @@ export type GameCard = {
   kind: "land" | "creature" | "other";
   attacking: boolean;
   chosenType?: string | null;
+  foretell?: { ok: boolean; cost: string } | null;
   attachedTo?: string | null;
   attachedName?: string | null;
   attachments?: string[];
@@ -88,7 +89,7 @@ export type GameCard = {
   /** Farben, die diese Manaquelle erzeugen kann. */
   manaColors?: string[];
   /** Nur für eigene Karten: Was ist jetzt möglich? */
-  play?: { kind: "land" | "spell"; ok: boolean; timingOk?: boolean; pays?: PayRequirement[]; targets?: TargetOption[]; modes?: { label: string; targets: TargetOption[]; manual: boolean }[]; manual?: boolean } | null;
+  play?: { kind: "land" | "spell"; ok: boolean; timingOk?: boolean; pays?: PayRequirement[]; targets?: TargetOption[]; modes?: { label: string; summary?: string; targets: TargetOption[]; manual: boolean }[]; manual?: boolean } | null;
   /** Cycling aus der Hand (falls die Karte es hat). */
   cycle?: { ok: boolean; cost: string; search: string | null } | null;
   /** Nur eigene Karten auf dem Schlachtfeld: aktivierbare Fähigkeiten laut Kartentext. */
@@ -171,6 +172,7 @@ export type GameView = {
   } | null;
   /** Ein Kartentext, den das Spiel nicht umsetzen kann: Nur dieser Spieler darf jetzt von Hand eingreifen. */
   manual: { userId: string; text: string; source: string } | null;
+  monarch?: string | null;
   winner: string | null;
   startedAt: number;
   endedAt: number | null;
@@ -206,6 +208,7 @@ export type GameAction =
   | { type: "playLand"; id: string }
   | { type: "cast"; id: string; x?: number; free?: boolean; targets?: string[]; mode?: number; tap?: string[]; pay?: string[] }
   | { type: "cycle"; id: string; tap?: string[] }
+  | { type: "foretell"; id: string; tap?: string[] }
   | { type: "damage"; id: string; delta: number }
   | { type: "moveOther"; id: string; to: "graveyard" | "exile" | "hand" }
   | { type: "activate"; id: string; index: number; targets?: string[]; tap?: string[]; pay?: string[] }

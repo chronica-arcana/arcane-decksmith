@@ -55,7 +55,7 @@
 .zone-me .zone-field { align-content: end; }
 .field-row { display: flex; flex-wrap: nowrap; justify-content: center; gap: 6px; align-items: center; max-width: 100%; }
 /* Slots: schrumpfen bei Platzmangel, die Karte darin überlappt dann die Nachbarn; getappte Karten brauchen ihre Kartenhöhe als Breite */
-.field-slot { --sw: var(--cw); flex: 0 1 var(--sw); width: var(--sw); min-width: calc(var(--sw) * 0.34); height: calc(var(--sw) * 1.4); display: flex; justify-content: center; align-items: center; }
+.field-slot { --sw: var(--cw); flex: 0 1 var(--sw); width: var(--sw); min-width: calc(var(--sw) * 0.6); height: calc(var(--sw) * 1.4); display: flex; justify-content: center; align-items: center; }
 .field-slot.sm { --sw: calc(var(--cw) * 0.72); }
 .field-slot.tapped { flex-basis: calc(var(--sw) * 1.4); width: calc(var(--sw) * 1.4); }
 .field-slot .gc, .field-slot .gc.tapped { margin: 0; flex: none; }
@@ -159,8 +159,9 @@
 .gc-badge { position: absolute; left: 2px; top: 2px; padding: 0 5px; border-radius: 999px; background: #000b; color: #fff; font-size: 0.62rem; }
 .gc-badge.cmd { background: #8a5cd0cc; }
 .gc-badge { max-width: 92%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.gc-badge.attach { background: #2a6fb0dd; top: auto; bottom: 18px; }
-.gc-badge.attached { background: #b07a2add; top: auto; bottom: 18px; }
+.gc-badge.attach, .gc-badge.attached { font-size: 0.52rem; padding: 0 4px; max-width: 60%; top: auto; left: 2px; opacity: 0.92; }
+.gc-badge.attach { background: #2a6fb0dd; bottom: 3px; }
+.gc-badge.attached { background: #b07a2add; bottom: 14px; }
 .gc-stats { position: absolute; right: 2px; bottom: 2px; padding: 0 6px; border-radius: 6px; background: #000c; color: #fff; font-weight: 800; font-size: 0.85rem; border: 1px solid var(--gold-dim); }
 .gc-stats.hurt { background: #a82a1acc; }
 .gc-counters { position: absolute; left: 2px; top: 20px; display: grid; gap: 1px; max-width: 78%; font-size: 0.62rem; }
@@ -306,3 +307,13 @@
   .action-bar { padding: 4px 10px; gap: 4px 8px; font-size: 0.8rem; }
   .action-bar .go { min-width: 0; }
 }
+
+/* Aktionsleiste: unten, direkt über den Phasen */
+.bar-dock { flex: none; display: flex; justify-content: center; padding: 4px 0 2px; min-height: 0; }
+.bar-dock:empty { display: none; }
+.bar-dock .action-bar { max-width: 100%; }
+
+.mode-list button { display: grid; gap: 2px; text-align: left; }
+.mode-list button small { font-size: 0.72rem; }
+
+.stack-chip { display: inline-block; padding: 3px 10px; border-radius: 999px; background: #c9a24b26; border: 1px solid var(--gold-dim); font-size: 0.72rem; color: var(--gold-bright); }

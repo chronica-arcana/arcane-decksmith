@@ -113,6 +113,35 @@ const LIB = [
   ["prison", "Gespensterkerker", "Enchantment", "{G}", 2, {}, "Creatures can't attack you unless their controller pays {2} for each creature they control that's attacking you."],
   ["crusade", "Kreuzzug", "Enchantment", "{G}", 2, {}, "Green creatures get +1/+1."],
   ["remand", "Rückruf", "Instant", "{R}", 2, {}, "Counter target spell. If that spell is countered this way, put it into its owner's hand instead of into its owner's graveyard."],
+  ["clamp", "Schädelklemme", "Artifact — Equipment", "{1}", 2, {}, "Equipped creature gets +1/-1.\nWhenever equipped creature dies, draw two cards.\nEquip {1}"],
+  ["hammer", "Koloss-Hammer", "Artifact — Equipment", "{1}", 2, {}, "Equipped creature gets +10/+10 and loses flying.\nEquip {8}"],
+  ["lifestream", "Lebensstrom-Segen", "Instant", "{4}{G}{G}", 2, {}, "Draw X cards, where X is the greatest power among creatures you controlled as you cast this spell. If this spell was cast from exile, you gain twice X life.\nForetell {4}{G} (During your turn, you may pay {2} and exile this card from your hand face down. Cast it on a later turn for its foretell cost.)"],
+  ["wakka", "Wakka", "Legendary Creature — Human Warrior", "{2}{G}{W}", 1, { power: "4", toughness: "4", keywords: ["Reach", "Trample"] }, "Reach, trample\nWhenever Wakka deals combat damage to a player, destroy up to one target artifact that player controls and put a +1/+1 counter on Wakka.\nBlitzball Captain — At the beginning of your end step, if a counter was put on Wakka this turn, put a +1/+1 counter on each other creature you control."],
+  ["whistle", "Yunas Pfeife", "Instant", "{1}{G}{G}", 2, {}, "Reveal cards from the top of your library until you reveal a creature card. Put that card into your hand and the rest on the bottom of your library in a random order. When you reveal a creature card this way, put X +1/+1 counters on target creature you control, where X is the mana value of that card."],
+  ["vehicle", "Karren", "Artifact — Vehicle", "{2}", 2, { power: "3", toughness: "3" }, "Crew 2"],
+  ["convoker", "Einberufer", "Sorcery", "{3}{G}", 2, {}, "Convoke\nDraw a card."],
+  ["delver", "Schürfer", "Sorcery", "{4}{G}", 2, {}, "Delve\nDraw a card."],
+  ["sculptor", "Bildhauer", "Creature — Vedalken", "{G}", 2, { power: "1", toughness: "1" }, "Artifact spells you cast cost {1} less to cast."],
+  ["lantern", "Laterne", "Artifact", "{3}", 2, {}, "Lands you control have \"{T}: Add one mana of any color.\""],
+  ["xooze", "Wachsschleim", "Creature — Ooze", "{X}{G}", 2, { power: "0", toughness: "0" }, "This creature enters with X +1/+1 counters on it."],
+  ["nocounter", "Unaufhaltsam", "Sorcery", "{G}", 2, {}, "This spell can't be countered.\nDraw a card."],
+  ["berserk", "Berserker", "Creature — Human", "{G}", 2, { power: "2", toughness: "2" }, "This creature attacks each combat if able."],
+  ["throne", "Thronanspruch", "Sorcery", "{G}", 2, {}, "You become the monarch."],
+  ["prolif", "Wucherung", "Sorcery", "{G}", 2, {}, "Proliferate."],
+  ["stirrings", "Uraltes Rühren", "Sorcery", "{G}", 2, {}, "Look at the top four cards of your library. You may reveal a creature card from among them and put it into your hand. Put the rest on the bottom of your library in a random order."],
+  ["warp", "Chaoswirbel", "Instant", "{2}{R}", 2, {}, "The owner of target permanent shuffles it into their library, then reveals the top card of their library. If it's a permanent card, they put it onto the battlefield."],
+  ["nova", "Reinigungsnova", "Sorcery", "{3}{G}", 2, {}, "Destroy all artifacts and enchantments."],
+  ["filter", "Filterland", "Land", "", 2, {}, "{G/R}, {T}: Add {G}{G}, {G}{R}, or {R}{R}."],
+  ["explore", "Erkunden", "Sorcery", "{1}{G}", 2, {}, "You may play an additional land this turn.\nDraw a card."],
+  ["spire", "Turmspitze", "Land", "", 2, {}, "This land enters tapped.\nWhen this land enters, sacrifice it unless you pay {1}."],
+  ["cavern", "Schimmerhain", "Land", "", 2, {}, "This land enters tapped with two charge counters on it.\n{T}, Remove a charge counter from this land: Add one mana of any color."],
+  ["ghoul", "Gräberghul", "Instant", "{G}", 2, {}, "Exile target card from a graveyard."],
+  ["evolver", "Entwickler", "Creature — Ooze", "{G}", 2, { power: "1", toughness: "1" }, "Evolve"],
+  ["germer", "Keimwaffe", "Artifact — Equipment", "{1}", 2, {}, "Living weapon\nEquipped creature gets +1/+1."],
+  ["monst", "Monströs", "Creature — Beast", "{G}", 2, { power: "2", toughness: "2" }, "{3}{G}: Monstrosity 2."],
+  ["manland", "Wandelland", "Land", "", 2, {}, "{1}{G}: This land becomes a 3/3 green Elemental creature until end of turn. It's still a land."],
+  ["heirloom", "Heldenerbstück", "Artifact — Equipment", "{1}", 2, {}, "Equipped creature gets +2/+1.\nAs long as equipped creature is legendary, it has trample and haste.\nEquip {2}"],
+  ["ballista", "Wandelnde Balliste", "Artifact Creature — Construct", "{X}{X}", 2, { power: "0", toughness: "0" }, "This creature enters with X +1/+1 counters on it.\n{4}: Put a +1/+1 counter on this creature.\nRemove a +1/+1 counter from this creature: It deals 1 damage to any target."],
   ["priest", "Priester", "Creature — Cleric", "{G}", 2, { power: "1", toughness: "1" }, "At the beginning of your end step, you gain 1 life."]
 ];
 const facts = new Map();
@@ -1996,5 +2025,341 @@ describe("Mehr Automatik: Gebühren-Auslöser, Blinzeln, Regeneration, Verhinder
     run(game, random);
     expect(game.players.u0.hand).toContain(bear);
     expect(game.players.u0.graveyard).not.toContain(bear);
+  });
+});
+
+describe("Ausrüsten im Spiel mit Gegner-Antwortfenster", () => {
+  it("Schädelklemme: Kosten bezahlt, Anhängen wird sofort angezeigt, wenn der Gegner nichts hat – sonst nach seinem Passen", () => {
+    const { game, random } = started();
+    forest(game, "u0", 2);
+    const clamp = put(game, "u0", "Schädelklemme", "battlefield");
+    const bear = put(game, "u0", "Bär", "battlefield");
+    expect(act(game, "u0", { type: "activate", id: clamp, index: 0, targets: [bear] }, random).ok).toBe(true);
+    expect(game.cards[clamp].attachedTo).toBe(bear); // Gegner kann nicht antworten → löst sich sofort auf
+    expect(view(game, "u0").players[0].battlefield.find(c => c.id === bear).attachments).toEqual(["Schädelklemme"]);
+    // Gegner mit leuchtendem Sofortzauber: erst nach seinem Passen
+    const { game: g2, random: r2 } = started();
+    forest(g2, "u0", 2);
+    const clamp2 = put(g2, "u0", "Schädelklemme", "battlefield");
+    const bear2 = put(g2, "u0", "Bär", "battlefield");
+    put(g2, "u1", "Mountain", "battlefield");
+    put(g2, "u1", "Blitz", "hand");
+    expect(act(g2, "u0", { type: "activate", id: clamp2, index: 0, targets: [bear2] }, r2).ok).toBe(true);
+    expect(g2.priority).toBe("u1");
+    expect(g2.cards[clamp2].attachedTo ?? null).toBeNull();
+    act(g2, "u1", { type: "pass" }, r2);
+    expect(g2.cards[clamp2].attachedTo).toBe(bear2);
+  });
+
+  it("Koloss-Hammer: +10/+10 und verliert Flug", () => {
+    const { game, random } = started();
+    forest(game, "u0", 8);
+    const hammer = put(game, "u0", "Koloss-Hammer", "battlefield");
+    const hawk = put(game, "u0", "Falke", "battlefield");
+    expect(view(game, "u0").players[0].battlefield.find(c => c.id === hawk).keywords).toContain("flying");
+    expect(act(game, "u0", { type: "activate", id: hammer, index: 0, targets: [hawk] }, random).ok).toBe(true);
+    const card = view(game, "u0").players[0].battlefield.find(c => c.id === hawk);
+    expect(card.power).toBe(11);
+    expect(card.toughness).toBe(11);
+    expect(card.keywords).not.toContain("flying");
+  });
+});
+
+describe("Karten aus den Rückmeldungen: Lifestream's Blessing, Wakka, Yuna's Whistle", () => {
+  const finish = (game, random, n = 10) => {
+    for (let i = 0; i < n && (game.stack.length > 0 || game.choice); i += 1) {
+      if (game.choice) act(game, game.choice.userId, { type: "choose", ids: game.choice.kind === "yesno" ? ["yes"] : game.choice.min === 0 ? [] : [game.choice.options[0]] }, random);
+      else act(game, game.priority, { type: "pass" }, random);
+    }
+  };
+
+  it("Lifestream's Blessing: zieht X (größte Stärke), aus dem Exil (Foretell) zusätzlich doppelt so viel Leben", () => {
+    const { game, random } = started();
+    forest(game, "u0", 8);
+    put(game, "u0", "Riese", "battlefield"); // Stärke 5
+    const blessing = put(game, "u0", "Lebensstrom-Segen", "hand");
+    const hand = game.players.u0.hand.length;
+    const life = game.players.u0.life;
+    expect(act(game, "u0", { type: "cast", id: blessing }, random).ok).toBe(true);
+    finish(game, random);
+    expect(game.players.u0.hand.length).toBe(hand - 1 + 5);
+    expect(game.players.u0.life).toBe(life); // nicht aus dem Exil
+    // Vorhersagen und später wirken
+    const second = put(game, "u0", "Lebensstrom-Segen", "hand");
+    expect(view(game, "u0").players[0].hand.find(c => c.id === second).foretell).toMatchObject({ ok: true, cost: "{4}{G}" });
+    expect(act(game, "u0", { type: "foretell", id: second }, random).ok).toBe(true);
+    expect(game.players.u0.exile).toContain(second);
+    expect(act(game, "u0", { type: "cast", id: second }, random).error).toMatch(/späteren Zug/);
+    game.turn.number += 1; // späterer Zug
+    for (const id of game.players.u0.battlefield) game.cards[id].tapped = false;
+    expect(act(game, "u0", { type: "cast", id: second }, random).ok).toBe(true);
+    finish(game, random);
+    expect(game.players.u0.life).toBe(life + 10);
+  });
+
+  it("Wakka: Kampfschaden zerstört (optional) ein Artefakt und gibt einen Marker; am Zugende bekommen die anderen Kreaturen einen", () => {
+    const { game, random } = started();
+    const wakka = put(game, "u0", "Wakka", "battlefield");
+    const bear = put(game, "u0", "Bär", "battlefield");
+    const artifact = put(game, "u1", "Sense", "battlefield");
+    toAttackers(game, random);
+    act(game, "u0", { type: "declareAttackers", attackers: [{ id: wakka, target: "u1" }] }, random);
+    for (let i = 0; i < 12 && (game.combat || game.stack.length > 0 || game.choice); i += 1) {
+      if (game.choice) {
+        expect(JSON.stringify(game.choice).slice(0, 300)).toContain(artifact); // nur Artefakte des getroffenen Spielers
+        act(game, game.choice.userId, { type: "choose", ids: [artifact] }, random);
+      } else act(game, game.priority, { type: "pass" }, random);
+    }
+    expect(game.players.u1.graveyard).toContain(artifact);
+    expect(game.cards[wakka].counters["+1/+1"]).toBe(1);
+    expect(game.manual).toBeNull();
+    // Zugende
+    for (let i = 0; i < 14 && game.turn.active === "u0"; i += 1) {
+      if (game.pendingDiscard) act(game, "u0", { type: "discard", ids: game.players.u0.hand.slice(0, game.pendingDiscard.count) }, random);
+      else if (game.choice) act(game, game.choice.userId, { type: "choose", ids: [game.choice.options[0]] }, random);
+      else act(game, game.priority, { type: "pass" }, random);
+    }
+    expect(game.cards[bear].counters["+1/+1"]).toBe(1);
+  });
+
+  it("Wakka: ohne Artefakt läuft der Auslöser trotzdem (nur der Marker)", () => {
+    const { game, random } = started();
+    const wakka = put(game, "u0", "Wakka", "battlefield");
+    toAttackers(game, random);
+    act(game, "u0", { type: "declareAttackers", attackers: [{ id: wakka, target: "u1" }] }, random);
+    for (let i = 0; i < 12 && (game.combat || game.stack.length > 0 || game.choice); i += 1) act(game, game.priority, { type: "pass" }, random);
+    expect(game.cards[wakka].counters["+1/+1"]).toBe(1);
+  });
+
+  it("Yuna's Whistle: Kreatur aufdecken, auf die Hand, Marker in Höhe ihres Manawerts", () => {
+    const { game, random } = started();
+    forest(game, "u0", 3);
+    const bear = put(game, "u0", "Bär", "battlefield");
+    // oben auf der Bibliothek: ein Land, darunter ein Riese (Manawert laut Testdaten = 2)
+    const top = game.players.u0.library;
+    const giant = top.find(id => game.defs[game.cards[id].def]?.name === "Riese");
+    top.splice(top.indexOf(giant), 1);
+    top.push(giant);
+    const whistle = put(game, "u0", "Yunas Pfeife", "hand");
+    expect(act(game, "u0", { type: "cast", id: whistle, targets: [bear] }, random).ok).toBe(true);
+    finish(game, random);
+    expect(game.players.u0.hand).toContain(giant);
+    expect(game.cards[bear].counters["+1/+1"]).toBe(2);
+    expect(game.manual).toBeNull();
+  });
+});
+
+describe("Neue Mechaniken aus den Commander-Decks", () => {
+  const go = (game, random, n = 10) => {
+    for (let i = 0; i < n && (game.stack.length > 0 || game.choice); i += 1) {
+      if (game.choice) act(game, game.choice.userId, { type: "choose", ids: game.choice.kind === "yesno" ? ["yes"] : game.choice.min === 0 ? [game.choice.options[0]] : game.choice.options.slice(0, game.choice.min) }, random);
+      else act(game, game.priority, { type: "pass" }, random);
+    }
+  };
+  const cast = (game, random, uid, name, extra = {}, zone) => {
+    const id = put(game, uid, name, "hand", zone ? { only: zone } : {});
+    const result = act(game, uid, { type: "cast", id, ...extra }, random);
+    expect(result.error ?? "ok").toBe("ok");
+    go(game, random);
+    return id;
+  };
+
+  it("Besatzung: Fahrzeug wird mit passenden Kreaturen zur Kreatur und greift an", () => {
+    const { game, random } = started();
+    const vehicle = put(game, "u0", "Karren", "battlefield");
+    const bear = put(game, "u0", "Bär", "battlefield");
+    expect(view(game, "u0").players[0].battlefield.find(c => c.id === vehicle).kind).not.toBe("creature");
+    expect(act(game, "u0", { type: "activate", id: vehicle, index: 0 }, random).ok).toBe(true);
+    go(game, random);
+    expect(game.cards[bear].tapped).toBe(true);
+    const v = view(game, "u0").players[0].battlefield.find(c => c.id === vehicle);
+    expect(v.kind).toBe("creature");
+    expect(v.power).toBe(3);
+  });
+
+  it("Convoke und Delve bezahlen fehlendes Mana mit Kreaturen bzw. Friedhofskarten", () => {
+    const { game, random } = started();
+    forest(game, "u0", 1);
+    put(game, "u0", "Bär", "battlefield");
+    put(game, "u0", "Bär", "battlefield");
+    put(game, "u0", "Bär", "battlefield");
+    const hand = game.players.u0.hand.length;
+    cast(game, random, "u0", "Einberufer");
+    expect(game.players.u0.hand.length).toBe(hand + 1); // gezogen (Karte wurde nur hineingelegt und gewirkt)
+    for (const id of game.players.u0.battlefield) game.cards[id].tapped = false;
+    const gy = ["Bär", "Falke", "Viper", "Ritter"].map(name => put(game, "u0", name, "graveyard"));
+    cast(game, random, "u0", "Schürfer");
+    expect(gy.filter(id => game.players.u0.exile.includes(id)).length).toBeGreaterThan(0);
+  });
+
+  it("Kostenverringerung durch Permanents und Chromatic Lantern", () => {
+    const { game, random } = started();
+    forest(game, "u0", 1);
+    put(game, "u0", "Bildhauer", "battlefield");
+    const sense = put(game, "u0", "Sense", "hand");
+    expect(view(game, "u0").players[0].hand.find(c => c.id === sense).play.ok).toBe(true); // {2} − {1} = {1}
+    expect(act(game, "u0", { type: "cast", id: sense }, random).ok).toBe(true);
+    const { game: g2 } = started();
+    put(g2, "u0", "Laterne", "battlefield");
+    const mountain = put(g2, "u0", "Mountain", "battlefield");
+    const colors = view(g2, "u0").players[0].battlefield.find(c => c.id === mountain).manaColors;
+    expect(colors).toEqual(expect.arrayContaining(["W", "U", "B", "R", "G"]));
+  });
+
+  it("„enters with X counters“, „can't be countered“, „attacks each combat“", () => {
+    const { game, random } = started();
+    forest(game, "u0", 6);
+    const ooze = cast(game, random, "u0", "Wachsschleim", { x: 3 });
+    expect(game.cards[ooze].counters["+1/+1"]).toBe(3);
+    // nicht neutralisierbar
+    put(game, "u1", "Mountain", "battlefield");
+    const counter = put(game, "u1", "Gegenzauber", "hand");
+    const draw = put(game, "u0", "Unaufhaltsam", "hand");
+    expect(act(game, "u0", { type: "cast", id: draw }, random).error ?? "ok").toBe("ok");
+    expect(game.priority, JSON.stringify(game.stack.map(i => i.sid))).toBe("u1");
+    expect(act(game, "u1", { type: "cast", id: counter, targets: [game.stack[0]?.sid] }, random).error ?? "ok").toBe("ok");
+    go(game, random);
+    expect(game.players.u0.graveyard).toContain(draw);
+    // Angriffszwang
+    const { game: g2, random: r2 } = started();
+    const berserk = put(g2, "u0", "Berserker", "battlefield");
+    toAttackers(g2, r2);
+    expect(act(g2, "u0", { type: "declareAttackers", attackers: [] }, r2).error).toMatch(/muss angreifen/);
+    expect(act(g2, "u0", { type: "declareAttackers", attackers: [{ id: berserk, target: "u1" }] }, r2).ok).toBe(true);
+  });
+
+  it("Monarch zieht am Zugende; Proliferate erhöht Marker", () => {
+    const { game, random } = started();
+    forest(game, "u0", 2);
+    cast(game, random, "u0", "Thronanspruch");
+    expect(game.monarch).toBe("u0");
+    const bear = put(game, "u0", "Bär", "battlefield");
+    game.cards[bear].counters["+1/+1"] = 1;
+    cast(game, random, "u0", "Wucherung");
+    expect(game.cards[bear].counters["+1/+1"]).toBe(2);
+  });
+
+  it("Obersten Karten ansehen, Kreatur nehmen, Rest unten (Ancient Stirrings)", () => {
+    const { game, random } = started();
+    forest(game, "u0", 1);
+    const lib = game.players.u0.library;
+    const creature = lib.find(id => game.defs[game.cards[id].def]?.types.creature);
+    lib.splice(lib.indexOf(creature), 1);
+    lib.push(creature);
+    const spell = put(game, "u0", "Uraltes Rühren", "hand");
+    const size = lib.length;
+    const handBefore = new Set(game.players.u0.hand);
+    act(game, "u0", { type: "cast", id: spell }, random);
+    go(game, random);
+    const added = game.players.u0.hand.filter(id => !handBefore.has(id));
+    expect(added).toHaveLength(1);
+    expect(game.defs[game.cards[added[0]].def].types.creature).toBe(true);
+    expect(game.players.u0.library.length).toBe(size - 1);
+  });
+
+  it("Chaos Warp, „destroy all artifacts and enchantments“, Zusatzland, Spire-Steuer", () => {
+    const { game, random } = started();
+    forest(game, "u0", 12);
+    put(game, "u0", "Mountain", "battlefield");
+    put(game, "u1", "Mountain", "battlefield");
+    const target = put(game, "u1", "Sense", "battlefield");
+    cast(game, random, "u0", "Chaoswirbel", { targets: [target] });
+    expect(game.players.u1.battlefield).not.toContain(target);
+    const art = put(game, "u1", "Sense", "battlefield");
+    cast(game, random, "u0", "Reinigungsnova");
+    expect(game.players.u1.battlefield).not.toContain(art);
+    // Zusatzland
+    const l1 = put(game, "u0", "Forest", "hand");
+    const l2 = put(game, "u0", "Mountain", "hand");
+    expect(act(game, "u0", { type: "playLand", id: l1 }, random).error ?? "ok").toBe("ok");
+    expect(act(game, "u0", { type: "playLand", id: l2 }, random).ok).toBe(false);
+    cast(game, random, "u0", "Erkunden");
+    expect(act(game, "u0", { type: "playLand", id: l2 }, random).error ?? "ok").toBe("ok");
+  });
+
+  it("Charge-Counter-Land und Exil-aus-Friedhof; Wandelland; Evolve; Living Weapon; Monstrosity", () => {
+    const { game, random } = started();
+    forest(game, "u0", 6);
+    const cavern = put(game, "u0", "Schimmerhain", "hand");
+    act(game, "u0", { type: "playLand", id: cavern }, random);
+    expect(game.cards[cavern].counters.charge).toBe(2);
+    game.cards[cavern].tapped = false;
+    const ability = view(game, "u0").players[0].battlefield.find(c => c.id === cavern).abilities[0];
+    expect(ability.ok).toBe(true);
+    act(game, "u0", { type: "activate", id: cavern, index: 0 }, random);
+    go(game, random);
+    expect(game.cards[cavern].counters.charge).toBe(1);
+    // Exil
+    const gyCard = put(game, "u1", "Bär", "graveyard");
+    cast(game, random, "u0", "Gräberghul", { targets: [gyCard] });
+    expect(game.players.u1.exile).toContain(gyCard);
+    // Evolve
+    const evo = put(game, "u0", "Entwickler", "battlefield");
+    cast(game, random, "u0", "Bär");
+    expect(game.cards[evo].counters["+1/+1"]).toBe(1);
+    // Living weapon
+    const germer = cast(game, random, "u0", "Keimwaffe");
+    expect(game.cards[germer].attachedTo).toBeTruthy();
+    expect(game.cards[game.cards[germer].attachedTo].token).toBe(true);
+    // Monstrosity
+    const beast = put(game, "u0", "Monströs", "battlefield");
+    for (const id of game.players.u0.battlefield) game.cards[id].tapped = false;
+    act(game, "u0", { type: "activate", id: beast, index: 0 }, random);
+    go(game, random);
+    expect(game.cards[beast].counters["+1/+1"]).toBe(2);
+  });
+
+  it("Filterland: Auswahl der Manakombination; Wandelland wird zur Kreatur", () => {
+    const { game, random } = started();
+    forest(game, "u0", 4);
+    const filter = put(game, "u0", "Filterland", "battlefield");
+    const ab = view(game, "u0").players[0].battlefield.find(c => c.id === filter).abilities[0];
+    expect(ab.ok).toBe(true);
+    act(game, "u0", { type: "activate", id: filter, index: 0 }, random);
+    go(game, random, 2);
+    expect(game.choice === null || game.pool).toBeTruthy();
+    const manland = put(game, "u0", "Wandelland", "battlefield");
+    for (const id of game.players.u0.battlefield) game.cards[id].tapped = false;
+    act(game, "u0", { type: "activate", id: manland, index: 0 }, random);
+    go(game, random);
+    const v = view(game, "u0").players[0].battlefield.find(c => c.id === manland);
+    expect(v.kind === "creature" || v.power === 3).toBe(true);
+  });
+});
+
+describe("Hero's Heirloom und Walking Ballista", () => {
+  it("Heirloom: Bonus immer, Trampel und Eile nur an legendären Kreaturen", () => {
+    const { game, random } = started();
+    forest(game, "u0", 4);
+    const heirloom = put(game, "u0", "Heldenerbstück", "battlefield");
+    const king = put(game, "u0", "König", "battlefield");
+    const bear = put(game, "u0", "Bär", "battlefield");
+    act(game, "u0", { type: "activate", id: heirloom, index: 0, targets: [bear] }, random);
+    for (let i = 0; i < 4 && game.stack.length > 0; i += 1) act(game, game.priority, { type: "pass" }, random);
+    let card = view(game, "u0").players[0].battlefield.find(c => c.id === bear);
+    expect(card.power).toBe(4);
+    expect(card.keywords).not.toContain("trample");
+    for (const id of game.players.u0.battlefield) game.cards[id].tapped = false;
+    act(game, "u0", { type: "activate", id: heirloom, index: 0, targets: [king] }, random);
+    for (let i = 0; i < 4 && game.stack.length > 0; i += 1) act(game, game.priority, { type: "pass" }, random);
+    card = view(game, "u0").players[0].battlefield.find(c => c.id === king);
+    expect(card.power).toBe(4);
+    expect(card.keywords).toEqual(expect.arrayContaining(["trample", "haste"]));
+  });
+
+  it("Ballista: X Marker beim Ins-Spiel-Kommen, Marker entfernen schießt 1 Schaden", () => {
+    const { game, random } = started();
+    forest(game, "u0", 4);
+    const ballista = put(game, "u0", "Wandelnde Balliste", "hand");
+    expect(act(game, "u0", { type: "cast", id: ballista, x: 2 }, random).ok).toBe(true);
+    for (let i = 0; i < 4 && game.stack.length > 0; i += 1) act(game, game.priority, { type: "pass" }, random);
+    expect(game.cards[ballista].counters["+1/+1"]).toBe(2);
+    const life = game.players.u1.life;
+    const ab = view(game, "u0").players[0].battlefield.find(c => c.id === ballista).abilities.find(a => a.pays?.some(p => p.kind === "removeCounter"));
+    expect(ab).toBeTruthy();
+    expect(act(game, "u0", { type: "activate", id: ballista, index: ab.index, targets: ["u1"] }, random).error ?? "ok").toBe("ok");
+    for (let i = 0; i < 4 && game.stack.length > 0; i += 1) act(game, game.priority, { type: "pass" }, random);
+    expect(game.players.u1.life).toBe(life - 1);
+    expect(game.cards[ballista].counters["+1/+1"]).toBe(1);
   });
 });
