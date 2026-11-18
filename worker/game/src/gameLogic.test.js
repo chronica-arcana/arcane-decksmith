@@ -101,6 +101,18 @@ const LIB = [
   ["rip", "Zerreißen", "Instant", "{R}", 2, {}, "Destroy target artifact or enchantment."],
   ["striker", "Plünderer", "Creature — Rogue", "{G}", 2, { power: "2", toughness: "2" }, "Whenever this creature deals combat damage to a player, draw a card."],
   ["herald", "Herold", "Creature — Human", "{G}", 2, { power: "1", toughness: "1" }, "At the beginning of combat on your turn, you gain 1 life."],
+  ["sacseer", "Opfer-Seher", "Creature — Vampire Wizard", "{G}", 2, { power: "1", toughness: "1" }, "Sacrifice a creature: Scry 1."],
+  ["altar", "Altar", "Artifact", "{3}", 2, {}, "Sacrifice a creature: Add {C}{C}."],
+  ["rites", "Opferriten", "Instant", "{G}", 2, {}, "As an additional cost to cast this spell, sacrifice a creature.\nDraw two cards."],
+  ["reunion", "Wiedersehen", "Sorcery", "{1}{G}", 2, {}, "As an additional cost to cast this spell, discard two cards.\nDraw three cards."],
+  ["rhystic", "Rhystisches Studium", "Enchantment", "{G}", 2, {}, "Whenever an opponent casts a spell, you may draw a card unless that player pays {1}."],
+  ["flick", "Blinzeln", "Instant", "{G}", 2, {}, "Exile target creature you control, then return it to the battlefield under its owner's control."],
+  ["thrive", "Gedeihen", "Land", "", 2, {}, "This land enters tapped.\nAs this land enters, choose a color other than green.\n{T}: Add {G} or one mana of the chosen color."],
+  ["regenbeast", "Regenerierer", "Creature — Beast", "{G}", 2, { power: "2", toughness: "2" }, "{G}: Regenerate this creature."],
+  ["salve", "Heilsalbe", "Instant", "{G}", 2, {}, "Prevent the next 3 damage that would be dealt to any target this turn."],
+  ["prison", "Gespensterkerker", "Enchantment", "{G}", 2, {}, "Creatures can't attack you unless their controller pays {2} for each creature they control that's attacking you."],
+  ["crusade", "Kreuzzug", "Enchantment", "{G}", 2, {}, "Green creatures get +1/+1."],
+  ["remand", "Rückruf", "Instant", "{R}", 2, {}, "Counter target spell. If that spell is countered this way, put it into its owner's hand instead of into its owner's graveyard."],
   ["priest", "Priester", "Creature — Cleric", "{G}", 2, { power: "1", toughness: "1" }, "At the beginning of your end step, you gain 1 life."]
 ];
 const facts = new Map();
@@ -653,12 +665,12 @@ describe("Kartentext-Engine", () => {
   it("Auslöser beim Betreten: Seher zieht eine Karte (alles löst sich selbst auf)", () => {
     const { game, random } = started();
     forest(game, "u0", 1);
+    const seer = put(game, "u0", "Seher", "hand");
     const hand = game.players.u0.hand.length;
-    const seer = put(game, "u0", "Seher", "hand", { only: "library" });
     act(game, "u0", { type: "cast", id: seer }, random);
     expect(game.players.u0.battlefield).toContain(seer);
     expect(game.stack).toHaveLength(0);
-    expect(game.players.u0.hand.length).toBe(hand + 1); // +1 (Seher) −1 (gespielt) +1 (gezogen)
+    expect(game.players.u0.hand.length).toBe(hand); // −1 (gespielt) +1 (gezogen)
   });
 
   it("Auslöser mit Ziel öffnet eine Auswahl: Kavu schadet einer Kreatur", () => {
@@ -1827,5 +1839,162 @@ describe("Weitere Auslöser", () => {
     act(game, "u0", { type: "declareAttackers", attackers: [{ id: striker, target: "u1" }] }, random);
     for (let i = 0; i < 8 && (game.combat || game.stack.length > 0); i += 1) act(game, game.priority, { type: "pass" }, random);
     expect(game.players.u0.hand.length).toBe(hand + 1);
+  });
+});
+
+describe("Zusätzliche Kosten (Opfern, Abwerfen)", () => {
+  it("Fähigkeit: „Sacrifice a creature: …“ verlangt die Wahl der Kreatur", () => {
+    const { game, random } = started();
+    const seer = put(game, "u0", "Opfer-Seher", "battlefield");
+    const bear = put(game, "u0", "Bär", "battlefield");
+    const ability = view(game, "u0").players[0].battlefield.find(c => c.id === seer).abilities[0];
+    expect(ability.ok).toBe(true);
+    expect(ability.pays[0].options).toEqual(expect.arrayContaining([seer, bear]));
+    expect(act(game, "u0", { type: "activate", id: seer, index: 0 }, random).ok).toBe(false); // ohne Auswahl
+    expect(act(game, "u0", { type: "activate", id: seer, index: 0, pay: [bear] }, random).ok).toBe(true);
+    expect(game.players.u0.graveyard).toContain(bear);
+    expect(game.manual).toBeNull();
+  });
+
+  it("Altar: Opfern ergibt Mana", () => {
+    const { game, random } = started();
+    const altar = put(game, "u0", "Altar", "battlefield");
+    const bear = put(game, "u0", "Bär", "battlefield");
+    expect(act(game, "u0", { type: "activate", id: altar, index: 0, pay: [bear] }, random).ok).toBe(true);
+    for (let i = 0; i < 4 && game.stack.length > 0; i += 1) act(game, game.priority, { type: "pass" }, random);
+    expect(game.players.u0.pool.C).toBe(2);
+  });
+
+  it("Zauber mit zusätzlichen Kosten: Opfern und Abwerfen", () => {
+    const { game, random } = started();
+    forest(game, "u0", 3);
+    const bear = put(game, "u0", "Bär", "battlefield");
+    const rites = put(game, "u0", "Opferriten", "hand");
+    expect(act(game, "u0", { type: "cast", id: rites }, random).ok).toBe(false);
+    expect(act(game, "u0", { type: "cast", id: rites, pay: [bear] }, random).ok).toBe(true);
+    for (let i = 0; i < 4 && game.stack.length > 0; i += 1) act(game, game.priority, { type: "pass" }, random);
+    expect(game.players.u0.graveyard).toContain(bear);
+    const reunion = put(game, "u0", "Wiedersehen", "hand");
+    const fodder = game.players.u0.hand.filter(id => id !== reunion).slice(0, 2);
+    const handBefore = game.players.u0.hand.length;
+    expect(act(game, "u0", { type: "cast", id: reunion, pay: fodder }, random).ok).toBe(true);
+    for (let i = 0; i < 4 && game.stack.length > 0; i += 1) act(game, game.priority, { type: "pass" }, random);
+    expect(game.players.u0.hand.length).toBe(handBefore - 3 + 3);
+  });
+});
+
+describe("Mehr Automatik: Gebühren-Auslöser, Blinzeln, Regeneration, Verhindern, Steuer", () => {
+  const run = (game, random, n = 8) => {
+    for (let i = 0; i < n && (game.stack.length > 0 || game.choice); i += 1) {
+      if (game.choice) act(game, game.choice.userId, { type: "choose", ids: game.choice.kind === "yesno" ? ["no"] : [game.choice.options[0]] }, random);
+      else act(game, game.priority, { type: "pass" }, random);
+    }
+  };
+
+  it("Rhystic Study: der Gegner kann zahlen, sonst darfst du ziehen", () => {
+    const { game, random } = started();
+    put(game, "u0", "Rhystisches Studium", "battlefield");
+    forest(game, "u1", 1);
+    const heal = put(game, "u1", "Heilung", "hand");
+    const hand = game.players.u0.hand.length;
+    // u1 wirkt in seinem Zug … hier einfach als Antwort: u0 ist am Zug und u1 hat Priorität durch den Beginn
+    game.turn.active = "u1";
+    game.priority = "u1";
+    expect(act(game, "u1", { type: "cast", id: heal }, random).ok).toBe(true);
+    // u1 hat sein einziges Mana ausgegeben und kann {1} nicht zahlen → u0 darf ziehen
+    for (let i = 0; i < 8 && (game.stack.length > 0 || game.choice); i += 1) {
+      if (game.choice) act(game, game.choice.userId, { type: "choose", ids: ["yes"] }, random);
+      else act(game, game.priority, { type: "pass" }, random);
+    }
+    expect(game.players.u0.hand.length).toBe(hand + 1);
+  });
+
+  it("Blinzeln: Kreatur verlässt das Spiel und kommt sofort zurück (Einsatzfähigkeit löst erneut aus)", () => {
+    const { game, random } = started();
+    forest(game, "u0", 1);
+    const seer = put(game, "u0", "Seher", "battlefield");
+    const flick = put(game, "u0", "Blinzeln", "hand");
+    const hand = game.players.u0.hand.length;
+    act(game, "u0", { type: "cast", id: flick, targets: [seer] }, random);
+    run(game, random);
+    expect(game.players.u0.battlefield).toContain(seer);
+    expect(game.players.u0.hand.length).toBe(hand - 1 + 1); // Blinzeln weg, Seher zieht erneut
+  });
+
+  it("Thriving-Land: gewählte Farbe wird zur Manaoption", () => {
+    const { game, random } = started();
+    const land = put(game, "u0", "Gedeihen", "hand");
+    act(game, "u0", { type: "playLand", id: land }, random);
+    expect(game.choice.options).not.toContain("color:G");
+    act(game, "u0", { type: "choose", ids: ["color:R"] }, random);
+    game.cards[land].tapped = false;
+    const view0 = view(game, "u0").players[0].battlefield.find(c => c.id === land);
+    expect(view0.manaColors).toEqual(expect.arrayContaining(["G", "R"]));
+  });
+
+  it("Regeneration ersetzt die Zerstörung", () => {
+    const { game, random } = started();
+    forest(game, "u0", 1);
+    const beast = put(game, "u0", "Regenerierer", "battlefield");
+    game.cards[beast].damage = 0;
+    expect(act(game, "u0", { type: "activate", id: beast, index: 0 }, random).ok).toBe(true);
+    run(game, random);
+    game.cards[beast].damage = 5;
+    act(game, "u0", { type: "pass" }, random);
+    expect(game.players.u0.battlefield).toContain(beast);
+    expect(game.cards[beast].damage).toBe(0);
+    expect(game.cards[beast].tapped).toBe(true);
+  });
+
+  it("Schadensverhinderung: Schild schluckt die nächsten 3 Schaden", () => {
+    const { game, random } = started();
+    forest(game, "u0", 1);
+    put(game, "u1", "Mountain", "battlefield");
+    const salve = put(game, "u0", "Heilsalbe", "hand");
+    const bolt = put(game, "u1", "Blitz", "hand");
+    act(game, "u0", { type: "cast", id: salve, targets: ["u0"] }, random);
+    run(game, random);
+    expect(game.players.u0.shield).toBe(3);
+    act(game, "u0", { type: "pass" }, random);
+    game.turn.active = "u1";
+    game.priority = "u1";
+    game.passed = [];
+    const life = game.players.u0.life;
+    act(game, "u1", { type: "cast", id: bolt, targets: ["u0"] }, random);
+    run(game, random);
+    expect(game.players.u0.life).toBe(life);
+  });
+
+  it("Angriffssteuer wird automatisch bezahlt oder der Angriff scheitert", () => {
+    const { game, random } = started();
+    put(game, "u1", "Gespensterkerker", "battlefield");
+    const bear = put(game, "u0", "Bär", "battlefield");
+    toAttackers(game, random);
+    expect(act(game, "u0", { type: "declareAttackers", attackers: [{ id: bear, target: "u1" }] }, random).error).toMatch(/Angriffssteuer/);
+    forest(game, "u0", 2);
+    expect(act(game, "u0", { type: "declareAttackers", attackers: [{ id: bear, target: "u1" }] }, random).ok).toBe(true);
+  });
+
+  it("Gefärbter Bonus: „Green creatures get +1/+1“", () => {
+    const { game } = started();
+    put(game, "u0", "Kreuzzug", "battlefield");
+    const green = put(game, "u0", "Bär", "battlefield");
+    const black = put(game, "u0", "Schwarzer Ritter", "battlefield");
+    const v = view(game, "u0").players[0].battlefield;
+    expect(v.find(c => c.id === green).power).toBe(3);
+    expect(v.find(c => c.id === black).power).toBe(2);
+  });
+
+  it("Rückruf: Zauber kommt auf die Hand statt auf den Friedhof", () => {
+    const { game, random } = started();
+    forest(game, "u0", 2);
+    put(game, "u1", "Mountain", "battlefield");
+    const remand = put(game, "u1", "Rückruf", "hand");
+    const bear = put(game, "u0", "Bär", "hand");
+    act(game, "u0", { type: "cast", id: bear }, random);
+    act(game, "u1", { type: "cast", id: remand, targets: [game.stack[0].sid] }, random);
+    run(game, random);
+    expect(game.players.u0.hand).toContain(bear);
+    expect(game.players.u0.graveyard).not.toContain(bear);
   });
 });

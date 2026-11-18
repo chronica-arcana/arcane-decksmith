@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { DragEvent, MouseEvent } from "react";
-import type { CardAbility, GameAction, GameCard, GameView, GameZone, TargetOption } from "../../gameClient";
+import type { CardAbility, GameAction, GameCard, GameView, GameZone, PayRequirement, TargetOption } from "../../gameClient";
 import tableImage from "../../assets/game/table.webp";
 import ActionBar from "./ActionBar";
 import { BattlefieldContext, type BattlefieldApi, type Mark } from "./BattlefieldContext";
@@ -183,9 +183,9 @@ export default function Battlefield({
 
   // ---------- Zielwahl ----------
   const currentSpec = targeting ? targeting.specs[targeting.picked.length] : undefined;
-  const isTarget = (id: string) => Boolean(currentSpec?.options.includes(id));
+  const isTarget = (id: string) => Boolean(currentSpec?.options.includes(id)) && !(currentSpec?.kind.startsWith("pay") && targeting?.picked.includes(id));
   const pickTarget = (id: string) => {
-    if (!targeting || !currentSpec?.options.includes(id)) return;
+    if (!targeting || !isTarget(id)) return;
     const picked = [...targeting.picked, id];
     if (picked.length >= targeting.specs.length) {
       payOrAct(targeting.run(picked));
@@ -198,6 +198,14 @@ export default function Battlefield({
     setTargeting({ name, specs, picked: [], run });
     // Ziele im eigenen Friedhof: gleich öffnen, damit man die Karte anklicken kann
     if (specs.some(spec => spec.kind.startsWith("gy"))) setZoneView({ owner: game.you, zone: "graveyard" });
+  };
+
+  /** Ziele und zusätzliche Kosten (Karten opfern/abwerfen) werden nacheinander gewählt; die Kosten-Auswahl geht als `pay` zum Server. */
+  const withPays = (specs: TargetOption[], pays: PayRequirement[] | undefined, build: (targets: string[], pay: string[]) => GameAction) => {
+    const picks: TargetOption[] = (pays ?? [])
+      .filter(item => item.kind !== "life")
+      .flatMap(item => Array.from({ length: item.n }, () => ({ kind: item.kind === "discard" ? "payDiscard" : "paySacrifice", options: item.options })));
+    return { specs: [...specs, ...picks], run: (picked: string[]) => build(picked.slice(0, specs.length), picked.slice(specs.length)) };
   };
 
   /** Mit „Mana selbst wählen“ erst die Länder wählen lassen, sonst sofort ausführen. */
@@ -218,30 +226,27 @@ export default function Battlefield({
     if (card.play?.kind === "land") return act({ type: "playLand", id: card.id });
     if (x === undefined && /\{X\}/i.test(card.manaCost ?? "")) return setCastX({ id: card.id, name: card.name ?? "", value: 0 });
     if (mode === undefined && card.play?.modes?.length) return setModePick({ card, x });
-    if (mode !== undefined) {
-      const chosen = card.play?.modes?.[mode];
-      return startTargeting(card.name ?? "Zauber", chosen?.targets ?? [], targets => ({
-        type: "cast",
-        id: card.id,
-        mode,
-        ...(x !== undefined ? { x } : {}),
-        ...(targets.length > 0 ? { targets } : {})
-      }));
-    }
-    startTargeting(card.name ?? "Zauber", card.play?.targets ?? [], targets => ({
+    const chosen = mode !== undefined ? card.play?.modes?.[mode] : undefined;
+    const flow = withPays(chosen?.targets ?? card.play?.targets ?? [], card.play?.pays, (targets, pay) => ({
       type: "cast",
       id: card.id,
+      ...(mode !== undefined ? { mode } : {}),
       ...(x !== undefined ? { x } : {}),
-      ...(targets.length > 0 ? { targets } : {})
+      ...(targets.length > 0 ? { targets } : {}),
+      ...(pay.length > 0 ? { pay } : {})
     }));
+    startTargeting(card.name ?? "Zauber", flow.specs, flow.run);
   };
-  const startActivate = (card: GameCard, ability: CardAbility) =>
-    startTargeting(card.name ?? "Fähigkeit", ability.targets, targets => ({
+  const startActivate = (card: GameCard, ability: CardAbility) => {
+    const flow = withPays(ability.targets, ability.pays, (targets, pay) => ({
       type: "activate",
       id: card.id,
       index: ability.index,
-      ...(targets.length > 0 ? { targets } : {})
+      ...(targets.length > 0 ? { targets } : {}),
+      ...(pay.length > 0 ? { pay } : {})
     }));
+    startTargeting(card.name ?? "Fähigkeit", flow.specs, flow.run);
+  };
 
   // ---------- Drag and Drop ----------
   const onDragStart = (card: GameCard, event: DragEvent) => {

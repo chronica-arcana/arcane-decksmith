@@ -286,7 +286,7 @@ function mainPhaseAction(game, botId) {
       const targets = chooseTargets(game, botId, rules.modes[index].effects, card.play.modes[index].targets) ?? [];
       return { type: "cast", id: card.id, mode: index, ...(targets.length ? { targets } : {}) };
     }
-    if (card.play.manual) continue;
+    if (card.play.manual || def.rules?.additionalCost) continue;
     if (rules && REACTIVE(rules.effects)) continue; // Neutralisieren hebt sich der Bot für Antworten auf
     if (rules && rules.effects.length === 0 && (def.types.instant || def.types.sorcery)) continue;
     const specs = card.play.targets ?? [];
@@ -311,7 +311,7 @@ function mainPhaseAction(game, botId) {
     for (const ability of card.abilities ?? []) {
       if (!ability.ok || ability.manual) continue;
       const rules = def.rules.activated[ability.index];
-      if (rules.cost.sacrifice) continue;
+      if (rules.cost.sacrifice || rules.cost.extra) continue;
       if (rules.effects.some(effect => effect.type === "attach") && card.attachedTo && game.cards[card.attachedTo]?.owner === botId) continue;
       let targets = [];
       if (ability.targets.length > 0) {
