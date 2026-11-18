@@ -125,6 +125,7 @@ const LIB = [
   ["prodigy", "Zauberlehrling", "Creature — Wizard", "{1}", 2, { power: "1", toughness: "1" }, "Whenever you cast an instant or sorcery spell, each opponent loses 1 life.\nWhenever you draw your second card each turn, you gain 2 life.\nWhenever a nontoken creature you control enters, it explores."],
   ["swarmer", "Schwarmwesen", "Creature — Horror", "{G}", 2, { power: "*", toughness: "*" }, "~'s power and toughness are each equal to twice the number of creatures you control."],
   ["freebie", "Gratisgabe", "Sorcery", "{5}{G}{G}", 2, {}, "If you control a commander, you may cast ~ without paying its mana cost.\nDraw a card."],
+  ["mutant", "Mutantenbestie", "Creature — Beast", "{4}{G}{G}", 2, { power: "3", toughness: "3", keywords: ["Flying"] }, "Mutate {1}{G} (If you cast this spell for its mutate cost, put it over or under target non-Human creature you own. They mutate into the creature on top plus all abilities from under it.)\nFlying\nWhenever this creature mutates, you gain 3 life."],
   ["convoker", "Einberufer", "Sorcery", "{3}{G}", 2, {}, "Convoke\nDraw a card."],
   ["delver", "Schürfer", "Sorcery", "{4}{G}", 2, {}, "Delve\nDraw a card."],
   ["sculptor", "Bildhauer", "Creature — Vedalken", "{G}", 2, { power: "1", toughness: "1" }, "Artifact spells you cast cost {1} less to cast."],
@@ -2258,6 +2259,34 @@ describe("Neue Mechaniken aus den Commander-Decks", () => {
     expect(view(game, "u0").players[0].hand.find(c => c.id === gift).play.ok).toBe(false);
     put(game, "u0", "Boss d0", "battlefield");
     expect(view(game, "u0").players[0].hand.find(c => c.id === gift).play.ok).toBe(true);
+  });
+
+  it("Mutate: über/unter eine Nicht-Menschen-Kreatur, Fähigkeiten verschmelzen, beide Karten sterben zusammen", () => {
+    const { game, random } = started();
+    forest(game, "u0", 4);
+    const bear = put(game, "u0", "Bär", "battlefield");
+    const human = put(game, "u0", "Mensch", "battlefield");
+    const mutant = put(game, "u0", "Mutantenbestie", "hand");
+    const opts = view(game, "u0").players[0].hand.find(c => c.id === mutant).mutate;
+    expect(opts.ok).toBe(true);
+    expect(opts.targets.map(t => t.id)).toEqual([bear]); // Menschen sind kein gültiges Ziel
+    expect(act(game, "u0", { type: "cast", id: mutant, mutate: human }, random).ok).toBe(false);
+    const life = game.players.u0.life;
+    expect(act(game, "u0", { type: "cast", id: mutant, mutate: bear, over: true }, random).ok).toBe(true);
+    go(game, random);
+    expect(game.players.u0.life).toBe(life + 3); // „mutates“-Auslöser
+    const merged = view(game, "u0").players[0].battlefield.find(c => c.id === bear);
+    expect(merged.name).toBe("Mutantenbestie");
+    expect(merged.power).toBe(3);
+    expect(merged.keywords).toContain("flying");
+    expect(merged.mutated).toBe(2);
+    expect(game.players.u0.battlefield).not.toContain(mutant);
+    openManual(game, "u0");
+    const moved = act(game, "u0", { type: "move", id: bear, to: "graveyard" }, random);
+    expect(moved.error ?? "ok").toBe("ok");
+    expect(game.players.u0.graveyard).toEqual(expect.arrayContaining([bear, mutant]));
+    expect(game.xdefs[`mut:${bear}`]).toBeUndefined();
+    expect(game.defs[game.cards[bear].def].name).toBe("Bär");
   });
 
   it("Convoke und Delve bezahlen fehlendes Mana mit Kreaturen bzw. Friedhofskarten", () => {

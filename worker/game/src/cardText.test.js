@@ -223,3 +223,12 @@ describe("cardText: neue Mechaniken (Station, Encore, allgemeine Auslöser)", ()
     expect(parse("Legendary Creature — X", "Partner—Character select").notes).toEqual([]);
   });
 });
+
+describe("cardText: Mutate", () => {
+  it("Mutate-Kosten und „whenever this creature mutates“", () => {
+    const parsed = parseCardText({ name: "Biest", typeLine: "Creature — Beast", oracleText: "Mutate {3}{U} (If you cast this spell for its mutate cost, put it over or under target non-Human creature you own.)\nFlying\nWhenever this creature mutates, draw a card." });
+    expect(parsed.mutate).toBe("{3}{U}");
+    expect(parsed.triggers[0]).toMatchObject({ event: "mutates", effects: [{ type: "draw" }] });
+    expect(parsed.notes).toEqual([]);
+  });
+});

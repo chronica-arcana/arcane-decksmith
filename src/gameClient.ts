@@ -72,6 +72,8 @@ export type GameCard = {
   chosenType?: string | null;
   foretell?: { ok: boolean; cost: string } | null;
   evoke?: { ok: boolean; cost: string } | null;
+  mutate?: { ok: boolean; cost: string; targets: { id: string; name: string }[] } | null;
+  mutated?: number;
   attachedTo?: string | null;
   attachedName?: string | null;
   attachments?: string[];
@@ -207,7 +209,7 @@ export type GameAction =
   | { type: "tapMana"; id: string; color?: string }
   | { type: "pool"; color: "W" | "U" | "B" | "R" | "G" | "C"; delta: number }
   | { type: "playLand"; id: string }
-  | { type: "cast"; id: string; x?: number; free?: boolean; targets?: string[]; mode?: number; tap?: string[]; pay?: string[]; evoke?: boolean }
+  | { type: "cast"; id: string; x?: number; free?: boolean; targets?: string[]; mode?: number; tap?: string[]; pay?: string[]; evoke?: boolean; mutate?: string; over?: boolean }
   | { type: "cycle"; id: string; tap?: string[] }
   | { type: "foretell"; id: string; tap?: string[] }
   | { type: "damage"; id: string; delta: number }
