@@ -76,8 +76,8 @@ describe("cardText: Permanents", () => {
   });
 
   it("Dauereffekte und Sonderkosten werden als Hinweis geführt", () => {
-    const odd = parseCardText({ name: "Seltsam", typeLine: "Enchantment", oracleText: "Whenever you cast a spell, draw a card." });
-    expect(odd.notes).toEqual(["Whenever you cast a spell, draw a card."]);
+    const odd = parseCardText({ name: "Seltsam", typeLine: "Enchantment", oracleText: "Whenever a creature becomes tapped, draw a card." });
+    expect(odd.notes).toEqual(["Whenever a creature becomes tapped, draw a card."]);
     const discardCost = parseCardText({ name: "Opfer", typeLine: "Creature", oracleText: "Exile a card from your graveyard: Draw a card." });
     expect(discardCost.activated).toEqual([]);
     expect(discardCost.notes).toHaveLength(1);
