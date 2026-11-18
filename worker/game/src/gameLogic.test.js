@@ -126,6 +126,13 @@ const LIB = [
   ["swarmer", "Schwarmwesen", "Creature — Horror", "{G}", 2, { power: "*", toughness: "*" }, "~'s power and toughness are each equal to twice the number of creatures you control."],
   ["freebie", "Gratisgabe", "Sorcery", "{5}{G}{G}", 2, {}, "If you control a commander, you may cast ~ without paying its mana cost.\nDraw a card."],
   ["mutant", "Mutantenbestie", "Creature — Beast", "{4}{G}{G}", 2, { power: "3", toughness: "3", keywords: ["Flying"] }, "Mutate {1}{G} (If you cast this spell for its mutate cost, put it over or under target non-Human creature you own. They mutate into the creature on top plus all abilities from under it.)\nFlying\nWhenever this creature mutates, you gain 3 life."],
+  ["lance", "Artefaktlanze", "Artifact — Equipment", "{1}", 2, {}, "Equipped creature gets +1/+1 for each artifact you control.\nWhenever equipped creature attacks, you gain 1 life.\nEquip {1}"],
+  ["crawler", "Krabbler", "Creature — Insect", "{1}", 2, { power: "1", toughness: "1" }, "Each creature you control with a +1/+1 counter on it has trample."],
+  ["landghoul", "Landghul", "Creature — Zombie", "{1}", 2, { power: "*", toughness: "2" }, "~'s power is equal to the number of land cards in your graveyard."],
+  ["sneak", "Schleicher", "Creature — Rogue", "{1}", 2, { power: "2", toughness: "2" }, "~ can't be blocked by creatures with greater power."],
+  ["mirror", "Zauberspiegel", "Creature — Wizard", "{1}", 2, { power: "1", toughness: "1" }, "Whenever you cast an instant or sorcery spell, you may copy that spell. You may choose new targets for the copy."],
+  ["battery", "Energiezelle", "Artifact", "{1}", 2, {}, "{T}, Pay {E}{E}: You gain 3 life."],
+  ["counterwarden", "Zählerwächter", "Creature — Knight", "{1}", 2, { power: "2", toughness: "2" }, "Creatures your opponents control with counters on them can't attack or block."],
   ["convoker", "Einberufer", "Sorcery", "{3}{G}", 2, {}, "Convoke\nDraw a card."],
   ["delver", "Schürfer", "Sorcery", "{4}{G}", 2, {}, "Delve\nDraw a card."],
   ["sculptor", "Bildhauer", "Creature — Vedalken", "{G}", 2, { power: "1", toughness: "1" }, "Artifact spells you cast cost {1} less to cast."],
@@ -2287,6 +2294,59 @@ describe("Neue Mechaniken aus den Commander-Decks", () => {
     expect(game.players.u0.graveyard).toEqual(expect.arrayContaining([bear, mutant]));
     expect(game.xdefs[`mut:${bear}`]).toBeUndefined();
     expect(game.defs[game.cards[bear].def].name).toBe("Bär");
+  });
+
+  it("Neue Dauereffekte: Ausrüstung je Artefakt, Marker-Trample, Stärke aus Friedhof, Skulk", () => {
+    const { game, random } = started();
+    const lance = put(game, "u0", "Artefaktlanze", "battlefield");
+    const bear = put(game, "u0", "Bär", "battlefield");
+    game.cards[lance].attachedTo = bear;
+    const stat = id => view(game, "u0").players[0].battlefield.find(c => c.id === id);
+    expect(stat(bear).power).toBe(3); // 2 + 1 Artefakt (die Lanze selbst)
+    put(game, "u0", "Krabbler", "battlefield");
+    expect(stat(bear).keywords).not.toContain("trample");
+    game.cards[bear].counters["+1/+1"] = 1;
+    expect(stat(bear).keywords).toContain("trample");
+    const ghoul = put(game, "u0", "Landghul", "battlefield");
+    expect(stat(ghoul).power).toBe(0);
+    put(game, "u0", "Forest", "graveyard");
+    put(game, "u0", "Forest", "graveyard");
+    expect(stat(ghoul).power).toBe(2);
+    expect(stat(ghoul).toughness).toBe(2);
+    const sneak = put(game, "u0", "Schleicher", "battlefield");
+    expect(stat(sneak).keywords).toContain("skulk");
+    void random;
+  });
+
+  it("Zauber kopieren: „you may copy that spell“ lässt den Effekt zweimal laufen, die Kopie landet nicht im Friedhof", () => {
+    const { game, random } = started();
+    forest(game, "u0", 6);
+    put(game, "u0", "Zauberspiegel", "battlefield");
+    const hand = game.players.u0.hand.length;
+    const id = put(game, "u0", "Einberufer", "hand");
+    expect(act(game, "u0", { type: "cast", id }, random).ok).toBe(true);
+    go(game, random);
+    if (game.choice) act(game, "u0", { type: "choose", ids: ["yes"] }, random);
+    go(game, random);
+    expect(game.players.u0.hand.length).toBe(hand + 2); // Original + Kopie ziehen je eine Karte (Einberufer selbst verlässt die Hand)
+    expect(game.players.u0.graveyard.filter(card => card === id)).toHaveLength(1);
+  });
+
+  it("Energie als Kosten und „Gegner mit Markern können nicht angreifen“", () => {
+    const { game, random } = started();
+    const cell = put(game, "u0", "Energiezelle", "battlefield");
+    expect(view(game, "u0").players[0].battlefield.find(c => c.id === cell).abilities[0].ok).toBe(false); // keine Energie
+    game.players.u0.energy = 3;
+    const life = game.players.u0.life;
+    expect(act(game, "u0", { type: "activate", id: cell, index: 0 }, random).ok).toBe(true);
+    go(game, random);
+    expect(game.players.u0.energy).toBe(1);
+    expect(game.players.u0.life).toBe(life + 3);
+    put(game, "u0", "Zählerwächter", "battlefield");
+    const foe = put(game, "u1", "Bär", "battlefield");
+    expect(view(game, "u1").players.find(p => p.userId === "u1").battlefield.find(c => c.id === foe).keywords).not.toContain("cant-attack");
+    game.cards[foe].counters["+1/+1"] = 1;
+    expect(view(game, "u1").players.find(p => p.userId === "u1").battlefield.find(c => c.id === foe).keywords).toContain("cant-attack");
   });
 
   it("Convoke und Delve bezahlen fehlendes Mana mit Kreaturen bzw. Friedhofskarten", () => {

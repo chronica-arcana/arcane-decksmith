@@ -232,3 +232,34 @@ describe("cardText: Mutate", () => {
     expect(parsed.notes).toEqual([]);
   });
 });
+
+describe("cardText: weitere Lücken (Kopieren, Skulk, Stufen, Einzelzeilen)", () => {
+  const parse = (typeLine, oracleText) => parseCardText({ name: "Karte", typeLine, oracleText });
+
+  it("Zauber kopieren und „choose new targets“", () => {
+    const parsed = parse("Creature — X", "Whenever you cast an instant or sorcery spell, you may copy that spell. You may choose new targets for the copy.");
+    expect(parsed.triggers[0]).toMatchObject({ event: "castKind", unparsed: [] });
+    expect(parse("Creature — X", "When ~ enters, copy target instant or sorcery spell.").triggers[0].effects[0]).toMatchObject({ type: "copySpell", n: 1 });
+  });
+
+  it("Delve/Convoke bei Kreaturen, Skulk-Text, Marker-Dauereffekt, Ausrüstung je Artefakt, Stärke aus Friedhof", () => {
+    const parsed = parse("Creature — X", "Delve\n~ can't be blocked by creatures with greater power.\nEach creature you control with a +1/+1 counter on it has trample.\n~'s power is equal to the number of land cards in your graveyard.");
+    expect(parsed.delve).toBe(true);
+    expect(parsed.selfGrants).toContain("skulk");
+    expect(parsed.statics[0]).toMatchObject({ counter: "+1/+1", grants: ["trample"] });
+    expect(parsed.dynamicPT).toMatchObject({ powerOnly: true });
+    expect(parse("Artifact — Equipment", "Equipped creature gets +1/+1 for each artifact you control.").attachPer).toEqual({ p: 1, th: 1, per: "artifact you control" });
+  });
+
+  it("Auslöser: „~ or another creature you control dies“, zweiter Zauber, am Ausgerüsteten", () => {
+    expect(parse("Creature — X", "Whenever ~ or another creature you control dies, draw a card.").triggers[0]).toMatchObject({ event: "creatureDies", scope: { owner: "you", another: false } });
+    expect(parse("Creature — X", "Whenever you cast your second spell each turn, draw a card.").triggers[0].event).toBe("castSecond");
+    expect(parse("Artifact — Equipment", "Whenever equipped creature attacks, you scry 2.").triggers[0]).toMatchObject({ event: "attachedAttacks", effects: [{ type: "scry", n: 2 }] });
+  });
+
+  it("Einzeilige Modi, Länder mit „unless … eight or more lands“, Suche nach Basisländern", () => {
+    expect(parse("Instant", "Choose one. If you control a commander as you cast this spell, you may choose both instead.\n• Draw a card.\n• Gain 3 life.").spell.modes).toHaveLength(2);
+    expect(parse("Land", "~ enters tapped unless your opponents control eight or more lands.").entersTappedUnless).toEqual({ kind: "oppLands", n: 8 });
+    expect(parse("Sorcery", "Search your library for a basic Plains, Island, or Swamp card, put it onto the battlefield tapped, then shuffle").spell.effects[0]).toMatchObject({ type: "search", what: "plains|island|swamp", tapped: true });
+  });
+});
