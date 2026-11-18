@@ -92,7 +92,28 @@ export default function ActionBar(props: ActionBarProps) {
     return (
       <div className="action-bar" role="alert">
         <strong>Dieser Kartentext lässt sich nicht automatisch umsetzen: {game.manual.text}</strong>
-        <span className="muted">Du darfst jetzt von Hand eingreifen (Rechtsklick auf Karten, Bibliothek, ⋯-Menü).</span>
+        {(game.manual.hints?.length ?? 0) > 0 ? (
+          <span className="manual-hints" aria-label="Vorschläge">
+            {game.manual.hints!.map(hint =>
+              hint.action ? (
+                <button
+                  key={hint.label}
+                  type="button"
+                  className="secondary"
+                  onClick={() => {
+                    for (let i = 0; i < Math.max(1, hint.repeat ?? 1); i += 1) act(hint.action!);
+                  }}
+                >
+                  {hint.label}
+                </button>
+              ) : (
+                <span key={hint.label} className="muted manual-tip">{hint.label}</span>
+              )
+            )}
+          </span>
+        ) : (
+          <span className="muted">Du darfst jetzt von Hand eingreifen (Rechtsklick auf Karten, Bibliothek, ⋯-Menü).</span>
+        )}
         <button type="button" className="primary" onClick={() => act({ type: "manualDone" })}>Fertig</button>
       </div>
     );

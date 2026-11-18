@@ -333,3 +333,7 @@
 .bar-dock:has(> .action-bar.side) { padding: 0; }
 .gc-badge.cmd { max-width: none; overflow: visible; text-overflow: clip; font-size: 0.56rem; padding: 0 5px; }
 .gc.sm .gc-badge.cmd { font-size: 0.5rem; padding: 0 3px; }
+
+/* Vorschläge im manuellen Fenster */
+.manual-hints { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.manual-hints .manual-tip { font-size: 0.74rem; padding: 2px 8px; border: 1px dashed #c9a24b66; border-radius: 6px; }
