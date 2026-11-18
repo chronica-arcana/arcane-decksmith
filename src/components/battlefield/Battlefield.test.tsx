@@ -342,6 +342,23 @@ describe("Zugablauf und Anzeige", () => {
     expect(screen.queryByRole("button", { name: "Weiter zum Kampf" })).toBeNull();
   });
 
+  it("Der Weiter-Knopf sitzt in der Phasenleiste: die nächste Phase pulsiert und lässt sich anklicken", () => {
+    const { send } = setup(view({}, { battlefield: [card("l1", "Wald", { kind: "land", mana: true, manaColors: ["G"] })] }));
+    const nav = screen.getByRole("navigation", { name: "Phasen" });
+    const next = within(nav).getByRole("button", { name: "Weiter zur Hauptphase 2" });
+    expect(next.className).toContain("phase-next");
+    expect(document.querySelector(".action-bar")).toBeNull(); // kein zweiter Knopf in der Aktionsleiste
+    fireEvent.click(next);
+    expect(send).toHaveBeenCalledWith({ type: "pass" });
+  });
+
+  it("Rückfragen zu Reaktionen erscheinen als kompaktes Pop-up (Klasse „side“), der Kommandant-Tag ist vollständig", () => {
+    const stack = [{ sid: "s1", kind: "spell" as const, controller: "they", card: card("c1", "Blitz"), targets: [] }];
+    setup(view({ priority: "me", stack: stack as never, turn: { number: 3, active: "they", phase: "main1", first: "me", landsPlayed: 0 } }, { battlefield: [card("k1", "Boss", { kind: "creature", cmd: true })] }));
+    expect(document.querySelector(".action-bar.side")).not.toBeNull();
+    expect(screen.getByText(/♛ Kommandant/).textContent).toBe("♛ Kommandant");
+  });
+
   it("Zug beenden statt Endschritt, wenn die Gegner automatisch passen", () => {
     const game = view({ turn: { number: 3, active: "me", phase: "main2", first: "me", landsPlayed: 0 } });
     setup(game);

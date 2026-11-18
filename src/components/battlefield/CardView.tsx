@@ -1,9 +1,10 @@
-import { useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { CSSProperties, DragEvent, MouseEvent, PointerEvent } from "react";
 import type { GameCard } from "../../gameClient";
 import cardBack from "../../assets/game/cardback.webp";
 import { ManaSymbol } from "./ManaSymbol";
 import { imageFor } from "./scryfallAssets";
+import { tokenImage } from "./tokenImage";
 
 export type TileSize = "sm" | "md" | "lg" | "fill";
 
@@ -41,6 +42,19 @@ export default function CardView({
   onDragStart?: (card: GameCard, event: DragEvent) => void;
 }) {
   const press = useRef<{ timer: number; fired: boolean } | null>(null);
+  const [tokenUri, setTokenUri] = useState<string | null>(null);
+  const needsTokenImage = Boolean(card.token && !card.imageUri && card.name !== undefined);
+  useEffect(() => {
+    if (!needsTokenImage || !card.name) return undefined;
+    let cancelled = false;
+    void tokenImage(card.name, card.power, card.toughness).then(uri => {
+      if (!cancelled) setTokenUri(uri);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [needsTokenImage, card.name, card.power, card.toughness]);
+  const imageUri = card.imageUri ?? tokenUri;
   const counters = Object.entries(card.counters);
   const hidden = card.name === undefined;
   const hasStats = card.power !== undefined && card.power !== null && card.toughness !== undefined && card.toughness !== null;
@@ -106,8 +120,8 @@ export default function CardView({
     >
       {hidden ? (
         <CardBack />
-      ) : card.imageUri ? (
-        <img src={imageFor(card.imageUri, size === "sm" ? "small" : "normal") ?? card.imageUri} alt="" loading="lazy" draggable={false} />
+      ) : imageUri ? (
+        <img src={imageFor(imageUri, size === "sm" ? "small" : "normal") ?? imageUri} alt="" loading="lazy" draggable={false} />
       ) : (
         <span className="gc-text">
           <strong>{card.name}</strong>
@@ -120,7 +134,7 @@ export default function CardView({
         </span>
       )}
       {card.token && <span className="gc-badge token">Token</span>}
-      {card.cmd && <span className="gc-badge cmd">Kommandant</span>}
+      {card.cmd && <span className="gc-badge cmd" title="Kommandant">♛ {size === "sm" ? "Kdr." : "Kommandant"}</span>}
       {card.chosenType && <span className="gc-badge chosen" title={`Gewählter Typ: ${card.chosenType}`}>Typ: {card.chosenType}</span>}
       {card.attachedName && <span className="gc-badge attach" title={`Hängt an ${card.attachedName}`}>↳ {card.attachedName}</span>}
       {(card.attachments?.length ?? 0) > 0 && <span className="gc-badge attached" title={card.attachments!.join(", ")}>+ {card.attachments!.join(", ")}</span>}

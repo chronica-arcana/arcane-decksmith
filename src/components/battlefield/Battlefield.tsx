@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import type { DragEvent, MouseEvent } from "react";
 import type { CardAbility, GameAction, GameCard, GameView, GameZone, PayRequirement, TargetOption } from "../../gameClient";
 import tableImage from "../../assets/game/table.webp";
-import ActionBar from "./ActionBar";
+import ActionBar, { passInfo, type ActionBarProps } from "./ActionBar";
 import { BattlefieldContext, type BattlefieldApi, type Mark } from "./BattlefieldContext";
 import CardPreview from "./CardPreview";
 import CardView from "./CardView";
@@ -560,6 +560,38 @@ export default function Battlefield({
   const zoneCards: GameCard[] =
     zoneOwner && zoneView ? (zoneView.zone === "library" ? (zoneOwner.looking ?? []) : zoneOwner[zoneView.zone as "graveyard" | "exile" | "command" | "hand"]) : [];
 
+  const barProps: ActionBarProps = {
+    game,
+    me,
+    hostId,
+    nameOf,
+    allCards,
+    act,
+    iHavePriority,
+    isActive,
+    discarding,
+    attackStep,
+    awaitingMe,
+    livingOpponents,
+    attackPick,
+    clearAttackPick: () => setAttackPick([]),
+    target,
+    setAttackTarget,
+    blockPick,
+    blocks,
+    resetBlocks: () => {
+      setBlocks(() => ({}));
+      setBlockPick(null);
+    },
+    discardPick,
+    clearDiscardPick: () => setDiscardPick([]),
+    canAttack,
+    targeting,
+    cancelTargeting: () => setTargeting(null),
+    onRematch,
+    onLeave
+  };
+
   return (
     <BattlefieldContext.Provider value={api}>
       {frame(
@@ -574,40 +606,12 @@ export default function Battlefield({
             <PlayerZone player={me} />
             {/* Aktionsleiste und Hinweise ganz unten bei den Phasen, nicht mitten auf dem Tisch */}
             <div className="bar-dock">
-              <ActionBar
-                game={game}
-                me={me}
-                hostId={hostId}
-                nameOf={nameOf}
-                allCards={allCards}
-                act={act}
-                iHavePriority={iHavePriority}
-                isActive={isActive}
-                discarding={discarding}
-                attackStep={attackStep}
-                awaitingMe={awaitingMe}
-                livingOpponents={livingOpponents}
-                attackPick={attackPick}
-                clearAttackPick={() => setAttackPick([])}
-                target={target}
-                setAttackTarget={setAttackTarget}
-                blockPick={blockPick}
-                blocks={blocks}
-                resetBlocks={() => {
-                  setBlocks(() => ({}));
-                  setBlockPick(null);
-                }}
-                discardPick={discardPick}
-                clearDiscardPick={() => setDiscardPick([])}
-                canAttack={canAttack}
-                targeting={targeting}
-                cancelTargeting={() => setTargeting(null)}
-                onRematch={onRematch}
-                onLeave={onLeave}
-              />
+              <ActionBar {...barProps} />
             </div>
             <PhaseStrip
               game={game}
+              pass={passInfo(barProps)}
+              onPass={() => act({ type: "pass" })}
               activeName={nameOf(game.turn.active)}
               hint={isActive ? "Du bist am Zug" : `${nameOf(game.turn.active)} ist am Zug`}
               detail={
