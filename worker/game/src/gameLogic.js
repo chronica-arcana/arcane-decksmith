@@ -2264,6 +2264,7 @@ function runEffect(game, rawEffect, ctx, rest) {
         const c = game.cards[id];
         if (!defOf(game, c).types.creature || (effect.other && c.id === ctx.source)) continue;
         if (effect.subtype && !hasSubtype(defOf(game, c), effect.subtype)) continue;
+        if (effect.attacking && !game.combat?.attackers?.some(attacker => attacker.id === c.id)) continue;
         c.counters[effect.kind] = Math.min(MAX_COUNTERS, (c.counters[effect.kind] ?? 0) + counterAmount(game, c, effect.kind, effect.n));
         c.counterTurn = game.turn.number;
       }
@@ -2702,6 +2703,18 @@ function runEffect(game, rawEffect, ctx, rest) {
         queue: rest,
         ctx
       });
+    }
+    case "gyReturnAll": {
+      for (const id of [...controller.graveyard]) {
+        const card = game.cards[id];
+        if (!card || !typeMatches(defOf(game, card), effect.what)) continue;
+        controller.graveyard.splice(controller.graveyard.indexOf(id), 1);
+        controller.battlefield.push(id);
+        enterBattlefield(game, card);
+        if (effect.tapped) card.tapped = true;
+      }
+      addLog(game, `${controller.name} legt alle passenden Karten aus dem Friedhof aufs Schlachtfeld (${name}).`);
+      return false;
     }
     case "handToField": {
       const options = controller.hand.filter(id => typeMatches(defOf(game, game.cards[id]), effect.what));
@@ -4271,6 +4284,7 @@ function declareBlockersAction(game, userId, action) {
     }
   }
   combat.blocks.push(...chosen);
+  for (const entry of chosen) if (game.cards[entry.blocker]) fireTriggers(game, game.cards[entry.blocker], "blocks");
   combat.done.push(userId);
   addLog(
     game,

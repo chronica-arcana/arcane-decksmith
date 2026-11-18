@@ -145,6 +145,8 @@ const LIB = [
   ["plaguebearer", "Pestbringer", "Creature — Horror", "{1}", 2, { power: "1", toughness: "1" }, "When ~ enters, put a -1/-1 counter on each creature your opponents control.\nCreatures your opponents control attack each combat if able."],
   ["scales", "Gehärtete Schuppen", "Creature — Human Warrior", "{1}", 2, { power: "2", toughness: "2" }, "If one or more +1/+1 counters would be put on a creature you control, that many plus one +1/+1 counters are put on it instead."],
   ["warhorn", "Kriegshorn", "Artifact", "{1}", 2, {}, "Whenever you attack, you gain 1 life.\nWhenever you attack with two or more creatures, you gain 5 life."],
+  ["reclaim", "Landrückkehr", "Sorcery", "{G}", 2, {}, "Return all land cards from your graveyard to the battlefield tapped."],
+  ["guard", "Blockwächter", "Creature — Soldier", "{1}", 2, { power: "1", toughness: "4" }, "Whenever ~ blocks, you gain 3 life."],
   ["convoker", "Einberufer", "Sorcery", "{3}{G}", 2, {}, "Convoke\nDraw a card."],
   ["delver", "Schürfer", "Sorcery", "{4}{G}", 2, {}, "Delve\nDraw a card."],
   ["sculptor", "Bildhauer", "Creature — Vedalken", "{G}", 2, { power: "1", toughness: "1" }, "Artifact spells you cast cost {1} less to cast."],
@@ -2480,6 +2482,31 @@ describe("Neue Mechaniken aus den Commander-Decks", () => {
     go(g2, r2);
     expect(g2.players.u0.life).toBe(before + 6);
     void b;
+  });
+
+  it("Alle Länder aus dem Friedhof zurück aufs Schlachtfeld (getappt)", () => {
+    const { game, random } = started();
+    forest(game, "u0", 1);
+    const lands = [put(game, "u0", "Forest", "graveyard"), put(game, "u0", "Forest", "graveyard")];
+    const bear = put(game, "u0", "Bär", "graveyard");
+    castAndResolve(game, "u0", "Landrückkehr", random);
+    for (const id of lands) {
+      expect(game.players.u0.battlefield).toContain(id);
+      expect(game.cards[id].tapped).toBe(true);
+    }
+    expect(game.players.u0.graveyard).toContain(bear);
+  });
+
+  it("„Whenever ~ blocks“ löst beim Blocken aus", () => {
+    const { game, random } = started();
+    const bear = put(game, "u0", "Bär", "battlefield");
+    const guard = put(game, "u1", "Blockwächter", "battlefield");
+    toAttackers(game, random);
+    act(game, "u0", { type: "declareAttackers", attackers: [{ id: bear }] }, random);
+    const life = game.players.u1.life;
+    expect(act(game, "u1", { type: "declareBlockers", blocks: [{ blocker: guard, attacker: bear }] }, random).ok).toBe(true);
+    go(game, random);
+    expect(game.players.u1.life).toBe(life + 3);
   });
 
   it("Convoke und Delve bezahlen fehlendes Mana mit Kreaturen bzw. Friedhofskarten", () => {
