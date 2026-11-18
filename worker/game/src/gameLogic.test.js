@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { abortGame, applyAction, createGame as createRawGame, gameView, joinGame, playerLeft, repairGame, splitGame } from "./gameLogic.js";
+import { abortGame, applyAction, cannotBlockReason, createGame as createRawGame, gameView, joinGame, playerLeft, repairGame, splitGame } from "./gameLogic.js";
 
 /** Die Tests gehen vom automatischen Ziehen aus (im Spiel ist „per Klick ziehen“ voreingestellt). */
 const createGame = options => {
@@ -133,6 +133,13 @@ const LIB = [
   ["mirror", "Zauberspiegel", "Creature — Wizard", "{1}", 2, { power: "1", toughness: "1" }, "Whenever you cast an instant or sorcery spell, you may copy that spell. You may choose new targets for the copy."],
   ["battery", "Energiezelle", "Artifact", "{1}", 2, {}, "{T}, Pay {E}{E}: You gain 3 life."],
   ["counterwarden", "Zählerwächter", "Creature — Knight", "{1}", 2, { power: "2", toughness: "2" }, "Creatures your opponents control with counters on them can't attack or block."],
+  ["cyclewatcher", "Wechselbeobachter", "Creature — Wizard", "{1}", 2, { power: "1", toughness: "1" }, "Whenever you cycle or discard another card, you gain 1 life."],
+  ["selfcycler", "Wechselbote", "Creature — Elf", "{3}{G}", 2, { power: "2", toughness: "2" }, "Cycling {1}\nWhen you cycle this card, put a deathtouch counter on target creature you control."],
+  ["authority", "Behördenerlass", "Enchantment", "{1}", 2, {}, "Creatures your opponents control enter tapped."],
+  ["zombielord", "Zombiefürst", "Creature — Zombie", "{1}", 2, { power: "1", toughness: "1" }, "Whenever another Zombie you control dies, each opponent loses 1 life."],
+  ["spiral", "Wachstumsspirale", "Instant", "{G}", 2, {}, "Draw a card.\nYou may put a land card from your hand onto the battlefield."],
+  ["tapsweep", "Sonnenwende", "Sorcery", "{G}", 2, {}, "Destroy all tapped creatures."],
+  ["forestwalker", "Waldwanderer", "Creature — Elf", "{1}", 2, { power: "2", toughness: "2" }, "Forestwalk"],
   ["convoker", "Einberufer", "Sorcery", "{3}{G}", 2, {}, "Convoke\nDraw a card."],
   ["delver", "Schürfer", "Sorcery", "{4}{G}", 2, {}, "Delve\nDraw a card."],
   ["sculptor", "Bildhauer", "Creature — Vedalken", "{G}", 2, { power: "1", toughness: "1" }, "Artifact spells you cast cost {1} less to cast."],
@@ -2347,6 +2354,74 @@ describe("Neue Mechaniken aus den Commander-Decks", () => {
     expect(view(game, "u1").players.find(p => p.userId === "u1").battlefield.find(c => c.id === foe).keywords).not.toContain("cant-attack");
     game.cards[foe].counters["+1/+1"] = 1;
     expect(view(game, "u1").players.find(p => p.userId === "u1").battlefield.find(c => c.id === foe).keywords).toContain("cant-attack");
+  });
+
+  it("Cycling: eigener Auslöser (Schlüsselwort-Marker) und „cycle or discard another card“", () => {
+    const { game, random } = started();
+    forest(game, "u0", 4);
+    put(game, "u0", "Wechselbeobachter", "battlefield");
+    const bear = put(game, "u0", "Bär", "battlefield");
+    const life = game.players.u0.life;
+    const bote = put(game, "u0", "Wechselbote", "hand");
+    expect(act(game, "u0", { type: "cycle", id: bote }, random).ok).toBe(true);
+    for (let i = 0; i < 10 && (game.stack.length > 0 || game.choice); i += 1) {
+      if (game.choice) act(game, "u0", { type: "choose", ids: game.choice.options.slice(0, 1).map(o => o.id ?? o) }, random);
+      else act(game, game.priority, { type: "pass" }, random);
+    }
+    expect(game.players.u0.life).toBe(life + 1);
+    const counted = game.players.u0.battlefield.filter(id => game.cards[id].counters.deathtouch === 1);
+    expect(counted.length).toBe(1);
+    expect(counted[0]).toBeTruthy();
+    expect(view(game, "u0").players[0].battlefield.find(c => c.id === counted[0]).keywords).toContain("deathtouch");
+    void bear;
+  });
+
+  it("„Creatures your opponents control enter tapped“", () => {
+    const { game, random } = started();
+    forest(game, "u0", 2);
+    put(game, "u1", "Behördenerlass", "battlefield");
+    const bear = put(game, "u0", "Bär", "hand");
+    expect(act(game, "u0", { type: "cast", id: bear }, random).ok).toBe(true);
+    go(game, random);
+    expect(game.cards[bear].tapped).toBe(true);
+  });
+
+  it("„Whenever another Zombie you control dies“ zieht dem Gegner Leben ab", () => {
+    const { game, random } = started();
+    forest(game, "u0", 4);
+    put(game, "u0", "Zombiefürst", "battlefield");
+    put(game, "u0", "Mountain", "battlefield");
+    const other = put(game, "u0", "Wiederkehrer", "battlefield"); // Zombie
+    const life = game.players.u1.life;
+    castAndResolve(game, "u0", "Zerstörer", random, [other]);
+    expect(game.players.u1.life).toBe(life - 1);
+  });
+
+  it("Land aus der Hand ausspielen („put a land card from your hand onto the battlefield“) und „destroy all tapped creatures“", () => {
+    const { game, random } = started();
+    forest(game, "u0", 2);
+    const land = put(game, "u0", "Forest", "hand");
+    const id = put(game, "u0", "Wachstumsspirale", "hand");
+    expect(act(game, "u0", { type: "cast", id }, random).ok).toBe(true);
+    go(game, random);
+    expect(game.players.u0.battlefield).toContain(land); // „go“ antwortet automatisch mit Ja und wählt die erste Karte
+
+    const tapped = put(game, "u1", "Bär", "battlefield");
+    const fresh = put(game, "u1", "Falke", "battlefield");
+    game.cards[tapped].tapped = true;
+    forest(game, "u0", 1);
+    castAndResolve(game, "u0", "Sonnenwende", random);
+    expect(game.players.u1.battlefield).not.toContain(tapped);
+    expect(game.players.u1.battlefield).toContain(fresh);
+  });
+
+  it("Landwandern verhindert Blocken, wenn der Verteidiger so ein Land hat; Auslöser ab Stärke 4", () => {
+    const { game } = started();
+    const walker = put(game, "u0", "Waldwanderer", "battlefield");
+    const blocker = put(game, "u1", "Bär", "battlefield");
+    expect(cannotBlockReason(game, game.cards[walker], game.cards[blocker])).toBeNull();
+    put(game, "u1", "Forest", "battlefield");
+    expect(cannotBlockReason(game, game.cards[walker], game.cards[blocker])).toBe("Landwandern");
   });
 
   it("Convoke und Delve bezahlen fehlendes Mana mit Kreaturen bzw. Friedhofskarten", () => {

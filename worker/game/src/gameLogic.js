@@ -164,11 +164,13 @@ function staticEffects(game, card) {
   }
   return result;
 }
+const KEYWORD_COUNTERS = new Set(["flying", "first strike", "double strike", "deathtouch", "haste", "hexproof", "indestructible", "lifelink", "menace", "reach", "trample", "vigilance"]);
 const keywordsOfCard = (game, card) => {
   const def = defOf(game, card);
   const base = [...(def.keywords ?? []), ...(def.rules?.selfGrants ?? []), ...(def.rules?.tiers ?? []).filter(tier => tierOn(card, { minCharge: tier.n })).flatMap(tier => tier.kws)];
   const effects = staticEffects(game, card);
-  const grants = [...effects.grants, ...(card.tk ?? [])];
+  const counterKeywords = Object.keys(card.counters ?? {}).filter(kind => card.counters[kind] > 0 && KEYWORD_COUNTERS.has(kind));
+  const grants = [...effects.grants, ...(card.tk ?? []), ...counterKeywords];
   const all = grants.length > 0 ? [...base, ...grants] : base;
   return effects.revokes.length > 0 ? all.filter(keyword => !effects.revokes.includes(keyword)) : all;
 };
@@ -402,6 +404,7 @@ function enterBattlefield(game, card) {
     const n = rule.n === "X" ? card.enterX ?? 0 : rule.n;
     if (n > 0) card.counters[rule.kind] = (card.counters[rule.kind] ?? 0) + n;
   }
+  if (def.types.creature && game.seats.some(userId => userId !== card.owner && game.players[userId].battlefield.some(id => defOf(game, game.cards[id]).rules?.oppEnterTapped))) card.tapped = true;
   if (def.rules?.entersTapped) card.tapped = true;
   else if (def.rules?.entersTappedUnless && !entryConditionMet(game, card, def.rules.entersTappedUnless)) card.tapped = true;
   else if (def.rules?.shock) game.triggerQueue.push({ kind: "entry", entry: "shock", cardId: card.id, controller: card.owner, life: def.rules.shock.life });
@@ -561,6 +564,12 @@ const mutateTargets = (game, userId) => game.players[userId].battlefield.filter(
   const def = defOf(game, game.cards[id]);
   return def.types.creature && !hasSubtype(def, "Human") && (game.cards[id].origOwner ?? game.cards[id].owner) === userId;
 });
+
+/** „Whenever you discard (or cycle) a card“: ein Auslöser je abgeworfener Karte. */
+function fireDiscards(game, ids) {
+  if (game.phase !== "playing") return;
+  for (const id of ids) if (game.cards[id]) fireGlobal(game, "youDiscard", game.cards[id]);
+}
 
 function toGraveyard(game, card, from = "battlefield") {
   const holder = game.players[card.owner]; // Kontrolleur (liegt dort auf dem Feld)
@@ -1176,6 +1185,9 @@ export function cannotBlockReason(game, attacker, blocker) {
   const blockerColors = colorsOfDef(blockerDef);
   if (hasKeyword(game, attacker, "fear") && !blockerDef.types.artifact && !blockerColors.includes("B")) return "Furcht";
   if (hasKeyword(game, attacker, "intimidate") && !blockerDef.types.artifact && !blockerColors.some(color => colorsOfCard(game, attacker).includes(color))) return "Einschüchtern";
+  for (const land of ["plains", "island", "swamp", "mountain", "forest"]) {
+    if (hasKeyword(game, attacker, `${land}walk`) && game.players[blocker.owner].battlefield.some(id => defOf(game, game.cards[id]).types.land && hasSubtype(defOf(game, game.cards[id]), land))) return "Landwandern";
+  }
   if (hasKeyword(game, attacker, "skulk") && powerOf(game, blocker) > powerOf(game, attacker)) return "Schleichen";
   if (protectedFrom(game, attacker, blockerColors)) return "Schutz";
   return null;
@@ -1706,6 +1718,7 @@ function fireGlobal(game, event, subject) {
         if (scope.subtype && (typeof subject === "string" || !hasSubtype(defOf(game, subject), scope.subtype))) continue;
         if (scope.nontoken && typeof subject !== "string" && subject.token) continue;
         if (trigger.kinds && (typeof subject === "string" || !trigger.kinds.some(kind => defOf(game, subject).types[kind]))) continue;
+        if (scope.minPower !== undefined && (typeof subject === "string" || powerOf(game, subject) < scope.minPower)) continue;
         if (scope.maxPower !== undefined && (typeof subject === "string" || powerOf(game, subject) > scope.maxPower)) continue;
         if (trigger.chosenType && (!source.chosenType || typeof subject === "string" || !hasSubtype(defOf(game, subject), source.chosenType))) continue;
         game.triggerQueue.push({ controller: source.owner, source: source.id, sourceName: def.name, trigger, subject: subjectOwner, subjectCard: typeof subject === "string" ? null : subject.id });
@@ -1971,6 +1984,7 @@ function runEffect(game, rawEffect, ctx, rest) {
           const gone = player.hand.splice(0, player.hand.length);
           player.graveyard.push(...gone);
           addLog(game, `${player.name} wirft ab: ${gone.map(id => nameOf(game, id)).join(", ")} (${name}).`);
+          fireDiscards(game, gone);
           continue;
         }
         return openChoice(game, {
@@ -2164,9 +2178,11 @@ function runEffect(game, rawEffect, ctx, rest) {
           if (effect.nontoken && c.token) continue;
           if (effect.nonTypes?.some(type => def.types[type])) continue;
           if (effect.exceptMade && (ctx.madeTokens ?? []).includes(id)) continue;
+          if (effect.onlyTapped && !c.tapped) continue;
           if (effect.filter) {
             const value = effect.filter.of === "power" ? powerOf(game, c) : effect.filter.of === "toughness" ? toughnessOf(game, c) : def.manaValue ?? 0;
-            if (effect.filter.op === "gte" ? value < effect.filter.n : value > effect.filter.n) continue;
+            const limit = effect.filter.n === "X" ? ctx.x ?? 0 : effect.filter.n;
+            if (effect.filter.op === "gte" ? value < limit : value > limit) continue;
           }
           if (effect.mode === "exile") leaveTo(game, c, "exile");
           else destroyCard(game, c);
@@ -2668,6 +2684,21 @@ function runEffect(game, rawEffect, ctx, rest) {
         ctx
       });
     }
+    case "handToField": {
+      const options = controller.hand.filter(id => typeMatches(defOf(game, game.cards[id]), effect.what));
+      if (options.length === 0) return false;
+      return openChoice(game, {
+        userId: ctx.controller,
+        kind: "cards",
+        prompt: `Wähle ein ${effect.what === "land" ? "Land" : "Karte"} aus deiner Hand, das aufs Schlachtfeld kommt (${name}).`,
+        options,
+        min: 1,
+        max: 1,
+        step: { type: "handField", tapped: effect.tapped },
+        queue: rest,
+        ctx
+      });
+    }
     case "gyReturn": {
       const options = controller.graveyard.filter(id => typeMatches(defOf(game, game.cards[id]), effect.what));
       if (options.length === 0) return false;
@@ -3087,6 +3118,7 @@ function chooseAction(game, userId, action, random, now) {
         player.graveyard.push(id);
       }
       addLog(game, `${player.name} wirft ab: ${ids.map(id => nameOf(game, id)).join(", ")}.`);
+      fireDiscards(game, ids);
       break;
     case "shock": {
       const card = game.cards[step.cardId];
@@ -3143,12 +3175,13 @@ function chooseAction(game, userId, action, random, now) {
       break;
     }
     case "search":
+    case "handField":
     case "gyReturn": {
       for (const [position, id] of ids.entries()) {
         const card = game.cards[id];
-        const from = step.type === "search" ? player.library : player.graveyard;
+        const from = step.type === "search" ? player.library : step.type === "handField" ? player.hand : player.graveyard;
         from.splice(from.indexOf(id), 1);
-        const target = step.to === "split" ? (position === 0 ? "battlefield" : "hand") : step.to;
+        const target = step.type === "handField" ? "battlefield" : step.to === "split" ? (position === 0 ? "battlefield" : "hand") : step.to;
         if (target === "top") {
           player.library.push(id);
           addLog(game, `${player.name} legt eine Karte oben auf die Bibliothek.`);
@@ -3984,6 +4017,9 @@ function cycleAction(game, userId, action) {
   for (const color of Object.keys(plan.poolUsed)) player.pool[color] -= plan.poolUsed[color];
   for (const color of Object.keys(plan.poolAdd)) player.pool[color] += plan.poolAdd[color];
   toGraveyard(game, found.card, "hand");
+  fireTriggers(game, found.card, "cycled"); // „When you cycle this card“
+  fireGlobal(game, "youCycle", found.card);
+  fireDiscards(game, [found.card.id]);
   const search = cycling.search;
   const effects = search
     ? [{ type: "search", what: ["plains", "island", "swamp", "mountain", "forest"].includes(search) ? "basic land" : search, to: "hand", tapped: false }]

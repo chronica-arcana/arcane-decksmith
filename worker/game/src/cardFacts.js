@@ -9,7 +9,7 @@ const COLOR_LETTERS = new Set(MANA_COLORS);
 export const KEYWORDS = [
   "flying", "reach", "first strike", "double strike", "deathtouch", "lifelink", "trample", "vigilance",
   "haste", "menace", "defender", "indestructible", "flash", "hexproof", "shroud",
-  "fear", "intimidate", "skulk", "infect", "wither", "prowess"
+  "fear", "intimidate", "skulk", "infect", "wither", "prowess", "plainswalk", "islandwalk", "swampwalk", "mountainwalk", "forestwalk"
 ];
 
 const BASIC_LAND_COLORS = { plains: "W", island: "U", swamp: "B", mountain: "R", forest: "G", wastes: "C" };

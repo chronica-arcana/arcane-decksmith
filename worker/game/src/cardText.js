@@ -317,6 +317,11 @@ function parseSentence(raw, specs) {
   }
 
   if (/^you may choose new targets for (the|that|target) (cop(y|ies)|spell or ability)$/.test(lower)) return [{ type: "noop" }];
+  if ((m = lower.match(new RegExp(`^you may have (?:it|~) deal ${N} damage to each creature$`)))) {
+    const n = num(m[1]);
+    return n === null ? null : [{ type: "may", effects: [{ type: "damage", n, to: { k: "eachCreature" } }] }];
+  }
+  if ((m = lower.match(/^you may put an? (land) card from your hand onto the battlefield( tapped)?$/))) return [{ type: "may", effects: [{ type: "handToField", what: m[1], tapped: Boolean(m[2]) }] }];
   // „You may …“: der Spieler entscheidet (Ja/Nein); „If you do, …“ folgt nur nach „Ja“.
   if ((m = lower.match(/^you may (.+)$/))) {
     const inner = parseSentence(s.slice(8), specs);
@@ -419,6 +424,8 @@ function parseSentence(raw, specs) {
   if ((m = lower.match(/^destroy all creatures with (power|toughness|mana value) (\d+) or (greater|less)$/))) {
     return [{ type: "destroyAll", what: "creature", filter: { of: m[1] === "mana value" ? "mv" : m[1], op: m[3] === "greater" ? "gte" : "lte", n: Number(m[2]) } }];
   }
+  if (lower === "destroy all tapped creatures") return [{ type: "destroyAll", what: "creature", mode: "destroy", onlyTapped: true }];
+  if ((m = lower.match(/^destroy each nonland permanent with mana value x or less$/))) return [{ type: "destroyAll", what: "permanent", mode: "destroy", nonTypes: ["land"], filter: { of: "mv", op: "lte", n: "X" } }];
   if ((m = lower.match(/^(destroy|exile) all ((?:non[a-z]+,? )*)(creatures|artifacts|enchantments|lands|planeswalkers|permanents)((?:,? (?:and )?(?:creatures|artifacts|enchantments|lands|planeswalkers))*)$/))) {
     const single = { creatures: "creature", artifacts: "artifact", enchantments: "enchantment", lands: "land", planeswalkers: "planeswalker", permanents: "permanent" };
     const what = [single[m[3]], ...[...m[4].matchAll(/(creatures|artifacts|enchantments|lands|planeswalkers)/g)].map(item => single[item[1]])];
@@ -553,7 +560,7 @@ function parseSentence(raw, specs) {
     return t === null || !/spell$/.test(m[1]) ? null : [{ type: "counterSpell", t }];
   }
 
-  if ((m = lower.match(new RegExp(`^put ${N} ([+-]1/[+-]1) counters? on (~|target [a-z ,'-]+)$`)))) {
+  if ((m = lower.match(new RegExp(`^put ${N} ([+-]1/[+-]1|flying|first strike|double strike|deathtouch|haste|hexproof|indestructible|lifelink|menace|reach|trample|vigilance) counters? on (~|target [a-z ,'-]+)$`)))) {
     const n = num(m[1]);
     if (n === null) return null;
     if (m[3] === "~") return [{ type: "counters", n, kind: m[2], self: true }];
@@ -691,6 +698,7 @@ function describeBase(effect) {
     case "surveil": return `Überwachen ${effect.n}.`;
     case "damage": return `${effect.n} Schaden an ${{ target: "das Ziel", eachOpp: "jeden Gegner", each: "jeden Spieler", eachCreature: "jede Kreatur", eachOppCreature: "jede gegnerische Kreatur" }[effect.to.k]}.`;
     case "destroy": return "Zerstört das Ziel.";
+    case "handToField": return "Lege eine Landkarte aus der Hand aufs Schlachtfeld.";
     case "destroyAll": return `Zerstört alle ${{ creature: "Kreaturen", land: "Länder", artifact: "Artefakte", enchantment: "Verzauberungen" }[effect.what] ?? "Permanents"}.`;
     case "exile": return "Schickt das Ziel ins Exil.";
     case "bounce": return "Das Ziel geht zurück auf die Hand seines Besitzers.";
@@ -895,6 +903,9 @@ function triggerEvent(word, condition) {
   let m;
   if (/^~ enters( the battlefield)?$/.test(condition)) return { event: "etb" };
   if (/^(equipped|enchanted) creature attacks$/.test(condition)) return { event: "attachedAttacks" };
+  if (condition === "you cycle a card" || condition === "you cycle another card") return { event: "youCycle", scope: { owner: "you", another: false } };
+  if (/^you (?:cycle or discard|discard or cycle|discard) (?:a|another) card$/.test(condition)) return { event: "youDiscard", scope: { owner: "you", another: false } };
+  if (condition === "you cycle ~" || condition === "you cycle this card") return { event: "cycled" };
   if (/^~ mutates$/.test(condition)) return { event: "mutates" };
   if (/^~ dies$/.test(condition) || /^~ is put into a graveyard from the battlefield$/.test(condition)) return { event: "dies" };
   if ((m = condition.match(/^~ or another (nontoken )?creature you control dies$/))) return { event: "creatureDies", scope: { owner: "you", another: false, ...(m[1] ? { nontoken: true } : {}) } };
@@ -906,8 +917,14 @@ function triggerEvent(word, condition) {
   if (/^you gain life$/.test(condition)) return { event: "youGainLife", scope: { owner: "you", another: false } };
   if (/^you draw a card$/.test(condition)) return { event: "youDraw", scope: { owner: "you", another: false } };
   if (/^an opponent draws a card$/.test(condition)) return { event: "oppDraw", scope: { owner: "opp", another: false } };
+  if ((m = condition.match(/^(another|a) creature you control with power (\d+) or greater enters( the battlefield)?$/))) {
+    return { event: "creatureEnters", scope: { owner: "you", another: m[1] === "another", minPower: Number(m[2]) } };
+  }
   if ((m = condition.match(/^another creature with power (\d+) or less enters( the battlefield)? under your control$/))) {
     return { event: "creatureEnters", scope: { owner: "you", another: true, maxPower: Number(m[1]) } };
+  }
+  if ((m = condition.match(/^another ([a-z]+) you control dies$/)) && !["creature", "nontoken"].includes(m[1])) {
+    return { event: "creatureDies", scope: { owner: "you", another: true, subtype: m[1] } };
   }
   if ((m = condition.match(/^another ([a-z]+) you control enters( the battlefield)?$/)) && !["creature", "nontoken"].includes(m[1])) {
     return { event: "creatureEnters", scope: { owner: "you", another: true, subtype: m[1] } };
@@ -1195,6 +1212,10 @@ export function parseCardText({ name, typeLine, oracleText }) {
     }
     if (/^~ can't be blocked by creatures with greater power\.?$/i.test(line)) {
       result.selfGrants = [...(result.selfGrants ?? []), "skulk"];
+      continue;
+    }
+    if (/^creatures your opponents control enter tapped\.?$/i.test(line)) {
+      result.oppEnterTapped = true;
       continue;
     }
     const counterBan = line.match(/^creatures your opponents control with counters on them can't (attack or block|attack|block)\.?$/i);
