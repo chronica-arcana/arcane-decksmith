@@ -28,7 +28,7 @@ describe("cardText: Zauber", () => {
 
   it("Suchen, Zurückholen, Mana, Spielsteine", () => {
     expect(spell("Rampant Growth", "Sorcery", "Search your library for a basic land card, put that card onto the battlefield tapped, then shuffle.").effects)
-      .toEqual([{ type: "search", what: "basic land", to: "battlefield", tapped: true }]);
+      .toEqual([{ type: "search", what: "basic land", to: "battlefield", tapped: true, count: 1, upTo: false }]);
     expect(spell("Raise Dead", "Sorcery", "Return target creature card from your graveyard to your hand.").effects)
       .toEqual([{ type: "gyReturn", what: "creature", to: "hand" }]);
     expect(spell("Dark Ritual", "Instant", "Add {B}{B}{B}.").effects).toEqual([{ type: "mana", symbols: ["B", "B", "B"] }]);
@@ -37,7 +37,7 @@ describe("cardText: Zauber", () => {
   });
 
   it("alles Unverstandene bleibt unausgeführt und wird gemeldet", () => {
-    expect(spell("Doom Blade", "Instant", "Destroy target nonblack creature.")).toMatchObject({ effects: [], unparsed: ["Destroy target nonblack creature"] });
+    expect(spell("Doom Blade", "Instant", "Destroy target creature with a +1/+1 counter on it.")).toMatchObject({ effects: [], unparsed: ["Destroy target creature with a +1/+1 counter on it"] });
     expect(spell("Wahl", "Instant", "Choose one or both —\n• Counter target spell.\n• Draw a card.").unparsed).toHaveLength(1);
     const mixed = spell("Mix", "Sorcery", "Draw a card. Exile all cards from each graveyard.");
     expect(mixed.effects).toHaveLength(1);
@@ -116,7 +116,7 @@ describe("cardText: Opferkosten, getappt ins Spiel, Zusammenfassung", () => {
     const wilds = parseCardText({ name: "Evolving Wilds", typeLine: "Land", oracleText: "{T}, Sacrifice Evolving Wilds: Search your library for a basic land card, put it onto the battlefield tapped, then shuffle." });
     expect(wilds.activated).toHaveLength(1);
     expect(wilds.activated[0].cost).toEqual({ tap: true, sacrifice: true, mana: "" });
-    expect(wilds.activated[0].effects).toEqual([{ type: "search", what: "basic land", to: "battlefield", tapped: true }]);
+    expect(wilds.activated[0].effects).toEqual([{ type: "search", what: "basic land", to: "battlefield", tapped: true, count: 1, upTo: false }]);
     expect(wilds.notes).toEqual([]);
   });
 

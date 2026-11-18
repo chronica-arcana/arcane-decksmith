@@ -18,7 +18,6 @@ import PhaseStrip from "./PhaseStrip";
 import PlayerZone from "./PlayerZone";
 import ManaPick from "./ManaPick";
 import SettingsDialog from "./SettingsDialog";
-import TurnToast from "./TurnToast";
 import "./battlefield.css";
 
 const ZONE_LABELS: Record<GameZone, string> = {
@@ -67,7 +66,10 @@ export default function Battlefield({
   const [attackPick, setAttackPick] = useState<string[]>([]);
   const [attackTarget, setAttackTarget] = useState("");
   const [blockPick, setBlockPick] = useState<string | null>(null);
-  const [blocks, setBlocks] = useState<Record<string, string>>({});
+  const [blockState, setBlockState] = useState<{ turn: number; map: Record<string, string> }>({ turn: -1, map: {} });
+  // Die Auswahl gilt nur für diesen Zug und bleibt stehen, bis der Server den Block angenommen hat (bei Ablehnung geht sie nicht verloren).
+  const setBlocks = (update: (current: Record<string, string>) => Record<string, string>) =>
+    setBlockState(current => ({ turn: game.turn.number, map: update(current.turn === game.turn.number ? current.map : {}) }));
   const [castX, setCastX] = useState<{ id: string; name: string; value: number } | null>(null);
   const [drawer, setDrawer] = useState<"chat" | "log" | null>(null);
   const [lifeOpen, setLifeOpen] = useState(false);
@@ -156,6 +158,7 @@ export default function Battlefield({
   const showCoin = game.phase === "playing" && game.turn.number === 1 && beganAt > 0 && coinDone !== beganAt && beganAt >= mountedAt - 4000 && Boolean(game.turn.first);
   const target = attackTarget || livingOpponents[0]?.userId || "";
   const awaitingMe = Boolean(game.combat?.awaiting.includes(game.you));
+  const blocks = awaitingMe && blockState.turn === game.turn.number ? blockState.map : {};
   const attackedMe = game.combat?.attackers.filter(attacker => attacker.target === game.you) ?? [];
   const canAttack = me.battlefield.some(card => card.kind === "creature" && !card.tapped && !card.sick && !card.faceDown && !card.keywords?.includes("defender"));
   const attackStep = canAct && isActive && step === "attackers" && game.stack.length === 0 && !game.choice && !game.manual;
@@ -317,6 +320,26 @@ export default function Battlefield({
         }
         if (manual.length > 0) items.push({ label: "Laut Kartentext:", onClick: () => undefined, heading: true }, ...manual);
       }
+    }
+    // Handarbeit an Karten der Gegner (nur im manuellen Fenster, nur was der Kartentext verlangt), z. B. Schaden an einer fremden Kreatur
+    if (manualMine && canAct && !stackItem && !targeting && card.owner !== game.you && game.players.some(p => p.userId === card.owner && p.battlefield.some(c => c.id === card.id))) {
+      const manual: MenuItem[] = [];
+      const isCreature = card.kind === "creature";
+      if (isCreature && manualAllows.life) {
+        manual.push({ label: "+1 Schaden", onClick: () => act({ type: "damage", id: card.id, delta: 1 }) });
+        manual.push({ label: "−1 Schaden", onClick: () => act({ type: "damage", id: card.id, delta: -1 }) });
+      }
+      if (isCreature && manualAllows.counters) {
+        manual.push({ label: "+1/+1 Marker", onClick: () => act({ type: "counter", id: card.id, kind: "+1/+1", delta: 1 }) });
+        manual.push({ label: "−1/−1 Marker", onClick: () => act({ type: "counter", id: card.id, kind: "-1/-1", delta: 1 }) });
+      }
+      if (manualAllows.tap) manual.push({ label: card.tapped ? "Enttappen" : "Tappen", onClick: () => act({ type: "tap", id: card.id }) });
+      if (manualAllows.move) {
+        manual.push({ label: "→ Friedhof", onClick: () => act({ type: "moveOther", id: card.id, to: "graveyard" }) });
+        manual.push({ label: "→ Exil", onClick: () => act({ type: "moveOther", id: card.id, to: "exile" }) });
+        manual.push({ label: "→ Hand des Besitzers", onClick: () => act({ type: "moveOther", id: card.id, to: "hand" }) });
+      }
+      if (manual.length > 0) items.push({ label: "Laut Kartentext:", onClick: () => undefined, heading: true }, ...manual);
     }
     setMenu({ x, y, items });
   };
@@ -545,7 +568,7 @@ export default function Battlefield({
                 blockPick={blockPick}
                 blocks={blocks}
                 resetBlocks={() => {
-                  setBlocks({});
+                  setBlocks(() => ({}));
                   setBlockPick(null);
                 }}
                 discardPick={discardPick}
@@ -558,15 +581,12 @@ export default function Battlefield({
               />
             </CenterZone>
             <PlayerZone player={me} />
-            <PhaseStrip game={game} activeName={nameOf(game.turn.active)} />
-          </main>
-
-          {game.phase === "playing" && (
-            <TurnToast
-              key={`${game.turn.number}-${game.turn.active}`}
-              text={isActive ? "Du bist am Zug" : `${nameOf(game.turn.active)} ist am Zug`}
+            <PhaseStrip
+              game={game}
+              activeName={nameOf(game.turn.active)}
+              hint={isActive ? "Du bist am Zug" : `${nameOf(game.turn.active)} ist am Zug`}
               detail={
-                game.turn.manualStart
+                game.phase !== "playing" || game.turn.manualStart
                   ? undefined
                   : game.turn.drew
                     ? "Alles enttappt, Karte gezogen"
@@ -575,7 +595,7 @@ export default function Battlefield({
                       : "Alles enttappt"
               }
             />
-          )}
+          </main>
 
           <FxLayer fx={game.fx ?? []} />
 

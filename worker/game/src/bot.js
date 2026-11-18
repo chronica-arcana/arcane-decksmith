@@ -133,7 +133,7 @@ function declareAttackers(game, botId) {
     .map(id => game.cards[id])
     .filter(card => {
       const def = defOf(game, card);
-      return def.types.creature && !card.tapped && !card.faceDown && !hasKeyword(game, card, "defender") && !(card.sinceSeq > me.turnStartSeq && !hasKeyword(game, card, "haste"));
+      return def.types.creature && !card.tapped && !card.faceDown && !hasKeyword(game, card, "defender") && !hasKeyword(game, card, "cant-attack") && !(card.sinceSeq > me.turnStartSeq && !hasKeyword(game, card, "haste"));
     });
   const totalPower = ready.reduce((sum, card) => sum + powerOf(game, card), 0);
   const lethal = foes.length === 0 ? totalPower >= game.players[target].life : false;
@@ -156,7 +156,7 @@ function declareAttackers(game, botId) {
 function declareBlockers(game, botId) {
   const me = game.players[botId];
   const attackers = game.combat.attackers.filter(a => attackTargetOwner(game, a.target) === botId).map(a => game.cards[a.id]).filter(Boolean);
-  const blockers = me.battlefield.map(id => game.cards[id]).filter(card => defOf(game, card).types.creature && !card.tapped && !card.faceDown);
+  const blockers = me.battlefield.map(id => game.cards[id]).filter(card => defOf(game, card).types.creature && !card.tapped && !card.faceDown && !hasKeyword(game, card, "cant-block"));
   const used = new Set();
   const blocks = [];
   let incoming = attackers.reduce((sum, card) => sum + powerOf(game, card), 0);
@@ -211,6 +211,18 @@ function pickChoice(game, botId) {
     return picked;
   };
   switch (step.type) {
+    case "chooseType": {
+      // der häufigste Kreaturentyp im eigenen Deck
+      const counts = new Map();
+      for (const card of Object.values(game.cards)) {
+        if (card.owner !== botId) continue;
+        const def = defOf(game, card);
+        if (!def.types.creature) continue;
+        for (const word of String(def.typeLine).split("—")[1]?.split(/\s+/).filter(Boolean) ?? []) counts.set(word, (counts.get(word) ?? 0) + 1);
+      }
+      const best = options.filter(id => counts.has(id.slice(5))).sort((a, b) => counts.get(b.slice(5)) - counts.get(a.slice(5)))[0];
+      return [best ?? options[0]];
+    }
     case "shock":
       return [game.players[botId].life > 8 ? "yes" : "no"];
     case "reveal":

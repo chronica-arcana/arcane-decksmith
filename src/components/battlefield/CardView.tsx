@@ -121,6 +121,7 @@ export default function CardView({
       )}
       {card.token && <span className="gc-badge token">Token</span>}
       {card.cmd && <span className="gc-badge cmd">Kommandant</span>}
+      {card.chosenType && <span className="gc-badge chosen" title={`Gewählter Typ: ${card.chosenType}`}>Typ: {card.chosenType}</span>}
       {card.attachedName && <span className="gc-badge attach" title={`Hängt an ${card.attachedName}`}>↳ {card.attachedName}</span>}
       {(card.attachments?.length ?? 0) > 0 && <span className="gc-badge attached" title={card.attachments!.join(", ")}>+ {card.attachments!.join(", ")}</span>}
       {hasStats && (

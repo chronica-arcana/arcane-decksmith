@@ -22,12 +22,19 @@ const ITEMS: Item[] = [
 ];
 
 /** Zeitleiste des Zuges unter der eigenen Hand: Enttappen, Versorgung und Ziehen laufen automatisch, danach Haupt-, Kampf- und Endphasen. */
-export default function PhaseStrip({ game, activeName }: { game: GameView; activeName: string }) {
+export default function PhaseStrip({ game, activeName, hint, detail }: { game: GameView; activeName: string; hint?: string; detail?: string }) {
   const current = game.turn.phase;
   const currentIndex = ITEMS.findIndex(item => item.steps.includes(current));
   return (
     <nav className="phase-strip" aria-label="Phasen">
       <span className="phase-turn">Zug {game.turn.number} · {activeName}</span>
+      {game.phase === "playing" && hint && (
+        // Der Zugwechsel erscheint nur kurz (CSS-Animation); ein neuer key startet sie neu.
+        <span key={`${game.turn.number}-${game.turn.active}`} className="phase-hint" role="status">
+          {hint}
+          {detail && <small> · {detail}</small>}
+        </span>
+      )}
       <ol className="phase-list">
         {ITEMS.map((item, index) => {
           const on = item.steps.includes(current);

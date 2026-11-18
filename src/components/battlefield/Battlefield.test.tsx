@@ -175,15 +175,15 @@ describe("Spielraum", () => {
     expect(send).toHaveBeenCalledWith({ type: "pass" });
     rerender(<Battlefield game={view({ priority: "they" })} hostId="me" send={send} onRematch={vi.fn()} onLeave={vi.fn()} />);
     expect(screen.queryByRole("button", { name: "Weiter zum Kampf" })).toBeNull();
-    expect(screen.getByText("Gegner überlegt …")).toBeTruthy();
+    expect(screen.getByText("Warten auf Reaktion von Gegner …")).toBeTruthy();
   });
 
   it("Stapel (nur wenn jemand antworten kann): erklärt, was gespielt wurde, und fragt nach", () => {
     const game = view({ stack: [{ sid: "s1", controller: "they", kind: "spell", text: "", card: card("x1", "Blitz", { owner: "they" }) }] });
     const { send } = setup(game);
     const stack = screen.getByLabelText("Stapel");
-    expect(screen.getByText("Gegner spielt Blitz.")).toBeTruthy();
-    expect(screen.getByText(/Du kannst antworten/)).toBeTruthy();
+    expect(screen.getByText(/Reaktion ausspielen\? Gegner spielt Blitz\./)).toBeTruthy();
+    expect(screen.getByText(/leuchtenden Karten/)).toBeTruthy();
     fireEvent.contextMenu(within(stack).getByRole("button", { name: "Blitz" }));
     expect(screen.getAllByRole("menuitem").map(item => item.textContent)).toEqual(["Groß ansehen"]);
     fireEvent.click(screen.getByRole("menuitem", { name: "Groß ansehen" }));
@@ -256,6 +256,8 @@ describe("Spielraum", () => {
     fireEvent.click(screen.getByRole("button", { name: /^Räuber/ }));
     fireEvent.click(screen.getByRole("button", { name: "Blocken bestätigen" }));
     expect(send).toHaveBeenLastCalledWith({ type: "declareBlockers", blocks: [{ blocker: "b1", attacker: "a1" }] });
+    // Lehnt der Server ab, bleibt die Auswahl stehen (der Spieler muss nicht neu anfangen)
+    expect(screen.getByRole("button", { name: "Blocken bestätigen" })).toBeTruthy();
   });
 
   it("Kampfbahnen: Angreifer und Blocker liegen in der Mitte, nicht mehr auf dem Feld", () => {
@@ -355,7 +357,7 @@ describe("Zugablauf und Anzeige", () => {
     expect(send).toHaveBeenLastCalledWith({ type: "drawStep" });
     cleanup();
     setup(view({ turn: { number: 1, active: "me", phase: "main1", first: "me", landsPlayed: 0, manualStart: false, drawBlocked: true } }));
-    expect(screen.getByText("Im ersten Zug zieht der Startspieler nicht")).toBeTruthy();
+    expect(screen.getByText(/Im ersten Zug zieht der Startspieler nicht/)).toBeTruthy();
   });
 
   it("Einstellungen mit An/Aus-Schaltern statt Menüpunkten", () => {
@@ -375,7 +377,7 @@ describe("Zugablauf und Anzeige", () => {
 
   it("Zugwechsel nennt, was automatisch passiert ist", () => {
     setup(view({ turn: { number: 4, active: "me", phase: "main1", first: "they", landsPlayed: 0, manualStart: false, drew: true } }));
-    expect(screen.getByText("Alles enttappt, Karte gezogen")).toBeTruthy();
+    expect(screen.getByText(/Alles enttappt, Karte gezogen/)).toBeTruthy();
     cleanup();
     setup(view({ turn: { number: 4, active: "me", phase: "draw", first: "they", landsPlayed: 0, manualStart: true } }));
     expect(screen.queryByText(/manuell/)).toBeNull();
@@ -479,6 +481,19 @@ describe("Modale Zauber und Cycling", () => {
     fireEvent.contextMenu(within(handArea()).getByRole("button", { name: "Wechsler" }));
     fireEvent.click(screen.getByRole("menuitem", { name: /Cycling \{1\}/ }));
     expect(send).toHaveBeenCalledWith({ type: "cycle", id: "c1" });
+  });
+});
+
+describe("Antwortfenster", () => {
+  it("wer reagieren darf, wird gefragt; der Spieler am Zug sieht „Warten auf Reaktion“", () => {
+    const damage = { number: 3, active: "they", phase: "damage" as const, first: "me", landsPlayed: 0 };
+    const { send } = setup(view({ priority: "me", turn: damage }));
+    expect(screen.getByText("Reaktion ausspielen?")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Nicht antworten" }));
+    expect(send).toHaveBeenCalledWith({ type: "pass" });
+    cleanup();
+    setup(view({ priority: "they", turn: { ...damage, active: "me" } }));
+    expect(screen.getByText("Warten auf Reaktion von Gegner …")).toBeTruthy();
   });
 });
 

@@ -166,8 +166,8 @@ export default function ActionBar(props: ActionBarProps) {
           type="button"
           className="primary"
           onClick={() => {
+            // Die Auswahl bleibt stehen, bis der Server den Block annimmt (dann endet „awaitingMe“); bei Ablehnung erscheint die Meldung.
             act({ type: "declareBlockers", blocks: Object.entries(props.blocks).map(([blocker, attacker]) => ({ blocker, attacker })) });
-            props.resetBlocks();
           }}
         >
           {count === 0 ? "Nicht blocken" : "Blocken bestätigen"}
@@ -191,8 +191,19 @@ export default function ActionBar(props: ActionBarProps) {
     const what = top.card ? `${top.card.name}.` : `${top.sourceName ?? "Effekt"}: ${(top.text || "Fähigkeit").replace(/~/g, top.sourceName ?? "")}`;
     return (
       <div className="action-bar" role="alert">
-        <strong>{nameOf(top.controller)} spielt {what}</strong>
-        <span className="muted">Du kannst antworten.</span>
+        <strong>Reaktion ausspielen? {nameOf(top.controller)} spielt {what}</strong>
+        <span className="muted">Die leuchtenden Karten kannst du jetzt spielen.</span>
+        <button type="button" className="primary go" onClick={() => act({ type: "pass" })}>Nicht antworten</button>
+      </div>
+    );
+  }
+
+  // Antwortfenster ohne Stapel (z. B. vor dem Kampfschaden): nur wer reagieren darf, sieht die Frage.
+  if (props.iHavePriority && !props.isActive) {
+    return (
+      <div className="action-bar" role="alert">
+        <strong>Reaktion ausspielen?</strong>
+        <span className="muted">Die leuchtenden Karten kannst du jetzt spielen.</span>
         <button type="button" className="primary go" onClick={() => act({ type: "pass" })}>Nicht antworten</button>
       </div>
     );
@@ -222,10 +233,20 @@ export default function ActionBar(props: ActionBarProps) {
         ? `${game.combat.awaiting.map(nameOf).join(", ")} bestimmt Blocker …`
         : game.pendingDiscard
           ? `${nameOf(game.pendingDiscard.userId)} wirft Karten ab …`
-          : game.priority
-            ? `${nameOf(game.priority)} überlegt …`
-            : "";
-  return waiting ? <TransientHint key={waiting} text={waiting} /> : null;
+          : game.priority && game.priority !== game.turn.active
+            ? `Warten auf Reaktion von ${nameOf(game.priority)} …`
+            : game.priority
+              ? `${nameOf(game.priority)} überlegt …`
+              : "";
+  if (!waiting) return null;
+  // „Warten auf Reaktion“ bleibt stehen, solange das Spiel wirklich auf jemanden wartet; bloßes „überlegt“ verschwindet nach kurzer Zeit.
+  return /^Warten auf Reaktion/.test(waiting) ? (
+    <div className="action-bar hint" role="status">
+      <span className="muted">{waiting}</span>
+    </div>
+  ) : (
+    <TransientHint key={waiting} text={waiting} />
+  );
 }
 
 /** Wartehinweise („… überlegt …“) erscheinen nur kurz und verschwinden dann von selbst; bei neuem Text kommen sie wieder. */
