@@ -82,6 +82,15 @@ function newId(game, prefix = "c") {
 
 const defOf = (game, card) => game.xdefs[card.def] ?? game.defs[card.def];
 const nameOf = (game, id) => defOf(game, game.cards[id])?.name ?? "Karte";
+/** Untertypen aus der Typzeile („Legendary Creature — Vampire Knight“ → ["vampire", "knight"]). */
+const subtypesOf = def => String(def.typeLine ?? "").split("—")[1]?.toLowerCase().split(/\s+/).filter(Boolean) ?? [];
+/** Passt der (ggf. pluralisierte) Untertyp „Knights“/„Elves“ auf die Karte? */
+function hasSubtype(def, word) {
+  const types = subtypesOf(def);
+  const w = word.toLowerCase();
+  return [w, w.replace(/s$/, ""), w.replace(/ves$/, "f"), w.replace(/ves$/, "fe"), w.replace(/ies$/, "y"), w.replace(/men$/, "man")].some(candidate => types.includes(candidate));
+}
+
 /** Dauereffekte wie „Creatures you control get +1/+1“ (Boni und Schlüsselwörter), die auf diese Karte wirken. */
 function staticEffects(game, card) {
   const result = { p: 0, th: 0, grants: [] };
@@ -96,6 +105,8 @@ function staticEffects(game, card) {
           : effect.scope === "opp" ? source.owner !== card.owner
           : true;
         if (!applies) continue;
+        if (effect.subtype && !hasSubtype(defOf(game, card), effect.subtype)) continue;
+        if (effect.chosen && !(source.chosenType && hasSubtype(defOf(game, card), source.chosenType))) continue;
         result.p += effect.p;
         result.th += effect.th;
         result.grants.push(...effect.grants);
@@ -158,7 +169,7 @@ function emptyPlayer(name) {
     cmdCasts: {},
     pool: emptyPool(),
     askResponse: true,
-    autoStart: true,
+    autoStart: false, // Karten ziehst du standardmäßig per Klick auf die Bibliothek
     turnStartSeq: 0,
     prompts: []
   };
@@ -319,6 +330,7 @@ function resetCardState(card) {
   card.tk = [];
   card.owner = card.origOwner ?? card.owner;
   card.stolenUntilEot = false;
+  card.chosenType = null;
 }
 
 function enterBattlefield(game, card) {
@@ -329,6 +341,7 @@ function enterBattlefield(game, card) {
   else if (def.rules?.entersTappedUnless && !entryConditionMet(game, card, def.rules.entersTappedUnless)) card.tapped = true;
   else if (def.rules?.shock) game.triggerQueue.push({ kind: "entry", entry: "shock", cardId: card.id, controller: card.owner, life: def.rules.shock.life });
   else if (def.rules?.reveal) game.triggerQueue.push({ kind: "entry", entry: "reveal", cardId: card.id, controller: card.owner, types: def.rules.reveal.types });
+  if (def.rules?.chooseType) game.triggerQueue.push({ kind: "entry", entry: "chooseType", cardId: card.id, controller: card.owner });
   fireTriggers(game, card, "etb");
   if (def.types.land) fireGlobal(game, "landEnters", card);
   if (def.types.creature) fireGlobal(game, "creatureEnters", card);
@@ -1184,6 +1197,7 @@ function fireGlobal(game, event, subject) {
         if (scope.owner === "you" && subjectOwner !== source.owner) continue;
         if (scope.owner === "opp" && subjectOwner === source.owner) continue;
         if (scope.another && typeof subject !== "string" && subject.id === source.id) continue;
+        if (trigger.chosenType && (!source.chosenType || typeof subject === "string" || !hasSubtype(defOf(game, subject), source.chosenType))) continue;
         game.triggerQueue.push({ controller: source.owner, source: source.id, sourceName: def.name, trigger });
       }
     }
@@ -1224,6 +1238,29 @@ function openEntryChoice(game, entry) {
       min: 1,
       max: 1,
       step: { type: "shock", cardId: card.id, life: entry.life },
+      queue: [],
+      ctx: null
+    };
+    return;
+  }
+  if (entry.entry === "chooseType") {
+    const types = new Set();
+    for (const other of Object.values(game.cards)) {
+      const def = defOf(game, other);
+      if (!/Creature|Tribal|Kindred/.test(def.typeLine ?? "")) continue;
+      for (const word of subtypesOf(def)) types.add(word);
+    }
+    const names = [...types].sort().map(word => word.charAt(0).toUpperCase() + word.slice(1));
+    if (names.length === 0) return;
+    game.choice = {
+      userId: entry.controller,
+      kind: "cards",
+      prompt: `${name}: Wähle einen Kreaturentyp.`,
+      options: names.map(word => `type:${word}`),
+      labels: Object.fromEntries(names.map(word => [`type:${word}`, word])),
+      min: 1,
+      max: 1,
+      step: { type: "chooseType", cardId: card.id },
       queue: [],
       ctx: null
     };
@@ -1737,6 +1774,14 @@ function chooseAction(game, userId, action, random, now) {
       pushAbility(game, { ...step.item, targets: picked });
       break;
     }
+    case "chooseType": {
+      const card = game.cards[step.cardId];
+      if (card) {
+        card.chosenType = ids[0].slice(5);
+        addLog(game, `${nameOf(game, card.id)}: gewählter Kreaturentyp ist ${card.chosenType}.`);
+      }
+      break;
+    }
     case "may":
       ctx.didMay = ids[0] === "yes";
       if (ctx.didMay) choice.queue = [...step.effects, ...choice.queue];
@@ -1926,6 +1971,7 @@ function cardView(game, id, viewerId, { hideFace = false } = {}) {
     sick: isSick(game, card),
     cmd: Boolean(card.cmd),
     kind: def.types.land ? "land" : def.types.creature ? "creature" : "other",
+    chosenType: card.chosenType ?? null,
     attachedTo: card.attachedTo ?? null,
     attachedName: card.attachedTo && game.cards[card.attachedTo] ? nameOf(game, card.attachedTo) : null,
     attachments: (attachmentMap(game).get(id) ?? []).map(otherId => nameOf(game, otherId)),
@@ -2475,6 +2521,7 @@ function castAction(game, userId, action) {
   game.priority = userId;
   game.passed = [];
   addLog(game, `${player.name} wirkt ${def.name}${paid}.`);
+  if (def.types.creature) fireGlobal(game, "castCreature", found.card);
   if (!def.types.creature) {
     for (const id of player.battlefield) {
       const card = game.cards[id];

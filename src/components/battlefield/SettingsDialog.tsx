@@ -39,7 +39,7 @@ export default function SettingsDialog({
         <Switch
           label="Karte automatisch ziehen"
           hint="An: Zu Beginn deines Zuges wird gezogen. Aus: Du klickst im Zieh-Schritt auf deine Bibliothek."
-          on={me.autoStart ?? true}
+          on={me.autoStart ?? false}
           onChange={value => act({ type: "autoStart", value })}
         />
         <Switch

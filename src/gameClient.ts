@@ -68,6 +68,7 @@ export type GameCard = {
   cmd: boolean;
   kind: "land" | "creature" | "other";
   attacking: boolean;
+  chosenType?: string | null;
   attachedTo?: string | null;
   attachedName?: string | null;
   attachments?: string[];

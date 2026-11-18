@@ -234,7 +234,7 @@ export class GameRoom extends DurableObject {
   /** Speichert das Spiel, trägt ein beendetes Spiel in den Verlauf ein und schickt allen ihre Sicht. */
   async afterGameChange() {
     if (!this.game) return;
-    await this.ctx.storage.put("game", splitGame(this.game).dynamic);
+    await this.ctx.storage.put("game", splitGame(this.game).dynamic, { allowUnconfirmed: true }); // Antworten nicht auf die Bestätigung des Speichers warten lassen
     if (this.game.phase === "ended") await this.recordHistory();
     this.broadcastGame();
     await this.scheduleAlarm();
@@ -342,7 +342,7 @@ export class GameRoom extends DurableObject {
       if (!attachment?.authed) times.push((attachment?.at ?? Date.now()) + AUTH_TIMEOUT_MS);
     }
     if (times.length === 0) await this.ctx.storage.deleteAlarm();
-    else await this.ctx.storage.setAlarm(Math.min(...times));
+    else await this.ctx.storage.setAlarm(Math.min(...times), { allowUnconfirmed: true });
   }
 
   async alarm() {

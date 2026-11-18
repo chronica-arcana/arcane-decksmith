@@ -18,7 +18,6 @@ import PhaseStrip from "./PhaseStrip";
 import PlayerZone from "./PlayerZone";
 import ManaPick from "./ManaPick";
 import SettingsDialog from "./SettingsDialog";
-import TurnToast from "./TurnToast";
 import "./battlefield.css";
 
 const ZONE_LABELS: Record<GameZone, string> = {
@@ -558,15 +557,12 @@ export default function Battlefield({
               />
             </CenterZone>
             <PlayerZone player={me} />
-            <PhaseStrip game={game} activeName={nameOf(game.turn.active)} />
-          </main>
-
-          {game.phase === "playing" && (
-            <TurnToast
-              key={`${game.turn.number}-${game.turn.active}`}
-              text={isActive ? "Du bist am Zug" : `${nameOf(game.turn.active)} ist am Zug`}
+            <PhaseStrip
+              game={game}
+              activeName={nameOf(game.turn.active)}
+              hint={isActive ? "Du bist am Zug" : `${nameOf(game.turn.active)} ist am Zug`}
               detail={
-                game.turn.manualStart
+                game.phase !== "playing" || game.turn.manualStart
                   ? undefined
                   : game.turn.drew
                     ? "Alles enttappt, Karte gezogen"
@@ -575,7 +571,7 @@ export default function Battlefield({
                       : "Alles enttappt"
               }
             />
-          )}
+          </main>
 
           <FxLayer fx={game.fx ?? []} />
 

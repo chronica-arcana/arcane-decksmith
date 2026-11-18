@@ -17,9 +17,10 @@ const WHO = "(you|target player|target opponent|each opponent|each player)";
 
 /** Entfernt Erinnerungstext und ersetzt den Kartennamen durch „~“. */
 export function normalizeText(oracleText, name) {
-  let text = String(oracleText ?? "").split("//")[0].replace(/\([^)]*\)/g, "");
+  let text = String(oracleText ?? "").split("//")[0].replace(/\([^)]*\)/g, "").replace(/[\u2018\u2019]/g, "'");
   const names = [...new Set([name, String(name ?? "").split(",")[0]])].filter(Boolean).sort((a, b) => b.length - a.length);
   for (const item of names) text = text.split(item).join("~");
+  text = text.replace(/(choose a creature type\.)[ \t]+/gi, "$1\n");
   text = text.replace(/\bthis (creature|permanent|artifact|enchantment|land|planeswalker|spell|equipment|aura|vehicle)\b/gi, "~");
   return text
     .split("\n")
@@ -414,6 +415,8 @@ function triggerEvent(word, condition) {
     return { event: "creatureEnters", scope: { owner: "you", another: m[1] === "another" } };
   }
   if (/^a land enters( the battlefield)? under your control$/.test(condition)) return { event: "landEnters", scope: { owner: "you", another: false } };
+  if (/^you cast a creature spell of the chosen type$/.test(condition)) return { event: "castCreature", chosenType: true, scope: { owner: "you", another: false } };
+  if (/^you cast a creature spell$/.test(condition)) return { event: "castCreature", scope: { owner: "you", another: false } };
   if (word === "At" && condition === "the beginning of your upkeep") return { event: "upkeep", scope: { owner: "you", another: false } };
   if (word === "At" && condition === "the beginning of your end step") return { event: "endStep", scope: { owner: "you", another: false } };
   return null;
@@ -552,12 +555,12 @@ export function parseCardText({ name, typeLine, oracleText }) {
         continue;
       }
     }
-    const shock = line.match(/^as ~ enters( the battlefield)?, you may pay (\d+) life\. if you don't, it enters( the battlefield)? tapped\.?$/i);
+    const shock = line.match(/^as ~ enters( the battlefield)?, you may pay (\d+) life\. if you don't, (?:it|~) enters( the battlefield)? tapped\.?$/i);
     if (shock) {
       result.shock = { life: Number(shock[2]) };
       continue;
     }
-    const reveal = line.match(/^as ~ enters( the battlefield)?, you may reveal an? (.+?) card from your hand\. if you don't, it enters( the battlefield)? tapped\.?$/i);
+    const reveal = line.match(/^as ~ enters( the battlefield)?, you may reveal an? (.+?) card from your hand\. if you don't, (?:it|~) enters( the battlefield)? tapped\.?$/i);
     if (reveal) {
       const types = basicTypes(reveal[2]);
       if (types) {
@@ -568,6 +571,23 @@ export function parseCardText({ name, typeLine, oracleText }) {
 
     // Dauereffekte: Boni für Kreaturen
     const anthem = line.match(/^(other )?creatures you control get ([+-]\d+)\/([+-]\d+)(?: and have ([a-z, ]+))?\.?$/i);
+    const tribal = line.match(/^(other )?(?!creatures\b)([a-z]+) you control get ([+-]\d+)\/([+-]\d+)(?: and have ([a-z, ]+))?\.?$/i);
+    const chosen = line.match(/^(other )?creatures you control of the chosen type get ([+-]\d+)\/([+-]\d+)(?: and have ([a-z, ]+))?\.?$/i);
+    if (chosen) {
+      const grants = (chosen[4] ?? "").split(/,| and /).map(word => word.trim().toLowerCase()).filter(word => KEYWORDS.includes(word));
+      result.statics.push({ scope: chosen[1] ? "youOther" : "you", chosen: true, p: Number(chosen[2]), th: Number(chosen[3]), grants });
+      continue;
+    }
+    if (tribal) {
+      const grants = (tribal[5] ?? "").split(/,| and /).map(word => word.trim().toLowerCase()).filter(word => KEYWORDS.includes(word));
+      result.statics.push({ scope: tribal[1] ? "youOther" : "you", subtype: tribal[2].toLowerCase(), p: Number(tribal[3]), th: Number(tribal[4]), grants });
+      continue;
+    }
+    // „As ~ enters, choose a creature type.“ – der Spieler wählt beim Ins-Spiel-Kommen
+    if (/^as ~ enters( the battlefield)?, choose a creature type\.?$/i.test(line)) {
+      result.chooseType = true;
+      continue;
+    }
     const oppAnthem = line.match(/^creatures your opponents control get ([+-]\d+)\/([+-]\d+)\.?$/i);
     if (anthem) {
       const grants = (anthem[4] ?? "").split(/,| and /).map(word => word.trim().toLowerCase()).filter(word => KEYWORDS.includes(word));

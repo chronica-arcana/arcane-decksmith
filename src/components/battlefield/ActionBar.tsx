@@ -190,8 +190,19 @@ export default function ActionBar(props: ActionBarProps) {
     const what = top.card ? `${top.card.name}.` : `${top.sourceName ?? "Effekt"}: ${(top.text || "Fähigkeit").replace(/~/g, top.sourceName ?? "")}`;
     return (
       <div className="action-bar" role="alert">
-        <strong>{nameOf(top.controller)} spielt {what}</strong>
-        <span className="muted">Du kannst antworten.</span>
+        <strong>Reaktion ausspielen? {nameOf(top.controller)} spielt {what}</strong>
+        <span className="muted">Die leuchtenden Karten kannst du jetzt spielen.</span>
+        <button type="button" className="primary go" onClick={() => act({ type: "pass" })}>Nicht antworten</button>
+      </div>
+    );
+  }
+
+  // Antwortfenster ohne Stapel (z. B. vor dem Kampfschaden): nur wer reagieren darf, sieht die Frage.
+  if (props.iHavePriority && !props.isActive) {
+    return (
+      <div className="action-bar" role="alert">
+        <strong>Reaktion ausspielen?</strong>
+        <span className="muted">Die leuchtenden Karten kannst du jetzt spielen.</span>
         <button type="button" className="primary go" onClick={() => act({ type: "pass" })}>Nicht antworten</button>
       </div>
     );
@@ -221,9 +232,11 @@ export default function ActionBar(props: ActionBarProps) {
         ? `${game.combat.awaiting.map(nameOf).join(", ")} bestimmt Blocker …`
         : game.pendingDiscard
           ? `${nameOf(game.pendingDiscard.userId)} wirft Karten ab …`
-          : game.priority
-            ? `${nameOf(game.priority)} überlegt …`
-            : "";
+          : game.priority && game.priority !== game.turn.active
+            ? `Warten auf Reaktion von ${nameOf(game.priority)} …`
+            : game.priority
+              ? `${nameOf(game.priority)} überlegt …`
+              : "";
   return waiting ? (
     <div className="action-bar" role="status">
       <span className="muted">{waiting}</span>

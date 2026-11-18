@@ -211,6 +211,18 @@ function pickChoice(game, botId) {
     return picked;
   };
   switch (step.type) {
+    case "chooseType": {
+      // der häufigste Kreaturentyp im eigenen Deck
+      const counts = new Map();
+      for (const card of Object.values(game.cards)) {
+        if (card.owner !== botId) continue;
+        const def = defOf(game, card);
+        if (!def.types.creature) continue;
+        for (const word of String(def.typeLine).split("—")[1]?.split(/\s+/).filter(Boolean) ?? []) counts.set(word, (counts.get(word) ?? 0) + 1);
+      }
+      const best = options.filter(id => counts.has(id.slice(5))).sort((a, b) => counts.get(b.slice(5)) - counts.get(a.slice(5)))[0];
+      return [best ?? options[0]];
+    }
     case "shock":
       return [game.players[botId].life > 8 ? "yes" : "no"];
     case "reveal":

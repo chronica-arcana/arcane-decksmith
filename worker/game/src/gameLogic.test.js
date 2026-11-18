@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { abortGame, applyAction, createGame, gameView, joinGame, playerLeft, repairGame, splitGame } from "./gameLogic.js";
+import { abortGame, applyAction, createGame as createRawGame, gameView, joinGame, playerLeft, repairGame, splitGame } from "./gameLogic.js";
+
+/** Die Tests gehen vom automatischen Ziehen aus (im Spiel ist „per Klick ziehen“ voreingestellt). */
+const createGame = options => {
+  const game = createRawGame(options);
+  for (const player of Object.values(game.players)) player.autoStart = true;
+  return game;
+};
 
 const seeded = (seed = 1) => () => {
   seed = (seed * 16807) % 2147483647;
@@ -69,6 +76,11 @@ const LIB = [
   ["revive", "Wiederkehr", "Sorcery", "{1}{G}", 2, {}, "Return target creature card from your graveyard to the battlefield with two additional +1/+1 counters on it. It's a black Zombie in addition to its other colors and types."],
   ["esper", "Esper-Rückholung", "Sorcery", "{1}{G}", 2, {}, "Create a 3/3 blue Robot Warrior artifact creature token. Then if this spell was cast from a graveyard, put two +1/+1 counters on that token.\nFlashback {5}{U}"],
   ["twin", "Zwilling", "Creature — Elf", "{G}", 2, { power: "1", toughness: "1" }, "When ~ enters, ~ deals 1 damage to target creature and 1 damage to target player."],
+  ["plains", "Plains", "Basic Land — Plains", "", 2, {}],
+  ["snarl", "Schattenwirbel", "Land", "", 2, {}, "As Schattenwirbel enters the battlefield, you may reveal a Plains or Swamp card from your hand. If you don’t, Schattenwirbel enters the battlefield tapped.\n{T}: Add {W} or {B}."],
+  ["vknight", "Tapferer Ritter", "Creature — Human Knight", "{G}", 2, { power: "2", toughness: "2" }, "Other Knights you control get +1/+1."],
+  ["knight2", "Ritter der Runde", "Creature — Human Knight", "{G}", 2, { power: "2", toughness: "2" }],
+  ["banner", "Banner", "Artifact", "{3}", 2, {}, "As this artifact enters, choose a creature type. Creatures you control of the chosen type get +1/+1.\nWhenever you cast a creature spell of the chosen type, draw a card."],
   ["priest", "Priester", "Creature — Cleric", "{G}", 2, { power: "1", toughness: "1" }, "At the beginning of your end step, you gain 1 life."]
 ];
 const facts = new Map();
@@ -1345,7 +1357,7 @@ describe("Regelfundament: Niederlage, Legenden, Kontrolle, Schutz, Ward, Planesw
     const life = game.players.u0.life;
     act(game, "u0", { type: "choose", ids: ["no"] }, random);
     expect(game.players.u0.life).toBe(life);
-    const pact2 = put(game, "u0", "Pakt", "hand", { only: "library" });
+    const pact2 = put(game, "u0", "Pakt", "hand");
     forest(game, "u0", 1);
     act(game, "u0", { type: "cast", id: pact2 }, random);
     act(game, "u0", { type: "choose", ids: ["yes"] }, random);
@@ -1481,5 +1493,49 @@ describe("Regelfundament: Niederlage, Legenden, Kontrolle, Schutz, Ward, Planesw
     game.turn.phase = "main2";
     act(game, "u0", { type: "pass" }, random);
     expect(game.priority).toBe("u1");
+  });
+});
+
+describe("Typische Karten aus Rückmeldungen", () => {
+  const drain2 = (game, random) => {
+    for (let i = 0; i < 6 && game.stack.length > 0; i += 1) act(game, game.priority, { type: "pass" }, random);
+  };
+  it("Land mit typografischem Apostroph: Zeigen-Frage statt manuellem Fenster", () => {
+    const { game, random } = started();
+    put(game, "u0", "Plains", "hand");
+    const snarl = put(game, "u0", "Schattenwirbel", "hand", { only: "library" });
+    const swamp = put(game, "u0", "Mountain", "hand", { only: "library" });
+    void swamp;
+    expect(act(game, "u0", { type: "playLand", id: snarl }, random).ok).toBe(true);
+    expect(game.manual).toBeNull();
+    // ohne Plains/Swamp auf der Hand kommt es einfach getappt
+    expect(game.cards[snarl].tapped || game.choice?.step.type === "reveal").toBe(true);
+  });
+  it("„Other Knights you control get +1/+1“ wirkt auf andere Ritter", () => {
+    const { game } = started();
+    const lord = put(game, "u0", "Tapferer Ritter", "battlefield");
+    const other = put(game, "u0", "Ritter der Runde", "battlefield");
+    const bear = put(game, "u0", "Bär", "battlefield");
+    const v = view(game, "u0").players[0].battlefield;
+    expect(v.find(c => c.id === other).power).toBe(3);
+    expect(v.find(c => c.id === lord).power).toBe(2);
+    expect(v.find(c => c.id === bear).power).toBe(2);
+  });
+  it("Banner: Kreaturentyp wählen, Bonus für den Typ und Karte ziehen beim Wirken", () => {
+    const { game, random } = started();
+    forest(game, "u0", 6);
+    const knight = put(game, "u0", "Ritter der Runde", "battlefield");
+    const banner = put(game, "u0", "Banner", "hand", { only: "library" });
+    expect(act(game, "u0", { type: "cast", id: banner }, random).ok).toBe(true);
+    drain2(game, random);
+    expect(game.choice?.options).toContain("type:Knight");
+    act(game, "u0", { type: "choose", ids: ["type:Knight"] }, random);
+    expect(game.manual).toBeNull();
+    expect(view(game, "u0").players[0].battlefield.find(c => c.id === knight).power).toBe(3);
+    const second = put(game, "u0", "Ritter der Runde", "hand", { only: "library" });
+    const hand = game.players.u0.hand.length;
+    expect(act(game, "u0", { type: "cast", id: second }, random).ok).toBe(true);
+    drain2(game, random);
+    expect(game.players.u0.hand.length).toBe(hand); // gewirkt (−1), gezogen (+1)
   });
 });
