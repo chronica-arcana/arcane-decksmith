@@ -3,7 +3,8 @@
    Anthrazit und mattes Waldgrün, Gold für HUD und Rahmen.
    ===================================================================== */
 .room {
-  --cw: clamp(56px, 9.4vh, 116px);
+  --cw0: clamp(70px, 11.75vh, 145px);
+  --cw: var(--cw0);
   --gold: #c9a24b; --gold-bright: #e6c872; --gold-dim: #8b7236;
   --anth: #12161a; --forest: #1e3a2c;
   --ink: #ece7d8; --ink-dim: #aaa493;
@@ -12,9 +13,9 @@
   background-size: cover; background-position: center; color: var(--ink); isolation: isolate;
 }
 .room::before { content: ""; position: absolute; inset: 0; z-index: -1; background: radial-gradient(ellipse at 50% 50%, #1e3a2c55, transparent 65%), linear-gradient(#070a0dd0, #0a0d1099 45%, #070a0de0); }
-.room[data-opps="2"] { --cw: clamp(46px, 8vh, 98px); }
-.room[data-opps="3"] { --cw: clamp(42px, 6.6vh, 82px); }
-@media (max-width: 900px) { .room, .room[data-opps] { --cw: clamp(44px, 12vw, 64px); } }
+.room[data-opps="2"] { --cw0: clamp(58px, 10vh, 122px); }
+.room[data-opps="3"] { --cw0: clamp(52px, 8.25vh, 102px); }
+@media (max-width: 900px) { .room, .room[data-opps] { --cw0: clamp(55px, 15vw, 80px); } }
 
 .room button, .room select, .room input { min-height: 0; font-size: 0.85rem; }
 .room button { padding: 4px 11px; }
@@ -47,7 +48,10 @@
 .zone.active::after { content: ""; position: absolute; left: 6%; right: 6%; height: 2px; background: linear-gradient(90deg, transparent, var(--gold-bright), transparent); box-shadow: 0 0 12px 1px #e6c872aa; }
 .zone-opp.active::after { top: 0; } .zone-me.active::after { bottom: 0; }
 
-.zone-field { display: grid; grid-auto-rows: max-content; gap: 6px; align-content: start; justify-items: center; overflow: visible; flex: 1 1 auto; min-height: 0; }
+.zone-field { --cw: calc(var(--cw0) * var(--fit, 1)); display: grid; grid-auto-rows: max-content; gap: 6px; align-content: start; justify-items: center; overflow: visible; flex: 1 1 0; min-height: 0; }
+/* Bei Platzmangel überlappen die Reihen (per Skript berechnet), bleiben aber anwählbar; im Notfall werden die Karten etwas kleiner */
+.zone-field .field-row { position: relative; }
+.zone-field .field-row + .field-row { margin-top: calc(var(--row-overlap, 0px) * -1); }
 .zone-me .zone-field { align-content: end; }
 .field-row { display: flex; flex-wrap: nowrap; justify-content: center; gap: 6px; align-items: center; max-width: 100%; }
 /* Slots: schrumpfen bei Platzmangel, die Karte darin überlappt dann die Nachbarn; getappte Karten brauchen ihre Kartenhöhe als Breite */
@@ -294,3 +298,11 @@
 .modal-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 
 .gc-badge.chosen { background: #2f8a5ddd; }
+.action-bar.hint { animation: hint-in 0.25s ease-out; }
+@keyframes hint-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+/* Handy: etwas Luft um die Aktionsleiste, kompakter, damit sie keine Karten verdeckt */
+@media (max-width: 900px) {
+  .mid { padding: 5px 0; }
+  .action-bar { padding: 4px 10px; gap: 4px 8px; font-size: 0.8rem; }
+  .action-bar .go { min-width: 0; }
+}

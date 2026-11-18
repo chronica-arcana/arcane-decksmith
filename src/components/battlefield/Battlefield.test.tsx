@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, createEvent, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, cleanup, createEvent, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { GameCard, GamePlayer, GameView } from "../../gameClient";
 import Battlefield from "./Battlefield";
@@ -492,6 +492,22 @@ describe("Antwortfenster", () => {
     cleanup();
     setup(view({ priority: "they", turn: { ...damage, active: "me" } }));
     expect(screen.getByText("Warten auf Reaktion von Gegner …")).toBeTruthy();
+  });
+});
+
+describe("Wartehinweise", () => {
+  it("„… überlegt …“ erscheint nur kurz und verschwindet von selbst", () => {
+    vi.useFakeTimers();
+    try {
+      setup(view({ priority: "they", turn: { number: 3, active: "they", phase: "main1", first: "me", landsPlayed: 0 } }));
+      expect(screen.getByText(/überlegt/)).toBeTruthy();
+      act(() => {
+        vi.advanceTimersByTime(3500);
+      });
+      expect(screen.queryByText(/überlegt/)).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 
