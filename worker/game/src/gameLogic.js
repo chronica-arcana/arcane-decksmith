@@ -128,7 +128,8 @@ function staticEffects(game, card) {
   return result;
 }
 const keywordsOfCard = (game, card) => {
-  const base = defOf(game, card).keywords ?? [];
+  const def = defOf(game, card);
+  const base = [...(def.keywords ?? []), ...(def.rules?.selfGrants ?? [])];
   const grants = [...staticEffects(game, card).grants, ...(card.tk ?? [])];
   return grants.length > 0 ? [...base, ...grants] : base;
 };
@@ -582,6 +583,69 @@ function startTurn(game, userId, { skipDraw = false } = {}) {
 
 /** Kontrolle über eine Karte übernehmen (bis zum Zugende oder dauerhaft). Beschwörungsmüdigkeit gilt für den neuen Kontrolleur. */
 /** Ward: Wählt ein Spieler eine gegnerische Karte mit Ward als Ziel, kostet das zusätzlich (hier gleich beim Wirken bezahlt). */
+/** Zusätzliche Kosten (Karten opfern oder abwerfen, Leben zahlen): was der Spieler wählen müsste. */
+function payRequirements(game, userId, extras, selfId) {
+  const player = game.players[userId];
+  return (extras ?? []).map(extra => {
+    if (extra.kind === "life") return { ...extra, options: [] };
+    if (extra.kind === "discard") return { ...extra, options: player.hand.filter(id => id !== selfId) };
+    const options = player.battlefield.filter(id => {
+      if (extra.other && id === selfId) return false;
+      const types = defOf(game, game.cards[id]).types;
+      return extra.what === "permanent" ? true : extra.what === "nonland" ? !types.land : types[extra.what];
+    });
+    return { ...extra, options };
+  });
+}
+
+const canPayExtras = (game, userId, extras, selfId) =>
+  payRequirements(game, userId, extras, selfId).every(item => (item.kind === "life" ? game.players[userId].life > item.n : item.options.length >= item.n));
+
+/** Prüft die gewählten Karten für zusätzliche Kosten. Rückgabe: `{ picks }` oder `{ error }`. */
+function resolvePay(game, userId, extras, pay, selfId) {
+  const picks = [];
+  const chosen = Array.isArray(pay) ? pay.filter(id => typeof id === "string") : [];
+  let cursor = 0;
+  for (const item of payRequirements(game, userId, extras, selfId)) {
+    if (item.kind === "life") {
+      if (game.players[userId].life <= item.n) return { error: `Du hast nicht genug Leben (${item.n} zu zahlen).` };
+      picks.push({ item, ids: [] });
+      continue;
+    }
+    const ids = chosen.slice(cursor, cursor + item.n);
+    cursor += item.n;
+    if (ids.length !== item.n || new Set(ids).size !== ids.length || ids.some(id => !item.options.includes(id))) {
+      return { error: item.kind === "discard" ? `Wähle ${item.n} Karte${item.n === 1 ? "" : "n"} zum Abwerfen.` : `Wähle ${item.n} Karte${item.n === 1 ? "" : "n"} zum Opfern.` };
+    }
+    picks.push({ item, ids });
+  }
+  return { picks };
+}
+
+function applyPay(game, userId, picks, name) {
+  const player = game.players[userId];
+  for (const { item, ids } of picks) {
+    if (item.kind === "life") {
+      player.life -= item.n;
+      pushFx(game, { type: "damage", player: userId, amount: item.n });
+      addLog(game, `${player.name} zahlt ${item.n} Leben (${name}).`);
+    } else if (item.kind === "discard") {
+      for (const id of ids) {
+        player.hand.splice(player.hand.indexOf(id), 1);
+        player.graveyard.push(id);
+      }
+      addLog(game, `${player.name} wirft ab: ${ids.map(id => nameOf(game, id)).join(", ")} (${name}).`);
+    } else {
+      for (const id of ids) {
+        if (game.cards[id] && onBattlefield(game, id)) {
+          addLog(game, `${player.name} opfert ${nameOf(game, id)} (${name}).`);
+          toGraveyard(game, game.cards[id]);
+        }
+      }
+    }
+  }
+}
+
 /** Kostenverringerung wie „costs {1} less for each creature on the battlefield“ (in Mana). */
 function costReduction(game, def) {
   const rule = def.rules?.costReduction;
@@ -1154,7 +1218,7 @@ function targetsLegal(game, specs, targets, controller, src) {
   return specs.every((spec, index) => validTargets(game, spec, controller, src).includes(targets[index]));
 }
 
-function createToken(game, userId, { name, power, toughness, artifact = false, typeLine, oracleText, mana = null }) {
+function createToken(game, userId, { name, power, toughness, artifact = false, typeLine, oracleText, mana = null, keywords = [] }) {
   const tokens = Object.values(game.cards).filter(card => card.token && card.owner === userId).length;
   if (tokens >= MAX_TOKENS) return null;
   const id = newId(game, "t");
@@ -1172,7 +1236,7 @@ function createToken(game, userId, { name, power, toughness, artifact = false, t
     powerText: creature ? String(power) : null,
     toughnessText: creature ? String(toughness) : null,
     loyalty: null,
-    keywords: [],
+    keywords,
     mana,
     rules: oracleText ? parseCardText({ name, typeLine: typeLine ?? "Token Artifact", oracleText }) : { spell: null, triggers: [], activated: [], notes: [] }
   };
@@ -1590,7 +1654,10 @@ function runEffect(game, rawEffect, ctx, rest) {
       if (to.k === "target") dealDamage(game, source, ctx.targets[to.t], effect.n);
       else if (to.k === "eachOpp") for (const id of alive(game).filter(p => p !== ctx.controller)) dealDamage(game, source, id, effect.n);
       else if (to.k === "each") for (const id of alive(game)) dealDamage(game, source, id, effect.n);
-      else if (to.k === "everything") {
+      else if (to.k === "flyingAndPlayers") {
+        for (const userId of game.seats) for (const id of [...game.players[userId].battlefield]) if (defOf(game, game.cards[id]).types.creature && hasKeyword(game, game.cards[id], "flying")) dealDamage(game, source, id, effect.n);
+        for (const id of alive(game)) dealDamage(game, source, id, effect.n);
+      } else if (to.k === "everything") {
         for (const userId of game.seats) for (const id of [...game.players[userId].battlefield]) if (defOf(game, game.cards[id]).types.creature) dealDamage(game, source, id, effect.n);
         for (const id of alive(game)) dealDamage(game, source, id, effect.n);
       } else {
@@ -1733,7 +1800,12 @@ function runEffect(game, rawEffect, ctx, rest) {
       for (const userId of game.seats) {
         for (const id of [...game.players[userId].battlefield]) {
           const c = game.cards[id];
-          if (c && typeMatches(defOf(game, c), effect.what)) destroyCard(game, c);
+          if (!c || !typeMatches(defOf(game, c), effect.what)) continue;
+          if (effect.filter) {
+            const value = effect.filter.of === "power" ? powerOf(game, c) : effect.filter.of === "toughness" ? toughnessOf(game, c) : defOf(game, c).manaValue ?? 0;
+            if (effect.filter.op === "gte" ? value < effect.filter.n : value > effect.filter.n) continue;
+          }
+          destroyCard(game, c);
         }
       }
       return false;
@@ -1767,6 +1839,19 @@ function runEffect(game, rawEffect, ctx, rest) {
       player.exile.push(...player.graveyard);
       player.graveyard = [];
       addLog(game, `Der Friedhof von ${player.name} wird ins Exil geschickt (${count} Karte${count === 1 ? "" : "n"}, ${name}).`);
+      return false;
+    }
+    case "discardHand": {
+      let greatest = 0;
+      for (const id of playersOf(game, effect.who, ctx)) {
+        const player = game.players[id];
+        const count = player.hand.length;
+        greatest = Math.max(greatest, count);
+        player.graveyard.push(...player.hand);
+        player.hand = [];
+        addLog(game, `${player.name} wirft die ganze Hand ab (${count} Karte${count === 1 ? "" : "n"}, ${name}).`);
+      }
+      if (effect.drawGreatest) for (const id of playersOf(game, effect.who, ctx)) drawCards(game, id, greatest);
       return false;
     }
     case "namedToken": {
@@ -2016,7 +2101,7 @@ function runEffect(game, rawEffect, ctx, rest) {
     case "token": {
       let made = 0;
       for (let i = 0; i < effect.n; i += 1) {
-        const tokenId = createToken(game, effect.forWho ? playersOf(game, effect.forWho, ctx)[0] ?? ctx.controller : ctx.controller, { name: effect.name, power: effect.p, toughness: effect.th, artifact: effect.artifact });
+        const tokenId = createToken(game, effect.forWho ? playersOf(game, effect.forWho, ctx)[0] ?? ctx.controller : ctx.controller, { name: effect.name, power: effect.p, toughness: effect.th, artifact: effect.artifact, keywords: effect.keywords ?? [] });
         if (tokenId) {
           made += 1;
           ctx.lastToken = tokenId;
@@ -2219,6 +2304,11 @@ function chooseAction(game, userId, action, random, now) {
         const from = step.type === "search" ? player.library : player.graveyard;
         from.splice(from.indexOf(id), 1);
         const target = step.to === "split" ? (position === 0 ? "battlefield" : "hand") : step.to;
+        if (target === "top") {
+          player.library.push(id);
+          addLog(game, `${player.name} legt eine Karte oben auf die Bibliothek.`);
+          continue;
+        }
         if (target === "battlefield") {
           player.battlefield.push(id);
           enterBattlefield(game, card);
@@ -2262,12 +2352,14 @@ export function playOptions(game, userId, id) {
   if (timingOk) {
     const tax = found.zone === "command" ? 2 * (player.cmdCasts[id] ?? 0) : 0;
     affordable = planPayment({ manaCost: flashbackOk ? def.rules.flashback : def.manaCost, extraGeneric: tax - costReduction(game, def), pool: player.pool, sources: manaSources(game, userId) }).ok;
+    if (affordable && def.rules?.additionalCost && !canPayExtras(game, userId, def.rules.additionalCost, id)) affordable = false;
   }
   const spell = def.rules?.spell;
   return {
     kind: "spell",
     ok: timingOk && affordable,
     timingOk,
+    pays: def.rules?.additionalCost ? payRequirements(game, userId, def.rules.additionalCost, id) : [],
     targets: spell && !spell.modes && spell.specs.length > 0 ? targetOptions(game, spell.specs, userId, srcOfDef(def, id)) : [],
     modes: spell?.modes?.map(mode => ({ label: mode.summary || mode.label, targets: targetOptions(game, mode.specs, userId, srcOfDef(def, id)), manual: mode.unparsed.length > 0 })),
     manual: Boolean(spell && !spell.modes && spell.unparsed.length > 0)
@@ -2288,6 +2380,7 @@ export function abilityOptions(game, userId, card) {
     if (okNow && ability.cost.loyalty !== undefined) {
       okNow = card.loyaltyTurn !== game.turn.number && (card.counters.loyalty ?? 0) + ability.cost.loyalty >= 0;
     }
+    if (okNow && ability.cost.extra && !canPayExtras(game, userId, ability.cost.extra, card.id)) okNow = false;
     if (okNow && ability.cost.mana) {
       const sources = manaSources(game, userId).filter(source => source.id !== card.id);
       okNow = planPayment({ manaCost: ability.cost.mana, pool: player.pool, sources }).ok;
@@ -2297,6 +2390,7 @@ export function abilityOptions(game, userId, card) {
       text: ability.summary || ability.text.replace(/~/g, def.name),
       costLabel: [ability.cost.tap ? "{T}" : "", ability.cost.mana, ability.cost.sacrifice ? "Opfern" : "", ability.cost.loyalty !== undefined ? (ability.cost.loyalty > 0 ? `+${ability.cost.loyalty}` : `${ability.cost.loyalty}`) : ""].filter(Boolean).join(", "),
       ok: okNow,
+      pays: ability.cost.extra ? payRequirements(game, userId, ability.cost.extra, card.id) : [],
       targets: targetOptions(game, ability.specs, userId, srcOfDef(def, card.id)),
       manual: ability.unparsed.length > 0
     };
@@ -2886,6 +2980,8 @@ function castAction(game, userId, action) {
 
   const x = isInt(action.x) ? clampInt(action.x, 0, 99) : 0;
   const tax = found.zone === "command" ? 2 * (player.cmdCasts[found.card.id] ?? 0) : 0;
+  const extraPay = resolvePay(game, userId, def.rules?.additionalCost, action.pay, found.card.id);
+  if (extraPay.error) return fail(extraPay.error);
   const ward = specs.length > 0 ? wardExtra(game, userId, action.targets) : "";
   const cost = (flashback ? def.rules.flashback : def.manaCost) + ward;
   const plan = planPayment({ manaCost: cost, x, extraGeneric: tax - costReduction(game, def), pool: player.pool, sources: chosenSources(manaSources(game, userId), action) });
@@ -2899,6 +2995,7 @@ function castAction(game, userId, action) {
   if (plan.lifeLoss) player.life -= plan.lifeLoss;
   const paid = ` (${describeCost(cost, x, tax)}${flashback ? ", Rückblende" : ""})`;
   player[found.zone].splice(found.index, 1);
+  applyPay(game, userId, extraPay.picks, def.name); // erst danach: das Abwerfen verschiebt sonst die Position der Karte
   if (found.zone === "command") player.cmdCasts[found.card.id] = (player.cmdCasts[found.card.id] ?? 0) + 1;
   found.card.revealed = false;
   game.stack.push({ sid: newId(game, "s"), kind: "spell", controller: userId, cardId: found.card.id, x, flashback, mode, targets: specs.length > 0 ? action.targets : [] });
@@ -2986,6 +3083,8 @@ function activateAction(game, userId, action) {
   }
   if (ability.specs.length > 0 && !targetsLegal(game, ability.specs, action.targets, userId, srcOfDef(def, card.id))) return fail("Wähle gültige Ziele für diese Fähigkeit.");
 
+  const extraPay = resolvePay(game, userId, ability.cost.extra, action.pay, card.id);
+  if (extraPay.error) return fail(extraPay.error);
   const abilityWard = ability.specs.length > 0 ? wardExtra(game, userId, action.targets) : "";
   const abilityMana = (ability.cost.mana ?? "") + abilityWard;
   if (abilityMana) {
@@ -2998,6 +3097,7 @@ function activateAction(game, userId, action) {
     for (const color of Object.keys(plan.poolAdd)) player.pool[color] += plan.poolAdd[color];
   }
   if (ability.cost.tap) card.tapped = true;
+  applyPay(game, userId, extraPay.picks, def.name);
   if (ability.cost.sacrifice) {
     addLog(game, `${player.name} opfert ${def.name}.`);
     toGraveyard(game, card);

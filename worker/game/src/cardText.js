@@ -244,6 +244,9 @@ function parseSentence(raw, specs) {
     return n === null || n === "X" ? null : [{ type: "reanimateCounters", n }];
   }
   if (/^(?:it|that creature)(?:'s| is) an? [a-z ]+ in addition to its other (?:colors and )?types?$|^it'?s a [a-z ]+ in addition to its other colors and types$/.test(lower)) return [{ type: "noop" }];
+  if ((m = lower.match(/^destroy all creatures with (power|toughness|mana value) (\d+) or (greater|less)$/))) {
+    return [{ type: "destroyAll", what: "creature", filter: { of: m[1] === "mana value" ? "mv" : m[1], op: m[3] === "greater" ? "gte" : "lte", n: Number(m[2]) } }];
+  }
   if ((m = lower.match(/^destroy all (creatures|lands|artifacts|enchantments)$/))) {
     return [{ type: "destroyAll", what: { creatures: "creature", lands: "land", artifacts: "artifact", enchantments: "enchantment" }[m[1]] }];
   }
@@ -332,9 +335,15 @@ function parseSentence(raw, specs) {
     const parse = value => (/x$/.test(value) ? "X" : Number(value));
     return [{ type: "pumpAll", scope, p: m[2] !== undefined ? Number(m[2]) : parse(m[6]), th: m[3] !== undefined ? Number(m[3]) : parse(m[7]), kws, ...(m[6] && /x/.test(m[6]) ? { xPer: "creature you control" } : {}) }];
   }
+  if ((m = lower.match(new RegExp(`^each player discards their hand, then draws ${N} cards$`)))) {
+    return num(m[1]) === null ? null : [{ type: "discardHand", who: { k: "each" } }, { type: "draw", who: { k: "each" }, n: num(m[1]) }];
+  }
+  if (lower === "each player discards their hand, then draws cards equal to the greatest number of cards a player discarded this way") return [{ type: "discardHand", who: { k: "each" }, drawGreatest: true }];
   if (lower === "reveal the top card of your library") return [{ type: "revealTop" }];
   if ((m = lower.match(/^if it's a (land|creature|artifact|enchantment) card, put it onto the battlefield$/))) return [{ type: "revealIf", what: m[1], to: "battlefield" }];
   if ((m = lower.match(/^otherwise, put it into your hand$/))) return [{ type: "revealElse", to: "hand" }];
+  if ((m = lower.match(/^~ deals ([0-9]+) damage to each creature with flying and each player$/))) return [{ type: "damage", n: Number(m[1]), to: { k: "flyingAndPlayers" } }];
+  if (lower === "~ deals x damage to each creature, where x is the number of creatures on the battlefield") return [{ type: "damage", n: 1, per: "creature", to: { k: "eachCreature" } }];
   if ((m = lower.match(/^~ deals ([0-9]+) damage to each creature and each player$/))) return [{ type: "damage", n: Number(m[1]), to: { k: "everything" } }];
   if ((m = lower.match(/^return ~ to its owner's hand$/))) return [{ type: "returnSelf" }];
   if ((m = lower.match(/^destroy (another target .+)$/))) {
@@ -380,7 +389,8 @@ function parseSentence(raw, specs) {
     return [{ type: "pumpAll", scope, p: Number(m[2]), th: Number(m[3]) }];
   }
 
-  if ((m = s.match(new RegExp(`^(?:Its controller |That player |You )?[Cc]reates? ${N} (\\d+)/(\\d+) ([A-Za-z ,]+?) creature tokens?$`)))) {
+  if ((m = s.match(new RegExp(`^(?:Its controller |That player |You )?[Cc]reates? ${N} (\\d+)/(\\d+) ([A-Za-z ,]+?) creature tokens?(?: with ([a-z ,]+?))?$`)))) {
+    const tokenKws = (m[5] ?? "").split(/,| and /).map(word => word.trim()).filter(word => KEYWORDS.includes(word));
     const forWho = /^Its controller /i.test(s) && specs.length > 0 ? { k: "controllerOf", t: 0 } : null;
     const n = num(m[1]);
     if (n === null) return null;
@@ -390,9 +400,13 @@ function parseSentence(raw, specs) {
       .split(/[ ,]+/)
       .filter(word => word && !colors.has(word.toLowerCase()))
       .join(" ");
-    return [{ type: "token", n, p: Number(m[2]), th: Number(m[3]), name: name || "Token", ...(artifact ? { artifact: true } : {}), ...(forWho ? { forWho } : {}) }];
+    return [{ type: "token", n, p: Number(m[2]), th: Number(m[3]), name: name || "Token", ...(artifact ? { artifact: true } : {}), ...(forWho ? { forWho } : {}), ...(tokenKws.length ? { keywords: tokenKws } : {}) }];
   }
 
+  // Tutor: beliebige Karte (oder Kartentyp) auf die Hand oder oben auf die Bibliothek
+  if ((m = lower.match(/^search your library for an? ((?:creature|artifact|enchantment|planeswalker|instant|sorcery|land) )?card(?:, reveal (?:it|that card))?(?:,| and)? ?(?:then )?(?:put (?:it|that card) into your hand(?:,? then shuffle)?|shuffle and put (?:it|that card) on top(?: of your library)?)$/))) {
+    return [{ type: "search", what: (m[1] ?? "card").trim(), to: /on top/.test(lower) ? "top" : "hand", tapped: false, count: 1, upTo: false }];
+  }
   // Suchen: eine oder mehrere Karten (Typ, Grundland-Typen), auf die Hand oder aufs Schlachtfeld
   if ((m = lower.match(/^search your library for (a|an|up to one|up to two|up to three|two|three) ((?:basic land|land|creature|artifact|enchantment|planeswalker|instant|sorcery|plains|island|swamp|mountain|forest)(?:, (?:plains|island|swamp|mountain|forest))*(?:,? or (?:plains|island|swamp|mountain|forest))?) cards?(?:, reveal (?:it|that card|those cards))?(?:,| and)? ?(?:then )?put (?:it|that card|them|those cards) (into your hand|onto the battlefield( tapped)?)(?:,)? ?(?:then shuffle)?$/))) {
     const count = { a: 1, an: 1, "up to one": 1, "up to two": 2, "up to three": 3, two: 2, three: 3 }[m[1]];
@@ -413,6 +427,28 @@ function parseSentence(raw, specs) {
 
 const WHO_DE = { you: "Du", eachOpp: "Jeder Gegner", each: "Jeder Spieler", target: "Der Zielspieler" };
 const plural = (n, one, many) => (n === 1 ? one : many);
+
+const COUNT_WORD = { a: 1, an: 1, one: 1, two: 2, three: 3 };
+
+/** Kosten einer aktivierten Fähigkeit; `null`, wenn etwas nicht unterstützt wird. */
+function parseAbilityCost(text) {
+  const parts = text.split(/,\s*(?![^{]*\})/).map(part => part.trim()).filter(Boolean);
+  const cost = { tap: false, sacrifice: false, mana: "" };
+  let m;
+  for (const part of parts) {
+    if (part === "{T}") cost.tap = true;
+    else if (/^(\{[^}]+\})+$/.test(part)) cost.mana += part;
+    else if (part === "Sacrifice ~") cost.sacrifice = true;
+    else if ((m = part.match(/^Sacrifice (a|an|another|one|two|three) (creature|artifact|land|enchantment|permanent|nonland permanent)s?$/i))) {
+      cost.extra = [...(cost.extra ?? []), { kind: "sacrifice", what: m[2].toLowerCase() === "nonland permanent" ? "nonland" : m[2].toLowerCase(), n: COUNT_WORD[m[1].toLowerCase()] ?? 1, other: m[1].toLowerCase() === "another" }];
+    } else if ((m = part.match(/^Discard (a|one|two|three) cards?$/i))) {
+      cost.extra = [...(cost.extra ?? []), { kind: "discard", n: COUNT_WORD[m[1].toLowerCase()] ?? 1 }];
+    } else if ((m = part.match(/^Pay (\d+) life$/i))) {
+      cost.extra = [...(cost.extra ?? []), { kind: "life", n: Number(m[1]) }];
+    } else return null;
+  }
+  return cost;
+}
 
 /** Verständliche deutsche Beschreibung eines Effekts (für die Anzeige auf dem Stapel). */
 const PER_DE = {
@@ -457,6 +493,7 @@ function describeBase(effect) {
     case "sacrifice": return `${who} opfert ${{ creature: "eine Kreatur", artifact: "ein Artefakt", enchantment: "eine Verzauberung", land: "ein Land", permanent: "ein Permanent", nonland: "ein Nichtland-Permanent" }[effect.what] ?? "ein Permanent"}.`;
     case "may": return `Optional: ${effect.effects.map(describeEffect).filter(Boolean).join(" ")}`;
     case "ifDid": return `Wenn ja: ${effect.effects.map(describeEffect).filter(Boolean).join(" ")}`;
+    case "discardHand": return `${who} wirft die ganze Hand ab${effect.drawGreatest ? " und zieht so viele Karten, wie der Spieler mit den meisten abgeworfen hat" : ""}.`;
     case "bite": return "Die eigene Kreatur fügt der Ziel-Kreatur Schaden in Höhe ihrer Stärke zu.";
     case "biteTrample": return "";
     case "fight": return "Beide Kreaturen fügen sich gegenseitig Schaden in Höhe ihrer Stärke zu.";
@@ -625,6 +662,12 @@ export function parseCardText({ name, typeLine, oracleText }) {
         result.costReduction = { amount: Number(reduce[1]), per: reduce[2].toLowerCase() };
         continue;
       }
+      const additional = line.match(/^as an additional cost to cast ~, (sacrifice|discard) (a|an|one|two|three) (creature|artifact|land|enchantment|permanent|card)s?\.?$/i);
+      if (additional) {
+        const kind = additional[1].toLowerCase();
+        result.additionalCost = [{ kind, n: COUNT_WORD[additional[2].toLowerCase()] ?? 1, ...(kind === "sacrifice" ? { what: additional[3].toLowerCase() } : {}) }];
+        continue;
+      }
       const flash = line.match(/^flashback (\{[^}]+\}(?:\{[^}]+\})*)$/i);
       if (flash) result.flashback = flash[1];
       if (/^(kicker|flashback|buyback|cycling|entwine|escape|replicate|overload|convoke|affinity|storm|cascade)\b/i.test(line)) result.notes.push(line);
@@ -653,6 +696,12 @@ export function parseCardText({ name, typeLine, oracleText }) {
     const ward = line.match(/^ward (\{[^}]+\}(?:\{[^}]+\})*|\d+)$/i);
     if (ward) {
       result.ward = /^\d+$/.test(ward[1]) ? `{${ward[1]}}` : ward[1];
+      continue;
+    }
+    // Eigene Einschränkung: „This creature can't block.“
+    const selfCant = line.match(/^~ can't (attack or block|attack|block)\.?$/i);
+    if (selfCant) {
+      result.selfGrants = [...(result.selfGrants ?? []), ...(selfCant[1] === "attack or block" ? ["cant-attack", "cant-block"] : [`cant-${selfCant[1]}`])];
       continue;
     }
     // Beschränkungen durch Auren/Ausrüstung: „Enchanted creature can't attack or block.“
@@ -717,24 +766,22 @@ export function parseCardText({ name, typeLine, oracleText }) {
       continue;
     }
 
-    // Aktivierte Fähigkeit: Kosten: Wirkung
-    const activated = line.match(/^((?:\{[^}]+\}|Sacrifice ~|, )+): (.+)$/);
-    if (activated) {
-      const costText = activated[1];
-      if (/^add\b/i.test(activated[2])) continue; // einfaches Mana: wird als Manaquelle behandelt
-      const cost = { tap: /\{T\}/.test(costText), sacrifice: /Sacrifice ~/.test(costText), mana: costText.replace(/\{T\}|Sacrifice ~|, /g, "") };
-      const onlySupported = costText.replace(/\{T\}|Sacrifice ~|\{[^}]+\}|, /g, "") === "";
-      if (!onlySupported) {
+    // Aktivierte Fähigkeit: Kosten: Wirkung (Tappen, Mana, sich selbst opfern, andere Karten opfern/abwerfen, Leben zahlen)
+    const colon = line.indexOf(": ");
+    if (colon > 0 && colon < 90 && !/^(when|whenever|at) /i.test(line)) {
+      const cost = parseAbilityCost(line.slice(0, colon));
+      const effectText = line.slice(colon + 2);
+      if (cost) {
+        const plainTap = cost.tap && !cost.mana && !cost.sacrifice && !cost.extra;
+        if (/^add\b/i.test(effectText) && plainTap) continue; // einfaches Mana: wird als Manaquelle behandelt
+        const parsed = parseEffectText(effectText);
+        result.activated.push({ index: result.activated.length, text: line, cost, sorcery: /activate (this ability )?only as a sorcery/i.test(line), ...parsed });
+        continue;
+      }
+      if (/^(\{|sacrifice|discard|pay|exile|remove|tap|untap|return)/i.test(line)) {
         result.notes.push(line);
         continue;
       }
-      const parsed = parseEffectText(activated[2]);
-      result.activated.push({ index: result.activated.length, text: line, cost, sorcery: /activate (this ability )?only as a sorcery/i.test(line), ...parsed });
-      continue;
-    }
-    if (/^[^:]*(?:sacrifice|discard|pay|exile|remove|tap|untap)[^:]*: /i.test(line)) {
-      result.notes.push(line);
-      continue;
     }
 
     // Ersatzeffekt: kommt getappt ins Spiel (bedingungslos oder „unless …“)
@@ -797,11 +844,14 @@ export function parseCardText({ name, typeLine, oracleText }) {
     // Auslöser
     const trigger = line.match(/^(When|Whenever|At) (.+?), (.+)$/);
     if (trigger) {
-      const event = triggerEvent(trigger[1], trigger[2].toLowerCase());
-      if (event) {
+      const condition = trigger[2].toLowerCase();
+      const events = /^~ enters( the battlefield)? or attacks$/.test(condition)
+        ? [triggerEvent(trigger[1], "~ enters"), triggerEvent(trigger[1], "~ attacks")]
+        : [triggerEvent(trigger[1], condition)];
+      if (events.every(Boolean)) {
         const parsed = parseEffectText(trigger[3]);
         if (parsed.specs.length <= 3) {
-          result.triggers.push({ ...event, text: line, ...parsed });
+          for (const event of events) result.triggers.push({ ...event, text: line, ...parsed });
           continue;
         }
       }

@@ -53,7 +53,8 @@ export type PlayerCounterKind = "poison" | "energy" | "experience";
 /** Gültige Ziele für eine Zielangabe eines Zaubers oder einer Fähigkeit (Karten-, Spieler- oder Stapel-IDs). */
 export type TargetOption = { kind: string; options: string[] };
 
-export type CardAbility = { index: number; text: string; costLabel?: string; ok: boolean; targets: TargetOption[]; manual: boolean };
+export type PayRequirement = { kind: "sacrifice" | "discard" | "life"; what?: string; n: number; options: string[] };
+export type CardAbility = { index: number; text: string; costLabel?: string; ok: boolean; pays?: PayRequirement[]; targets: TargetOption[]; manual: boolean };
 
 export type GameCard = {
   id: string;
@@ -87,7 +88,7 @@ export type GameCard = {
   /** Farben, die diese Manaquelle erzeugen kann. */
   manaColors?: string[];
   /** Nur für eigene Karten: Was ist jetzt möglich? */
-  play?: { kind: "land" | "spell"; ok: boolean; timingOk?: boolean; targets?: TargetOption[]; modes?: { label: string; targets: TargetOption[]; manual: boolean }[]; manual?: boolean } | null;
+  play?: { kind: "land" | "spell"; ok: boolean; timingOk?: boolean; pays?: PayRequirement[]; targets?: TargetOption[]; modes?: { label: string; targets: TargetOption[]; manual: boolean }[]; manual?: boolean } | null;
   /** Cycling aus der Hand (falls die Karte es hat). */
   cycle?: { ok: boolean; cost: string; search: string | null } | null;
   /** Nur eigene Karten auf dem Schlachtfeld: aktivierbare Fähigkeiten laut Kartentext. */
@@ -203,11 +204,11 @@ export type GameAction =
   | { type: "tapMana"; id: string; color?: string }
   | { type: "pool"; color: "W" | "U" | "B" | "R" | "G" | "C"; delta: number }
   | { type: "playLand"; id: string }
-  | { type: "cast"; id: string; x?: number; free?: boolean; targets?: string[]; mode?: number; tap?: string[] }
+  | { type: "cast"; id: string; x?: number; free?: boolean; targets?: string[]; mode?: number; tap?: string[]; pay?: string[] }
   | { type: "cycle"; id: string; tap?: string[] }
   | { type: "damage"; id: string; delta: number }
   | { type: "moveOther"; id: string; to: "graveyard" | "exile" | "hand" }
-  | { type: "activate"; id: string; index: number; targets?: string[]; tap?: string[] }
+  | { type: "activate"; id: string; index: number; targets?: string[]; tap?: string[]; pay?: string[] }
   | { type: "choose"; ids: string[] }
   | { type: "manualDone" }
   | { type: "ability"; text: string }

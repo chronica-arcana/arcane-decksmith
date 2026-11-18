@@ -101,6 +101,10 @@ const LIB = [
   ["rip", "Zerreißen", "Instant", "{R}", 2, {}, "Destroy target artifact or enchantment."],
   ["striker", "Plünderer", "Creature — Rogue", "{G}", 2, { power: "2", toughness: "2" }, "Whenever this creature deals combat damage to a player, draw a card."],
   ["herald", "Herold", "Creature — Human", "{G}", 2, { power: "1", toughness: "1" }, "At the beginning of combat on your turn, you gain 1 life."],
+  ["seer", "Opfer-Seher", "Creature — Vampire Wizard", "{G}", 2, { power: "1", toughness: "1" }, "Sacrifice a creature: Scry 1."],
+  ["altar", "Altar", "Artifact", "{3}", 2, {}, "Sacrifice a creature: Add {C}{C}."],
+  ["rites", "Opferriten", "Instant", "{G}", 2, {}, "As an additional cost to cast this spell, sacrifice a creature.\nDraw two cards."],
+  ["reunion", "Wiedersehen", "Sorcery", "{1}{G}", 2, {}, "As an additional cost to cast this spell, discard two cards.\nDraw three cards."],
   ["priest", "Priester", "Creature — Cleric", "{G}", 2, { power: "1", toughness: "1" }, "At the beginning of your end step, you gain 1 life."]
 ];
 const facts = new Map();
@@ -653,12 +657,12 @@ describe("Kartentext-Engine", () => {
   it("Auslöser beim Betreten: Seher zieht eine Karte (alles löst sich selbst auf)", () => {
     const { game, random } = started();
     forest(game, "u0", 1);
+    const seer = put(game, "u0", "Seher", "hand");
     const hand = game.players.u0.hand.length;
-    const seer = put(game, "u0", "Seher", "hand", { only: "library" });
     act(game, "u0", { type: "cast", id: seer }, random);
     expect(game.players.u0.battlefield).toContain(seer);
     expect(game.stack).toHaveLength(0);
-    expect(game.players.u0.hand.length).toBe(hand + 1); // +1 (Seher) −1 (gespielt) +1 (gezogen)
+    expect(game.players.u0.hand.length).toBe(hand); // −1 (gespielt) +1 (gezogen)
   });
 
   it("Auslöser mit Ziel öffnet eine Auswahl: Kavu schadet einer Kreatur", () => {
@@ -1827,5 +1831,46 @@ describe("Weitere Auslöser", () => {
     act(game, "u0", { type: "declareAttackers", attackers: [{ id: striker, target: "u1" }] }, random);
     for (let i = 0; i < 8 && (game.combat || game.stack.length > 0); i += 1) act(game, game.priority, { type: "pass" }, random);
     expect(game.players.u0.hand.length).toBe(hand + 1);
+  });
+});
+
+describe("Zusätzliche Kosten (Opfern, Abwerfen)", () => {
+  it("Fähigkeit: „Sacrifice a creature: …“ verlangt die Wahl der Kreatur", () => {
+    const { game, random } = started();
+    const seer = put(game, "u0", "Opfer-Seher", "battlefield");
+    const bear = put(game, "u0", "Bär", "battlefield");
+    const ability = view(game, "u0").players[0].battlefield.find(c => c.id === seer).abilities[0];
+    expect(ability.ok).toBe(true);
+    expect(ability.pays[0].options).toEqual(expect.arrayContaining([seer, bear]));
+    expect(act(game, "u0", { type: "activate", id: seer, index: 0 }, random).ok).toBe(false); // ohne Auswahl
+    expect(act(game, "u0", { type: "activate", id: seer, index: 0, pay: [bear] }, random).ok).toBe(true);
+    expect(game.players.u0.graveyard).toContain(bear);
+    expect(game.manual).toBeNull();
+  });
+
+  it("Altar: Opfern ergibt Mana", () => {
+    const { game, random } = started();
+    const altar = put(game, "u0", "Altar", "battlefield");
+    const bear = put(game, "u0", "Bär", "battlefield");
+    expect(act(game, "u0", { type: "activate", id: altar, index: 0, pay: [bear] }, random).ok).toBe(true);
+    for (let i = 0; i < 4 && game.stack.length > 0; i += 1) act(game, game.priority, { type: "pass" }, random);
+    expect(game.players.u0.pool.C).toBe(2);
+  });
+
+  it("Zauber mit zusätzlichen Kosten: Opfern und Abwerfen", () => {
+    const { game, random } = started();
+    forest(game, "u0", 3);
+    const bear = put(game, "u0", "Bär", "battlefield");
+    const rites = put(game, "u0", "Opferriten", "hand");
+    expect(act(game, "u0", { type: "cast", id: rites }, random).ok).toBe(false);
+    expect(act(game, "u0", { type: "cast", id: rites, pay: [bear] }, random).ok).toBe(true);
+    for (let i = 0; i < 4 && game.stack.length > 0; i += 1) act(game, game.priority, { type: "pass" }, random);
+    expect(game.players.u0.graveyard).toContain(bear);
+    const reunion = put(game, "u0", "Wiedersehen", "hand");
+    const fodder = game.players.u0.hand.filter(id => id !== reunion).slice(0, 2);
+    const handBefore = game.players.u0.hand.length;
+    expect(act(game, "u0", { type: "cast", id: reunion, pay: fodder }, random).ok).toBe(true);
+    for (let i = 0; i < 4 && game.stack.length > 0; i += 1) act(game, game.priority, { type: "pass" }, random);
+    expect(game.players.u0.hand.length).toBe(handBefore - 3 + 3);
   });
 });
