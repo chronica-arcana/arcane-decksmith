@@ -343,3 +343,31 @@ describe("cardText: Star-Trek- und Final-Fantasy-Paket", () => {
     expect(parse("Instant", "You gain 2 life, draw two cards, then discard two cards.").spell.effects.map(effect => effect.type)).toEqual(["life", "draw", "discard"]);
   });
 });
+
+describe("cardText: Star Trek/FF Runde 2", () => {
+  const parse = (typeLine, oracleText) => parseCardText({ name: "Karte", typeLine, oracleText });
+
+  it("Aktivierte Fähigkeit mit Modi wird in einzelne Fähigkeiten geteilt; Reanimation mit Filter", () => {
+    const parsed = parse("Artifact", "{1}{W}, {T}, Exile ~: Choose one —\n• Return target creature card with mana value 4 or less from your graveyard to the battlefield tapped.\n• Exile target Skeleton, Spirit, or Zombie.");
+    expect(parsed.activated).toHaveLength(2);
+    expect(parsed.activated[0]).toMatchObject({ cost: { exileSelf: true }, effects: [{ type: "reanimate", tapped: true }], specs: [{ kind: "gyCreature", mvMax: 4 }] });
+    expect(parsed.activated[1].specs[0]).toMatchObject({ subtypes: ["skeleton", "spirit", "zombie"] });
+  });
+
+  it("Kosten: Marker von beliebigem Permanent, Artefaktkreatur opfern, Karte aus der Hand abwerfen", () => {
+    expect(parse("Creature — X", "{T}, Remove a counter from a nonland permanent you control: Draw a card.").activated[0].cost.extra[0]).toMatchObject({ kind: "removeAnyCounter", nonland: true });
+    expect(parse("Creature — X", "{1}, Sacrifice an artifact creature: Draw a card.").activated[0].cost.extra[0]).toMatchObject({ kind: "sacrifice", artifactCreature: true });
+    expect(parse("Creature — X", "{W}{B}, Discard this card: It deals 2 damage to target creature. You gain 2 life.").activated[0]).toMatchObject({ zone: "hand", cost: { discardSelf: true }, effects: [{ type: "damage" }, { type: "life" }] });
+  });
+
+  it("Auslöser und Einzeltexte", () => {
+    expect(parse("Creature — X", "Whenever an Equipment you control enters, create a 2/2 red Rebel creature token.").triggers[0]).toMatchObject({ event: "permanentEnters", scope: { permType: "equipment" } });
+    expect(parse("Creature — X", "Whenever another Klingon or Warrior you control enters, ~ deals 1 damage to each opponent.").triggers[0].scope).toMatchObject({ anyOf: ["klingon", "warrior"], another: true });
+    expect(parse("Creature — X", "Klingon spells and Warrior spells you cast cost {1} less to cast.").costMod).toMatchObject({ anyOf: ["klingon", "warrior"] });
+    expect(parse("Artifact", "~ enters with two charge counters on it.").entersWithCounters).toEqual({ n: 2, kind: "charge" });
+    expect(parse("Sorcery", "Exile up to two target creatures.").spell.specs).toHaveLength(2);
+    expect(parse("Creature — X", "When ~ enters, support 2.").triggers[0].effects).toHaveLength(2);
+    expect(parse("Sorcery", "Look at the top seven cards of your library. Put two of them into your hand and the rest on the bottom of your library in any order.").spell.unparsed).toEqual([]);
+    expect(parse("Creature — X", "When ~ enters, you may discard your hand. If you do, draw a card for each card discarded this way.").triggers[0].unparsed).toEqual([]);
+  });
+});

@@ -176,6 +176,9 @@ const LIB = [
   ["klingon", "Klingone", "Creature — Klingon", "{1}", 2, { power: "2", toughness: "2" }],
   ["bigstrider", "Großläufer", "Creature — Giant", "{1}", 2, { power: "3", toughness: "3" }, "~ can't be blocked by creatures with power 2 or less."],
   ["unearther", "Ausgräber", "Creature — Zombie", "{1}", 2, { power: "2", toughness: "1" }, "Unearth {G}"],
+  ["phoenixdown", "Phönixfeder", "Artifact", "{1}", 2, {}, "{1}, {T}, Exile ~: Choose one —\n• Return target creature card with mana value 4 or less from your graveyard to the battlefield tapped.\n• You gain 1 life."],
+  ["handbolt", "Handblitz", "Creature — Borg", "{3}", 2, { power: "2", toughness: "2" }, "{G}, Discard this card: It deals 2 damage to target creature."],
+  ["oaka", "Händler", "Creature — Merchant", "{1}", 2, { power: "1", toughness: "1" }, "{T}, Remove a counter from a nonland permanent you control: Draw a card."],
   ["convoker", "Einberufer", "Sorcery", "{3}{G}", 2, {}, "Convoke\nDraw a card."],
   ["delver", "Schürfer", "Sorcery", "{4}{G}", 2, {}, "Delve\nDraw a card."],
   ["sculptor", "Bildhauer", "Creature — Vedalken", "{G}", 2, { power: "1", toughness: "1" }, "Artifact spells you cast cost {1} less to cast."],
@@ -2844,6 +2847,34 @@ describe("Neue Mechaniken aus den Commander-Decks", () => {
     expect(hints.find(h => h.action?.type === "life")?.action).toEqual({ type: "life", delta: 3 });
     expect(hints.find(h => h.action?.type === "token")).toMatchObject({ action: { type: "token", name: "Borg 1/1" }, repeat: 2 });
     expect(hints.some(h => !h.action && /Zerstören/.test(h.label))).toBe(true);
+  });
+
+  it("Runde 2: geteilte Modus-Fähigkeit mit Exil-Kosten, Fähigkeit aus der Hand, Marker von beliebigem Permanent als Kosten", () => {
+    const { game, random } = started();
+    forest(game, "u0", 4);
+    const feather = put(game, "u0", "Phönixfeder", "battlefield");
+    const dead = put(game, "u0", "Bär", "graveyard");
+    expect(act(game, "u0", { type: "activate", id: feather, index: 0, targets: [dead] }, random).ok).toBe(true);
+    go(game, random);
+    expect(game.players.u0.battlefield).toContain(dead);
+    expect(game.cards[dead].tapped).toBe(true);
+    expect(game.players.u0.exile).toContain(feather);
+    const victim = put(game, "u1", "Bär", "battlefield");
+    const bolt = put(game, "u0", "Handblitz", "hand");
+    const ability = view(game, "u0").players[0].hand.find(c => c.id === bolt).abilities[0];
+    expect(ability.ok).toBe(true);
+    expect(act(game, "u0", { type: "activate", id: bolt, index: 0, targets: [victim] }, random).ok).toBe(true);
+    go(game, random);
+    expect(game.players.u0.graveyard).toContain(bolt);
+    expect(game.players.u1.graveyard).toContain(victim);
+    const merchant = put(game, "u0", "Händler", "battlefield");
+    const holder = put(game, "u0", "Bär", "battlefield");
+    game.cards[holder].counters["+1/+1"] = 1;
+    const hand = game.players.u0.hand.length;
+    expect(act(game, "u0", { type: "activate", id: merchant, index: 0, pay: [holder] }, random).ok).toBe(true);
+    go(game, random);
+    expect(game.cards[holder].counters["+1/+1"]).toBeUndefined();
+    expect(game.players.u0.hand.length).toBe(hand + 1);
   });
 
   it("Convoke und Delve bezahlen fehlendes Mana mit Kreaturen bzw. Friedhofskarten", () => {
