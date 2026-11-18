@@ -307,6 +307,18 @@ function parseSentence(raw, specs) {
     const t = addTarget(specs, "target creature you control");
     return t === null ? null : [{ type: "grantKw", kws: ["unblockable"], t }];
   }
+  if ((m = lower.match(new RegExp(`^put ${N} ([+-]1/[+-]1|stun|shield) counters? on each of up to (two|three) target creatures( you control)?$`)))) {
+    const n = num(m[1]);
+    if (n === null || n === "X") return null;
+    const effects = [];
+    for (let i = 0; i < { two: 2, three: 3 }[m[3]]; i += 1) {
+      const spec = parseTargetSpec(m[4] ? "target creature you control" : "target creature");
+      if (!spec) return null;
+      specs.push({ ...spec, optional: true });
+      effects.push({ type: "counters", n, kind: m[2], t: specs.length - 1 });
+    }
+    return effects;
+  }
   if ((m = lower.match(new RegExp(`^put ${N} ([+-]1/[+-]1) counters? on each attacking creature you control$`)))) {
     const n = num(m[1]);
     return n === null || n === "X" ? null : [{ type: "countersAll", n, kind: m[2], attacking: true }];
@@ -537,6 +549,12 @@ function parseSentence(raw, specs) {
     const parse = value => (/x$/.test(value) ? "X" : Number(value));
     return [{ type: "pumpAll", scope, p: m[2] !== undefined ? Number(m[2]) : parse(m[6]), th: m[3] !== undefined ? Number(m[3]) : parse(m[7]), kws, ...(m[6] && /x/.test(m[6]) ? { xPer: "creature you control" } : {}) }];
   }
+  if (lower === "exile all graveyards") return [{ type: "exileAllGraveyards" }];
+  if ((m = lower.match(new RegExp(`^you and (target opponent) each draw ${N} cards?$`)))) {
+    const t = addTarget(specs, m[1]);
+    const n = num(m[2]);
+    return t === null || n === null || n === "X" ? null : [{ type: "draw", who: { k: "you" }, n }, { type: "draw", who: { k: "target", t }, n }];
+  }
   if ((m = lower.match(new RegExp(`^each player discards their hand, then draws ${N} cards$`)))) {
     return num(m[1]) === null ? null : [{ type: "discardHand", who: { k: "each" } }, { type: "draw", who: { k: "each" }, n: num(m[1]) }];
   }
@@ -580,7 +598,7 @@ function parseSentence(raw, specs) {
     return t === null || !/spell$/.test(m[1]) ? null : [{ type: "counterSpell", t }];
   }
 
-  if ((m = lower.match(new RegExp(`^put ${N} ([+-]1/[+-]1|flying|first strike|double strike|deathtouch|haste|hexproof|indestructible|lifelink|menace|reach|trample|vigilance) counters? on (~|target [a-z ,'-]+)$`)))) {
+  if ((m = lower.match(new RegExp(`^put ${N} ([+-]1/[+-]1|stun|shield|flying|first strike|double strike|deathtouch|haste|hexproof|indestructible|lifelink|menace|reach|trample|vigilance) counters? on (~|target [a-z ,'-]+)$`)))) {
     const n = num(m[1]);
     if (n === null) return null;
     if (m[3] === "~") return [{ type: "counters", n, kind: m[2], self: true }];
@@ -777,6 +795,7 @@ function describeBase(effect) {
     case "bite": return "Die eigene Kreatur fügt der Ziel-Kreatur Schaden in Höhe ihrer Stärke zu.";
     case "biteTrample": return "";
     case "fight": return "Beide Kreaturen fügen sich gegenseitig Schaden in Höhe ihrer Stärke zu.";
+    case "exileAllGraveyards": return "Schickt alle Friedhöfe ins Exil.";
     case "exileGraveyard": return "Schickt den ganzen Friedhof des Ziel-Spielers ins Exil.";
     case "manaAny": return "Erzeugt ein Mana einer beliebigen Farbe.";
     case "putBack": return `Legt ${effect.n} Karten von der Hand oben auf die Bibliothek.`;
@@ -1278,6 +1297,16 @@ export function parseCardText({ name, typeLine, oracleText }) {
     const powerOnly = line.match(/^~'s power is equal to the number of ([a-z]+) cards in your graveyard\.?$/i);
     if (powerOnly) {
       result.dynamicPT = { per: `${powerOnly[1].toLowerCase()} card in your graveyard`, mult: 1, powerOnly: true };
+      continue;
+    }
+    const chapter = line.match(/^((?:I|II|III|IV|V|VI)(?:, (?:I|II|III|IV|V|VI))*) \u2014 (?:[^\u2014.:]{1,40} \u2014 )?(.+)$/);
+    if (chapter && /Saga/.test(typeLine ?? "")) {
+      const roman = { I: 1, II: 2, III: 3, IV: 4, V: 5, VI: 6 };
+      const numbers = chapter[1].split(", ").map(item => roman[item]);
+      const parsed = parseEffectText(chapter[2]);
+      result.saga = result.saga ?? { max: 0 };
+      result.saga.max = Math.max(result.saga.max, ...numbers);
+      for (const number of numbers) result.triggers.push({ event: "chapter", chapter: number, text: line, ...parsed });
       continue;
     }
     const mutate = line.match(/^mutate (\{[^}]+\}(?:\{[^}]+\})*)$/i);

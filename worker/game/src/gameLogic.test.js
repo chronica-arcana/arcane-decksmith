@@ -147,6 +147,8 @@ const LIB = [
   ["warhorn", "Kriegshorn", "Artifact", "{1}", 2, {}, "Whenever you attack, you gain 1 life.\nWhenever you attack with two or more creatures, you gain 5 life."],
   ["reclaim", "Landrückkehr", "Sorcery", "{G}", 2, {}, "Return all land cards from your graveyard to the battlefield tapped."],
   ["guard", "Blockwächter", "Creature — Soldier", "{1}", 2, { power: "1", toughness: "4" }, "Whenever ~ blocks, you gain 3 life."],
+  ["saga", "Sagenreise", "Enchantment — Saga", "{G}", 2, {}, "(As this Saga enters and after your draw step, add a lore counter. Sacrifice after III.)\nI — You gain 2 life.\nII — You gain 3 life.\nIII — You gain 4 life."],
+  ["blesser", "Gruppensegner", "Creature — Cleric", "{1}", 2, { power: "1", toughness: "1" }, "When ~ enters, put a +1/+1 counter on each of up to two target creatures you control."],
   ["convoker", "Einberufer", "Sorcery", "{3}{G}", 2, {}, "Convoke\nDraw a card."],
   ["delver", "Schürfer", "Sorcery", "{4}{G}", 2, {}, "Delve\nDraw a card."],
   ["sculptor", "Bildhauer", "Creature — Vedalken", "{G}", 2, { power: "1", toughness: "1" }, "Artifact spells you cast cost {1} less to cast."],
@@ -2507,6 +2509,65 @@ describe("Neue Mechaniken aus den Commander-Decks", () => {
     expect(act(game, "u1", { type: "declareBlockers", blocks: [{ blocker: guard, attacker: bear }] }, random).ok).toBe(true);
     go(game, random);
     expect(game.players.u1.life).toBe(life + 3);
+  });
+
+  it("Saga: Kapitel I beim Ins-Spiel-Kommen, II und III nach dem Ziehen, danach geopfert", () => {
+    const { game, random } = started();
+    forest(game, "u0", 1);
+    const life = game.players.u0.life;
+    const id = put(game, "u0", "Sagenreise", "hand");
+    expect(act(game, "u0", { type: "cast", id }, random).ok).toBe(true);
+    go(game, random);
+    expect(game.cards[id].counters.lore).toBe(1);
+    expect(game.players.u0.life).toBe(life + 2);
+    const toMain1 = turns => {
+      const target = game.turn.number + turns;
+      for (let i = 0; i < 200 && !(game.turn.number >= target && game.turn.phase === "main1" && game.turn.active === "u0"); i += 1) {
+        if (game.choice) act(game, game.choice.userId, { type: "choose", ids: game.choice.kind === "yesno" ? ["yes"] : game.choice.options.slice(0, Math.max(1, game.choice.min)).map(o => o.id ?? o) }, random);
+        else if (game.pendingDiscard) act(game, game.pendingDiscard.userId, { type: "discard", ids: game.players[game.pendingDiscard.userId].hand.slice(0, game.pendingDiscard.count) }, random);
+        else act(game, game.priority ?? game.turn.active, { type: "pass" }, random);
+      }
+      go(game, random);
+    };
+    toMain1(2);
+    expect(game.cards[id].counters.lore).toBe(2);
+    expect(game.players.u0.life).toBe(life + 5);
+    toMain1(2);
+    expect(game.players.u0.life).toBe(life + 9);
+    expect(game.players.u0.graveyard).toContain(id); // nach Kapitel III geopfert
+  });
+
+  it("Schild- und Betäubungsmarker", () => {
+    const { game, random } = started();
+    put(game, "u0", "Mountain", "battlefield");
+    const bear = put(game, "u1", "Bär", "battlefield");
+    game.cards[bear].counters.shield = 1;
+    castAndResolve(game, "u0", "Zerstörer", random, [bear]);
+    expect(game.players.u1.battlefield).toContain(bear); // Schildmarker verhindert die Zerstörung
+    expect(game.cards[bear].counters.shield).toBeUndefined();
+    game.cards[bear].tapped = true;
+    game.cards[bear].counters.stun = 1;
+    for (let i = 0; i < 60 && game.turn.active === "u0"; i += 1) {
+      if (game.choice) act(game, game.choice.userId, { type: "choose", ids: game.choice.kind === "yesno" ? ["yes"] : game.choice.options.slice(0, Math.max(1, game.choice.min)).map(o => o.id ?? o) }, random);
+      else if (game.pendingDiscard) act(game, game.pendingDiscard.userId, { type: "discard", ids: game.players.u0.hand.slice(0, game.pendingDiscard.count) }, random);
+      else act(game, game.priority ?? "u0", { type: "pass" }, random);
+    }
+    expect(game.turn.active).toBe("u1");
+    expect(game.cards[bear].tapped).toBe(true); // Betäubung: bleibt getappt
+    expect(game.cards[bear].counters.stun).toBeUndefined();
+  });
+
+  it("„each of up to two target creatures“: bis zu zwei Ziele, Rest darf leer bleiben", () => {
+    const { game, random } = started();
+    forest(game, "u0", 2);
+    const bear = put(game, "u0", "Bär", "battlefield");
+    const id = put(game, "u0", "Gruppensegner", "hand");
+    expect(act(game, "u0", { type: "cast", id }, random).ok).toBe(true);
+    go(game, random);
+    const total = game.players.u0.battlefield.reduce((sum, c) => sum + (game.cards[c].counters["+1/+1"] ?? 0), 0);
+    expect(total).toBeGreaterThanOrEqual(1);
+    expect(total).toBeLessThanOrEqual(2);
+    expect(game.cards[bear]).toBeTruthy();
   });
 
   it("Convoke und Delve bezahlen fehlendes Mana mit Kreaturen bzw. Friedhofskarten", () => {
