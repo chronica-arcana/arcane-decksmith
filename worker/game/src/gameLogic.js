@@ -188,6 +188,14 @@ const protectedFrom = (game, card, sourceColors) => {
   return sourceColors.some(color => protection.includes(color));
 };
 
+/** Ersatzeffekte wie Hardened Scales: „that many plus one +1/+1 counters“ für Kreaturen des Kontrolleurs. */
+function counterAmount(game, card, kind, n) {
+  if (kind !== "+1/+1" || n <= 0) return n;
+  let bonus = 0;
+  for (const id of game.players[card.owner]?.battlefield ?? []) bonus += defOf(game, game.cards[id]).rules?.counterBonus ?? 0;
+  return n + bonus;
+}
+
 const counterOf = (card, kind) => card.counters[kind] ?? 0;
 const bonus = card => counterOf(card, "+1/+1") - counterOf(card, "-1/-1");
 const dynamicBase = (game, card, toughness = false) => {
@@ -402,7 +410,7 @@ function enterBattlefield(game, card) {
   if (def.rules?.entersWithCounters) {
     const rule = def.rules.entersWithCounters;
     const n = rule.n === "X" ? card.enterX ?? 0 : rule.n;
-    if (n > 0) card.counters[rule.kind] = (card.counters[rule.kind] ?? 0) + n;
+    if (n > 0) card.counters[rule.kind] = (card.counters[rule.kind] ?? 0) + counterAmount(game, card, rule.kind, n);
   }
   if (def.types.creature && game.seats.some(userId => userId !== card.owner && game.players[userId].battlefield.some(id => defOf(game, game.cards[id]).rules?.oppEnterTapped))) card.tapped = true;
   if (def.rules?.entersTapped) card.tapped = true;
@@ -1038,7 +1046,7 @@ function resolveTop(game) {
   if (!item) return;
   const controller = game.players[item.controller];
   if (item.kind === "ability") {
-    const ctx = { controller: item.controller, source: item.source, sourceName: item.sourceName, targets: item.targets ?? [], unparsed: item.unparsed ?? [], subject: item.subject, subjectCard: item.subjectCard, paidPower: item.paidPower, snap: snapshotTargets(game, item.targets) };
+    const ctx = { controller: item.controller, source: item.source, sourceName: item.sourceName, targets: item.targets ?? [], unparsed: item.unparsed ?? [], subject: item.subject, subjectCard: item.subjectCard, paidPower: item.paidPower, damage: item.damage, snap: snapshotTargets(game, item.targets) };
     if ((item.specs?.length ?? 0) > 0 && !targetsLegal(game, item.specs, ctx.targets, item.controller, item.source && game.cards[item.source] ? { ...srcOfCard(game, game.cards[item.source]), subject: item.subject } : undefined)) {
       addLog(game, `${item.sourceName}: Fähigkeit verpufft (Ziel nicht mehr gültig).`);
       return;
@@ -1559,6 +1567,10 @@ const NAMED_TOKENS = {
   Treasure: { typeLine: "Token Artifact — Treasure", oracleText: "{T}, Sacrifice this artifact: Add one mana of any color.", mana: [["W", "U", "B", "R", "G"]] },
   Food: { typeLine: "Token Artifact — Food", oracleText: "{2}, {T}, Sacrifice this artifact: You gain 3 life." },
   Clue: { typeLine: "Token Artifact — Clue", oracleText: "{2}, Sacrifice this artifact: Draw a card." },
+  Lander: { typeLine: "Token Artifact — Lander", oracleText: "{2}, {T}, Sacrifice this artifact: Search your library for a basic land card, put it onto the battlefield tapped, then shuffle." },
+  Map: { typeLine: "Token Artifact — Map", oracleText: "{1}, {T}, Sacrifice this artifact: Target creature you control explores. Activate only as a sorcery." },
+  Gold: { typeLine: "Token Artifact — Gold", oracleText: "Sacrifice this artifact: Add one mana of any color.", mana: [["W", "U", "B", "R", "G"]] },
+  Powerstone: { typeLine: "Token Artifact — Powerstone", oracleText: "{T}: Add {C}.", mana: [["C"]] },
   Blood: { typeLine: "Token Artifact — Blood", oracleText: "{1}, {T}, Discard a card, Sacrifice this artifact: Draw a card." }
 };
 
@@ -1639,6 +1651,9 @@ function inflictDamage(game, source, targetId, amount, { combat = false } = {}) 
       pushFx(game, { type: "damage", card: targetId, amount });
       if (source && hasKeyword(game, source, "deathtouch")) card.deathtouched = true;
       dealt = amount;
+      for (const trigger of def.rules?.triggers ?? []) {
+        if (trigger.event === "dealtDamage") game.triggerQueue.push({ controller: card.owner, source: card.id, sourceName: def.name, trigger, damage: amount });
+      }
     }
     if (def.types.planeswalker) {
       card.counters.loyalty = Math.max(0, (card.counters.loyalty ?? 0) - amount);
@@ -1716,6 +1731,7 @@ function fireGlobal(game, event, subject) {
         if (scope.another && typeof subject !== "string" && subject.id === source.id) continue;
         if (trigger.cond === "evolve" && (typeof subject === "string" || !(powerOf(game, subject) > powerOf(game, source) || toughnessOf(game, subject) > toughnessOf(game, source)))) continue;
         if (scope.subtype && (typeof subject === "string" || !hasSubtype(defOf(game, subject), scope.subtype))) continue;
+        if (trigger.minAttackers && (game.combat?.attackers?.length ?? 0) < trigger.minAttackers) continue;
         if (scope.nontoken && typeof subject !== "string" && subject.token) continue;
         if (trigger.kinds && (typeof subject === "string" || !trigger.kinds.some(kind => defOf(game, subject).types[kind]))) continue;
         if (scope.minPower !== undefined && (typeof subject === "string" || powerOf(game, subject) < scope.minPower)) continue;
@@ -1841,6 +1857,7 @@ function flushTriggers(game) {
       sourceName: next.sourceName,
       subject: next.subject,
       subjectCard: next.subjectCard,
+      damage: next.damage,
       text: trigger.summary || trigger.text,
       effects: trigger.effects,
       specs: trigger.specs,
@@ -1941,6 +1958,7 @@ function runEffect(game, rawEffect, ctx, rest) {
     let value = info[ref.stat] ?? 0;
     if (ref.cast) value = (ctx.castInfo?.[ref.cast] ?? 0) * (ref.mult ?? 1);
     if (ref.digMv) value = ctx.digMv ?? 0;
+    if (ref.damage) value = ctx.damage ?? 0;
     effect = { ...effect, n: ref.negate ? -value : value };
   }
   const controller = game.players[ctx.controller];
@@ -2241,11 +2259,13 @@ function runEffect(game, rawEffect, ctx, rest) {
       return false;
     }
     case "countersAll": {
-      for (const id of [...controller.battlefield]) {
+      const holders = effect.opp ? game.seats.filter(id => id !== ctx.controller).map(id => game.players[id]) : [controller];
+      for (const id of holders.flatMap(holder => [...holder.battlefield])) {
         const c = game.cards[id];
         if (!defOf(game, c).types.creature || (effect.other && c.id === ctx.source)) continue;
         if (effect.subtype && !hasSubtype(defOf(game, c), effect.subtype)) continue;
-        c.counters[effect.kind] = Math.min(MAX_COUNTERS, (c.counters[effect.kind] ?? 0) + effect.n);
+        if (effect.attacking && !game.combat?.attackers?.some(attacker => attacker.id === c.id)) continue;
+        c.counters[effect.kind] = Math.min(MAX_COUNTERS, (c.counters[effect.kind] ?? 0) + counterAmount(game, c, effect.kind, effect.n));
         c.counterTurn = game.turn.number;
       }
       addLog(game, `Jede ${effect.other ? "andere " : ""}Kreatur von ${controller.name} erhält ${effect.n}× ${effect.kind} (${name}).`);
@@ -2592,7 +2612,7 @@ function runEffect(game, rawEffect, ctx, rest) {
     case "counters": {
       const card = effect.subjectCard ? game.cards[ctx.subjectCard] : effect.self ? sourceCard : targetCard;
       if (card && onBattlefield(game, card.id)) {
-        card.counters[effect.kind] = Math.min(MAX_COUNTERS, (card.counters[effect.kind] ?? 0) + effect.n);
+        card.counters[effect.kind] = Math.min(MAX_COUNTERS, (card.counters[effect.kind] ?? 0) + counterAmount(game, card, effect.kind, effect.n));
         if (effect.n > 0) card.counterTurn = game.turn.number;
         const both = Math.min(card.counters["+1/+1"] ?? 0, card.counters["-1/-1"] ?? 0);
         if (both > 0) {
@@ -2684,6 +2704,18 @@ function runEffect(game, rawEffect, ctx, rest) {
         ctx
       });
     }
+    case "gyReturnAll": {
+      for (const id of [...controller.graveyard]) {
+        const card = game.cards[id];
+        if (!card || !typeMatches(defOf(game, card), effect.what)) continue;
+        controller.graveyard.splice(controller.graveyard.indexOf(id), 1);
+        controller.battlefield.push(id);
+        enterBattlefield(game, card);
+        if (effect.tapped) card.tapped = true;
+      }
+      addLog(game, `${controller.name} legt alle passenden Karten aus dem Friedhof aufs Schlachtfeld (${name}).`);
+      return false;
+    }
     case "handToField": {
       const options = controller.hand.filter(id => typeMatches(defOf(game, game.cards[id]), effect.what));
       if (options.length === 0) return false;
@@ -2740,7 +2772,7 @@ function runEffect(game, rawEffect, ctx, rest) {
     case "monstrosity":
       if (sourceCard && !sourceCard.monstrous) {
         sourceCard.monstrous = true;
-        sourceCard.counters["+1/+1"] = (sourceCard.counters["+1/+1"] ?? 0) + effect.n;
+        sourceCard.counters["+1/+1"] = (sourceCard.counters["+1/+1"] ?? 0) + counterAmount(game, sourceCard, "+1/+1", effect.n);
         sourceCard.counterTurn = game.turn.number;
         addLog(game, `${nameOf(game, sourceCard.id)} wird monströs (${effect.n} +1/+1-Marker).`);
       }
@@ -2791,7 +2823,7 @@ function runEffect(game, rawEffect, ctx, rest) {
     }
     case "adapt": {
       if (!sourceCard || (sourceCard.counters["+1/+1"] ?? 0) > 0) return false;
-      sourceCard.counters["+1/+1"] = effect.n;
+      sourceCard.counters["+1/+1"] = counterAmount(game, sourceCard, "+1/+1", effect.n);
       sourceCard.counterTurn = game.turn.number;
       addLog(game, `${nameOf(game, sourceCard.id)} adaptiert: ${effect.n} +1/+1-Marker.`);
       return false;
@@ -2927,7 +2959,7 @@ function runEffect(game, rawEffect, ctx, rest) {
       return false;
     }
     case "explore": {
-      const card = effect.who === "self" ? sourceCard : ctx.subjectCard ? game.cards[ctx.subjectCard] : null;
+      const card = effect.t !== undefined ? game.cards[ctx.targets[effect.t]] : effect.who === "self" ? sourceCard : ctx.subjectCard ? game.cards[ctx.subjectCard] : null;
       if (!card || !onBattlefield(game, card.id)) return false;
       const top = controller.library[controller.library.length - 1];
       if (top === undefined) return false;
@@ -2937,7 +2969,7 @@ function runEffect(game, rawEffect, ctx, rest) {
         controller.hand.push(top);
         addLog(game, `${nameOf(game, card.id)} erkundet: ${topDef.name} ist ein Land und kommt auf die Hand (${name}).`);
       } else {
-        card.counters["+1/+1"] = (card.counters["+1/+1"] ?? 0) + 1;
+        card.counters["+1/+1"] = (card.counters["+1/+1"] ?? 0) + counterAmount(game, card, "+1/+1", 1);
         addLog(game, `${nameOf(game, card.id)} erkundet: ${topDef.name} liegt oben, ${nameOf(game, card.id)} erhält einen +1/+1-Marker (${name}).`);
       }
       return false;
@@ -4208,6 +4240,7 @@ function declareAttackersAction(game, userId, action, random, now) {
     }
   }
   game.combat = { attackers, blocks: [], done: [], phaseWaiting: true };
+  fireGlobal(game, "youAttack", userId); // „Whenever you attack“ (einmal je Angriff)
   game.turn.phase = "blockers";
   game.priority = null;
   game.passed = [];
@@ -4251,6 +4284,7 @@ function declareBlockersAction(game, userId, action) {
     }
   }
   combat.blocks.push(...chosen);
+  for (const entry of chosen) if (game.cards[entry.blocker]) fireTriggers(game, game.cards[entry.blocker], "blocks");
   combat.done.push(userId);
   addLog(
     game,

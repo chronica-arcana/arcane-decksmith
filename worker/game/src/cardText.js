@@ -301,6 +301,22 @@ function parseSentence(raw, specs) {
     const n = num(m[1]);
     return n === null || n === "X" ? null : [{ type: "countersAll", n, kind: m[2], other: true, subtype: m[3] }];
   }
+  if ((m = lower.match(/^put that many ([+-]1\/[+-]1) counters on ~$/))) return [{ type: "counters", n: 0, kind: m[1], self: true, nFrom: { damage: true } }];
+  if (lower === "draw that many cards") return [{ type: "draw", who: { k: "you" }, n: 0, nFrom: { damage: true } }];
+  if ((m = lower.match(/^target creature you control can't be blocked this turn$/))) {
+    const t = addTarget(specs, "target creature you control");
+    return t === null ? null : [{ type: "grantKw", kws: ["unblockable"], t }];
+  }
+  if ((m = lower.match(new RegExp(`^put ${N} ([+-]1/[+-]1) counters? on each attacking creature you control$`)))) {
+    const n = num(m[1]);
+    return n === null || n === "X" ? null : [{ type: "countersAll", n, kind: m[2], attacking: true }];
+  }
+  if ((m = lower.match(/^return all (land|creature|artifact|enchantment) cards from your graveyard to the battlefield( tapped)?$/))) return [{ type: "gyReturnAll", what: m[1], tapped: Boolean(m[2]) }];
+  if ((m = lower.match(new RegExp(`^put ${N} ([+-]1/[+-]1) counters? on each ([a-z]+) (you control|your opponents control)$`))) && m[3] !== "other") {
+    const n = num(m[1]);
+    if (n === null || n === "X") return null;
+    return [{ type: "countersAll", n, kind: m[2], ...(m[3] === "creature" ? {} : { subtype: m[3] }), ...(m[4] === "your opponents control" ? { opp: true } : {}) }];
+  }
   if ((m = lower.match(new RegExp(`^put ${N} ([+-]1/[+-]1) counters? on that creature$`)))) {
     const n = num(m[1]);
     return n === null || n === "X" ? null : [{ type: "counters", n, kind: m[2], subjectCard: true }];
@@ -339,6 +355,10 @@ function parseSentence(raw, specs) {
   if ((m = lower.match(/^double the number of each kind of counter on (target (?:permanent|creature|artifact|planeswalker))$/))) {
     const t = addTarget(specs, m[1]);
     return t === null ? null : [{ type: "doubleCounters", t }];
+  }
+  if ((m = lower.match(/^(target creature you control) explores$/))) {
+    const t = addTarget(specs, m[1]);
+    return t === null ? null : [{ type: "explore", t }];
   }
   if ((m = lower.match(/^(~|it|that creature) explores$/))) return [{ type: "explore", who: m[1] === "~" ? "self" : "subject" }];
   if (/^(?:that creature|it|those creatures) doesn't untap during (?:its|their) controller's next untap step$/.test(lower)) return [{ type: "freeze", t: specs.length > 0 ? 0 : null }];
@@ -484,7 +504,7 @@ function parseSentence(raw, specs) {
     return [{ type: "chooseFromRevealed", exclude: excluded }];
   }
   if (lower === "that player discards that card") return [{ type: "discardChosen" }];
-  if ((m = lower.match(/^(?:you |)(?:create|creates) (a|an|one|two|three) (treasure|food|clue|blood) tokens?$/i))) {
+  if ((m = lower.match(/^(?:you |)(?:create|creates) (a|an|one|two|three) (treasure|food|clue|blood|lander|map|gold|powerstone) tokens?$/i))) {
     return [{ type: "namedToken", n: num(m[1]), name: m[2][0].toUpperCase() + m[2].slice(1) }];
   }
   if (lower === "investigate") return [{ type: "namedToken", n: 1, name: "Clue" }];
@@ -698,6 +718,7 @@ function describeBase(effect) {
     case "surveil": return `Überwachen ${effect.n}.`;
     case "damage": return `${effect.n} Schaden an ${{ target: "das Ziel", eachOpp: "jeden Gegner", each: "jeden Spieler", eachCreature: "jede Kreatur", eachOppCreature: "jede gegnerische Kreatur" }[effect.to.k]}.`;
     case "destroy": return "Zerstört das Ziel.";
+    case "gyReturnAll": return "Legt alle passenden Karten aus dem Friedhof aufs Schlachtfeld.";
     case "handToField": return "Lege eine Landkarte aus der Hand aufs Schlachtfeld.";
     case "destroyAll": return `Zerstört alle ${{ creature: "Kreaturen", land: "Länder", artifact: "Artefakte", enchantment: "Verzauberungen" }[effect.what] ?? "Permanents"}.`;
     case "exile": return "Schickt das Ziel ins Exil.";
@@ -906,6 +927,11 @@ function triggerEvent(word, condition) {
   if (condition === "you cycle a card" || condition === "you cycle another card") return { event: "youCycle", scope: { owner: "you", another: false } };
   if (/^you (?:cycle or discard|discard or cycle|discard) (?:a|another) card$/.test(condition)) return { event: "youDiscard", scope: { owner: "you", another: false } };
   if (condition === "you cycle ~" || condition === "you cycle this card") return { event: "cycled" };
+  if (/^~ is dealt damage$/.test(condition)) return { event: "dealtDamage" };
+  if (condition === "you attack" || condition === "you attack a player") return { event: "youAttack", scope: { owner: "you", another: false } };
+  if ((m = condition.match(/^you attack with (two|three|four|five|six|seven|eight|\d+) or more creatures$/))) {
+    return { event: "youAttack", minAttackers: /^\d+$/.test(m[1]) ? Number(m[1]) : { two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8 }[m[1]], scope: { owner: "you", another: false } };
+  }
   if (/^~ mutates$/.test(condition)) return { event: "mutates" };
   if (/^~ dies$/.test(condition) || /^~ is put into a graveyard from the battlefield$/.test(condition)) return { event: "dies" };
   if ((m = condition.match(/^~ or another (nontoken )?creature you control dies$/))) return { event: "creatureDies", scope: { owner: "you", another: false, ...(m[1] ? { nontoken: true } : {}) } };
@@ -923,8 +949,8 @@ function triggerEvent(word, condition) {
   if ((m = condition.match(/^another creature with power (\d+) or less enters( the battlefield)? under your control$/))) {
     return { event: "creatureEnters", scope: { owner: "you", another: true, maxPower: Number(m[1]) } };
   }
-  if ((m = condition.match(/^another ([a-z]+) you control dies$/)) && !["creature", "nontoken"].includes(m[1])) {
-    return { event: "creatureDies", scope: { owner: "you", another: true, subtype: m[1] } };
+  if ((m = condition.match(/^(another|a) ([a-z]+) you control dies$/)) && !["creature", "nontoken"].includes(m[2])) {
+    return { event: "creatureDies", scope: { owner: "you", another: m[1] === "another", subtype: m[2] } };
   }
   if ((m = condition.match(/^another ([a-z]+) you control enters( the battlefield)?$/)) && !["creature", "nontoken"].includes(m[1])) {
     return { event: "creatureEnters", scope: { owner: "you", another: true, subtype: m[1] } };
@@ -932,6 +958,7 @@ function triggerEvent(word, condition) {
   if (/^a creature you control deals combat damage to a player$/.test(condition)) return { event: "creatureDealsCombatDamage", scope: { owner: "you", another: false } };
   if (/^another creature enters( the battlefield)?$/.test(condition)) return { event: "creatureEnters", scope: { owner: "any", another: true } };
   if (/^~ attacks$/.test(condition)) return { event: "attacks" };
+  if (/^~ blocks$/.test(condition)) return { event: "blocks" };
   if ((m = condition.match(/^(another|a) creature (you control|an opponent controls) dies$/))) {
     return { event: "creatureDies", scope: { owner: m[2] === "you control" ? "you" : "opp", another: m[1] === "another" } };
   }
@@ -947,9 +974,9 @@ function triggerEvent(word, condition) {
   if (/^one or more creatures you control deal combat damage to a player$/.test(condition)) return { event: "creaturesDealDamage", scope: { owner: "you", another: false } };
   if (/^you cast your second spell each turn$/.test(condition)) return { event: "castSecond", scope: { owner: "you", another: false } };
   if (/^you draw your second card each turn$/.test(condition)) return { event: "youDrawSecond", scope: { owner: "you", another: false } };
-  if ((m = condition.match(/^you cast an? (instant or sorcery|artifact|enchantment|instant|sorcery|planeswalker|historic|legendary|multicolored|nonland) spell$/))) {
-    const kinds = { "instant or sorcery": ["instant", "sorcery"], historic: ["artifact", "legendary"], nonland: ["creature", "artifact", "enchantment", "instant", "sorcery", "planeswalker"] }[m[1]] ?? [m[1]];
-    if (m[1] !== "multicolored") return { event: "castKind", kinds, scope: { owner: "you", another: false } };
+  if ((m = condition.match(/^(you cast|an opponent casts) an? (instant or sorcery|artifact|enchantment|instant|sorcery|planeswalker|historic|legendary|multicolored|nonland) spell$/))) {
+    const kinds = { "instant or sorcery": ["instant", "sorcery"], historic: ["artifact", "legendary"], nonland: ["creature", "artifact", "enchantment", "instant", "sorcery", "planeswalker"] }[m[2]] ?? [m[2]];
+    if (m[2] !== "multicolored") return { event: "castKind", kinds, scope: { owner: m[1] === "you cast" ? "you" : "opp", another: false } };
   }
   if (/^you cast a creature spell of the chosen type$/.test(condition)) return { event: "castCreature", chosenType: true, scope: { owner: "you", another: false } };
   if (/^you cast a creature spell$/.test(condition)) return { event: "castCreature", scope: { owner: "you", another: false } };
@@ -1016,6 +1043,10 @@ export function parseCardText({ name, typeLine, oracleText }) {
       }
       if (/^convoke$/i.test(line)) {
         result.convoke = true;
+        continue;
+      }
+      if (/^~ can't be countered\.?$/i.test(line)) {
+        result.uncounterable = true;
         continue;
       }
       if (/^if you control a commander, you may cast ~ without paying its mana cost\.?$/i.test(line)) {
@@ -1216,6 +1247,14 @@ export function parseCardText({ name, typeLine, oracleText }) {
     }
     if (/^creatures your opponents control enter tapped\.?$/i.test(line)) {
       result.oppEnterTapped = true;
+      continue;
+    }
+    if (/^creatures your opponents control attack each combat if able\.?$/i.test(line)) {
+      result.statics.push({ scope: "opp", p: 0, th: 0, grants: ["must-attack"] });
+      continue;
+    }
+    if (/^if one or more \+1\/\+1 counters would be put on a creature you control, that many plus one \+1\/\+1 counters are put on it instead\.?$/i.test(line)) {
+      result.counterBonus = 1;
       continue;
     }
     const counterBan = line.match(/^creatures your opponents control with counters on them can't (attack or block|attack|block)\.?$/i);
@@ -1434,9 +1473,11 @@ export function parseCardText({ name, typeLine, oracleText }) {
       const condition = trigger[2].toLowerCase();
       const events = /^~ enters( the battlefield)? or attacks$/.test(condition)
         ? [triggerEvent(trigger[1], "~ enters"), triggerEvent(trigger[1], "~ attacks")]
-        : [triggerEvent(trigger[1], condition)];
+        : /^~ attacks or blocks$/.test(condition)
+          ? [triggerEvent(trigger[1], "~ attacks"), triggerEvent(trigger[1], "~ blocks")]
+          : [triggerEvent(trigger[1], condition)];
       if (events.every(Boolean)) {
-        const selfEvent = events.every(event => ["etb", "attacks", "dealsCombatDamage", "dies"].includes(event.event));
+        const selfEvent = events.every(event => ["etb", "attacks", "blocks", "dealsCombatDamage", "dies", "dealtDamage"].includes(event.event));
         const effectText = selfEvent ? trigger[3].replace(/\b(on|it deals|returns?|gets?) it\b/g, match => match.replace(/\bit\b/, "~")) : trigger[3];
         const parsed = parseEffectText(effectText);
         if (parsed.specs.length <= 3) {

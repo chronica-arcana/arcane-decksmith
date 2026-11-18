@@ -263,3 +263,14 @@ describe("cardText: weitere Lücken (Kopieren, Skulk, Stufen, Einzelzeilen)", ()
     expect(parse("Sorcery", "Search your library for a basic Plains, Island, or Swamp card, put it onto the battlefield tapped, then shuffle").spell.effects[0]).toMatchObject({ type: "search", what: "plains|island|swamp", tapped: true });
   });
 });
+
+describe("cardText: Auslöser der Gegner und Sammelmarker", () => {
+  const parse = (typeLine, oracleText) => parseCardText({ name: "Karte", typeLine, oracleText });
+
+  it("Gegner wirkt Spontanzauber, ein Vampir stirbt, Marker auf alle Angreifer, ~ kann nicht neutralisiert werden", () => {
+    expect(parse("Creature — X", "Whenever an opponent casts an instant or sorcery spell, draw a card.").triggers[0]).toMatchObject({ event: "castKind", scope: { owner: "opp" } });
+    expect(parse("Creature — X", "Whenever a Vampire you control dies, you gain 2 life.").triggers[0]).toMatchObject({ event: "creatureDies", scope: { subtype: "vampire", another: false } });
+    expect(parse("Creature — X", "Whenever ~ attacks, put a +1/+1 counter on each attacking creature you control.").triggers[0].effects[0]).toMatchObject({ type: "countersAll", attacking: true });
+    expect(parse("Instant", "This spell can't be countered.\nDraw a card.").uncounterable).toBe(true);
+  });
+});
