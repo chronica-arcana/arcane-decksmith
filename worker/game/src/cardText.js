@@ -176,6 +176,15 @@ function parseSentence(raw, specs) {
     const t = addTarget(specs, m[1]);
     return t === null ? null : [{ type: "flicker", t, control: m[2] === "your" ? "you" : "owner" }];
   }
+  if ((m = lower.match(/^creatures you control with counters on them gain ([a-z ,]+?) until end of turn$/))) {
+    const kws = m[1].split(/,| and /).map(word => word.trim()).filter(word => KEYWORDS.includes(word));
+    return kws.length > 0 ? [{ type: "grantAll", what: "creature", kws, withCounter: "any" }] : null;
+  }
+  if ((m = lower.match(/^move (a|one|all|any number of) (?:[+-]1\/[+-]1 )?counters? from (target [a-z ]+?) onto (?:a )?(?:second )?(target [a-z ]+)$/))) {
+    const from = addTarget(specs, m[2]);
+    const to = addTarget(specs, m[3]);
+    return from === null || to === null ? null : [{ type: "moveCounter", from, to, all: m[1] === "all" || m[1] === "any number of" }];
+  }
   if ((m = lower.match(/^(permanents|creatures) you control gain ([a-z ,]+?) until end of turn$/))) {
     const kws = m[2].split(/,| and /).map(word => word.trim()).filter(word => KEYWORDS.includes(word));
     return kws.length > 0 ? [{ type: "grantAll", what: m[1] === "permanents" ? "permanent" : "creature", kws }] : null;
@@ -307,14 +316,14 @@ function parseSentence(raw, specs) {
     const t = addTarget(specs, "target creature you control");
     return t === null ? null : [{ type: "grantKw", kws: ["unblockable"], t }];
   }
-  if ((m = lower.match(new RegExp(`^put ${N} ([+-]1/[+-]1|stun|shield) counters? on each of up to (two|three) target creatures( you control)?$`)))) {
+  if ((m = lower.match(new RegExp(`^put ${N} ([+-]1/[+-]1|stun|shield) counters? on each of up to (two|three) (other )?target creatures( you control)?$`)))) {
     const n = num(m[1]);
     if (n === null || n === "X") return null;
     const effects = [];
     for (let i = 0; i < { two: 2, three: 3 }[m[3]]; i += 1) {
-      const spec = parseTargetSpec(m[4] ? "target creature you control" : "target creature");
+      const spec = parseTargetSpec(m[5] ? "target creature you control" : "target creature");
       if (!spec) return null;
-      specs.push({ ...spec, optional: true });
+      specs.push({ ...spec, optional: true, ...(m[4] ? { another: true } : {}) });
       effects.push({ type: "counters", n, kind: m[2], t: specs.length - 1 });
     }
     return effects;
@@ -344,6 +353,19 @@ function parseSentence(raw, specs) {
     return null;
   }
 
+  if ((m = lower.match(/^(?:then )?(?:if (.+?), )?you may play the exiled card without paying its mana cost(?: if (.+))?$/))) {
+    const text = m[1] ?? m[2];
+    let cond = null;
+    if (text) {
+      let c;
+      if ((c = text.match(/^creatures you control have total power (\d+) or greater$/))) cond = { kind: "totalPower", n: Number(c[1]) };
+      else if ((c = text.match(/^you control a creature with power (\d+) or greater$/))) cond = { kind: "creaturePower", n: Number(c[1]) };
+      else if ((c = text.match(/^an opponent was dealt (\d+) or more damage this turn$/))) cond = { kind: "oppDamage", n: Number(c[1]) };
+      else if ((c = text.match(/^you attacked with (two|three|four|five|\d+) or more creatures this turn$/))) cond = { kind: "attacked", n: /^\d+$/.test(c[1]) ? Number(c[1]) : { two: 2, three: 3, four: 4, five: 5 }[c[1]] };
+      else return null;
+    }
+    return [{ type: "playHidden", cond }];
+  }
   if (/^you may choose new targets for (the|that|target) (cop(y|ies)|spell or ability)$/.test(lower)) return [{ type: "noop" }];
   if ((m = lower.match(new RegExp(`^you may have (?:it|~) deal ${N} damage to each creature$`)))) {
     const n = num(m[1]);
@@ -668,6 +690,7 @@ function parseAttachClauses(text) {
       mode = null;
       continue;
     }
+    if (/^is an? [a-z ]+ in addition to its other (?:creature )?types$/.test(part)) continue;
     if ((m = part.match(/^(has|loses) (.+)$/))) {
       mode = m[1] === "has" ? "grants" : "revokes";
       part = m[2];
@@ -736,6 +759,9 @@ function describeBase(effect) {
     case "surveil": return `Überwachen ${effect.n}.`;
     case "damage": return `${effect.n} Schaden an ${{ target: "das Ziel", eachOpp: "jeden Gegner", each: "jeden Spieler", eachCreature: "jede Kreatur", eachOppCreature: "jede gegnerische Kreatur" }[effect.to.k]}.`;
     case "destroy": return "Zerstört das Ziel.";
+    case "jobSelect": return "Erzeugt einen 1/1-Hero-Spielstein und hängt die Ausrüstung daran.";
+    case "hideaway": return `Hideaway ${effect.n}: eine der obersten ${effect.n} Karten verdeckt ins Exil.`;
+    case "playHidden": return "Spielt die versteckte Karte kostenlos (falls die Bedingung erfüllt ist).";
     case "gyReturnAll": return "Legt alle passenden Karten aus dem Friedhof aufs Schlachtfeld.";
     case "handToField": return "Lege eine Landkarte aus der Hand aufs Schlachtfeld.";
     case "destroyAll": return `Zerstört alle ${{ creature: "Kreaturen", land: "Länder", artifact: "Artefakte", enchantment: "Verzauberungen" }[effect.what] ?? "Permanents"}.`;
@@ -789,6 +815,7 @@ function describeBase(effect) {
     case "bounceOwn": return "Du legst ein eigenes Permanent zurück auf die Hand.";
     case "tapOrUntap": return "Tappt oder enttappt das Ziel.";
     case "flicker": return "Das Ziel wird exiliert und kommt sofort zurück.";
+    case "moveCounter": return effect.all ? "Verschiebt alle Marker vom ersten auf das zweite Ziel." : "Verschiebt einen Marker vom ersten auf das zweite Ziel.";
     case "grantAll": return `Deine ${effect.what === "permanent" ? "Permanents" : "Kreaturen"} erhalten ${effect.kws.join(", ")} bis zum Zugende.`;
     case "payGate": return `Der Spieler zahlt ${effect.cost}, sonst: ${effect.effects.map(describeEffect).join(" ")}`;
     case "mayPay": return `Du darfst ${effect.cost} zahlen.`;
@@ -951,6 +978,13 @@ function triggerEvent(word, condition) {
   if ((m = condition.match(/^you attack with (two|three|four|five|six|seven|eight|\d+) or more creatures$/))) {
     return { event: "youAttack", minAttackers: /^\d+$/.test(m[1]) ? Number(m[1]) : { two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8 }[m[1]], scope: { owner: "you", another: false } };
   }
+  if (/^you put one or more counters on a creature$/.test(condition)) return { event: "countersPut", scope: { owner: "you", another: false } };
+  if (/^you put one or more counters on a creature you don't control$/.test(condition)) return { event: "countersPut", scope: { owner: "opp", another: false } };
+  if ((m = condition.match(/^you put one or more ([+-]1\/[+-]1) counters on a creature$/))) return { event: "countersPut", counterKind: m[1], scope: { owner: "you", another: false } };
+  if (/^(?:a|one or more) \+1\/\+1 counters? (?:is|are) put on ~$/.test(condition)) return { event: "selfCounter" };
+  if ((m = condition.match(/^(?:a|an) creature you control with an? ([+-]1\/[+-]1) counter on it deals combat damage to a player$/))) return { event: "creatureDealsCombatDamage", scope: { owner: "you", another: false, counter: m[1] } };
+  if (/^one or more creatures you control with counters on them deal combat damage to a player$/.test(condition)) return { event: "creaturesDealDamage", scope: { owner: "you", another: false, counter: "any" } };
+  if ((m = condition.match(/^one or more creatures you control with power (\d+) or greater deal combat damage to a player$/))) return { event: "creaturesDealDamage", scope: { owner: "you", another: false, minPower: Number(m[1]) } };
   if (/^~ mutates$/.test(condition)) return { event: "mutates" };
   if (/^~ dies$/.test(condition) || /^~ is put into a graveyard from the battlefield$/.test(condition)) return { event: "dies" };
   if ((m = condition.match(/^~ or another (nontoken )?creature you control dies$/))) return { event: "creatureDies", scope: { owner: "you", another: false, ...(m[1] ? { nontoken: true } : {}) } };
@@ -1009,7 +1043,7 @@ function triggerEvent(word, condition) {
   return null;
 }
 
-const stripPrefix = line => line.replace(/^[•*]\s*/, "").replace(/^[A-Z][^—.:]{0,60}[!.]?\s*[—-]\s*(?=(?:When|Whenever|At)\b)/, "");
+const stripPrefix = line => line.replace(/^[•*]\s*/, "").replace(/^[A-Z][^—.:]{0,60}[!.]?\s*[—-]\s*(?=(?:When|Whenever|At|Equip)\b)/, "");
 
 /**
  * Zerlegt den Text einer Karte in Zauber-Effekt, Auslöser, aktivierte Fähigkeiten und nicht automatisch behandelbare Hinweise.
@@ -1034,6 +1068,25 @@ export function parseCardText({ name, typeLine, oracleText }) {
     }
     rawLines = keep;
     stationAt = Number(/artifact creature at (\d+)\+/i.exec(String(oracleText))?.[1]) || (tiers.length > 0 ? tiers[tiers.length - 1].n : null);
+  }
+  // Modale Auslöser: „When ~ enters, choose one —“ mit Aufzählung (• …); ohne Aufzählung bleibt die Zeile unverändert.
+  const modalTriggers = [];
+  if (!/Instant|Sorcery/.test(typeLine ?? "")) {
+    const keep = [];
+    for (let i = 0; i < rawLines.length; i += 1) {
+      const header = rawLines[i].match(/^(When|Whenever|At) (.+), choose one\s*[\u2014-]\s*$/i);
+      if (header) {
+        const modes = [];
+        while (i + 1 < rawLines.length && /^[•*]\s*/.test(rawLines[i + 1])) modes.push(rawLines[(i += 1)].replace(/^[•*]\s*/, ""));
+        if (modes.length >= 2) {
+          modalTriggers.push({ word: header[1], condition: header[2].toLowerCase(), modes, line: rawLines[i - modes.length] });
+          continue;
+        }
+        i -= modes.length;
+      }
+      keep.push(rawLines[i]);
+    }
+    rawLines = keep;
   }
   const result = { spell: null, triggers: [], activated: [], notes: [], statics: [], flashback: null, cycling: null, entersTapped: false, entersTappedUnless: null, shock: null, reveal: null };
 
@@ -1066,6 +1119,15 @@ export function parseCardText({ name, typeLine, oracleText }) {
       }
       if (/^~ can't be countered\.?$/i.test(line)) {
         result.uncounterable = true;
+        continue;
+      }
+      const spellMadness = line.match(/^madness\s*[\u2014-]?\s*(\{[^}]+\}(?:\{[^}]+\})*)\.?$/i);
+      if (spellMadness) {
+        result.madness = { cost: spellMadness[1].replace(/\{X\}/gi, ""), life: 0, hasX: /\{X\}/i.test(spellMadness[1]) };
+        continue;
+      }
+      if (/^storm$/i.test(line)) {
+        result.storm = true;
         continue;
       }
       if (/^if you control a commander, you may cast ~ without paying its mana cost\.?$/i.test(line)) {
@@ -1276,6 +1338,11 @@ export function parseCardText({ name, typeLine, oracleText }) {
       result.counterBonus = 1;
       continue;
     }
+    const etbBonus = line.match(/^each other (nontoken )?creature you control enters with an additional ([+-]1\/[+-]1|[a-z ]+) counter on it\.?$/i);
+    if (etbBonus) {
+      result.etbBonus = { kind: etbBonus[2].toLowerCase(), nontoken: Boolean(etbBonus[1]) };
+      continue;
+    }
     const counterBan = line.match(/^creatures your opponents control with counters on them can't (attack or block|attack|block)\.?$/i);
     if (counterBan) {
       result.statics.push({ scope: "opp", counter: "any", p: 0, th: 0, grants: counterBan[1] === "attack or block" ? ["cant-attack", "cant-block"] : [`cant-${counterBan[1].toLowerCase()}`] });
@@ -1307,6 +1374,26 @@ export function parseCardText({ name, typeLine, oracleText }) {
       result.saga = result.saga ?? { max: 0 };
       result.saga.max = Math.max(result.saga.max, ...numbers);
       for (const number of numbers) result.triggers.push({ event: "chapter", chapter: number, text: line, ...parsed });
+      continue;
+    }
+    if (/^job select$/i.test(line)) {
+      result.triggers.push({ event: "etb", text: line, effects: [{ type: "jobSelect" }], specs: [], unparsed: [], summary: "Job select: Erzeuge einen 1/1-Hero-Spielstein und hänge diese Ausrüstung an." });
+      continue;
+    }
+    const madness = line.match(/^madness\s*[\u2014-]?\s*(\{[^}]+\}(?:\{[^}]+\})*)(?:,\s*pay (\d+) life)?\.?$/i);
+    if (madness) {
+      result.madness = { cost: madness[1], life: madness[2] ? Number(madness[2]) : 0 };
+      continue;
+    }
+    const hideaway = line.match(/^hideaway (\d+)$/i);
+    if (hideaway) {
+      result.triggers.push({ event: "etb", text: line, effects: [{ type: "hideaway", n: Number(hideaway[1]) }], specs: [], unparsed: [], summary: `Hideaway ${hideaway[1]}: Sieh dir die obersten ${hideaway[1]} Karten an, lege eine verdeckt ins Exil, den Rest nach unten.` });
+      continue;
+    }
+    const support = line.match(/^support (\d+)$/i);
+    if (support && /Creature/.test(typeLine ?? "")) {
+      const parsedSupport = parseEffectText(`put a +1/+1 counter on each of up to ${{ 1: "one", 2: "two", 3: "three" }[Number(support[1])] ?? "three"} other target creatures`.replace("each of up to one other target creatures", "up to one other target creature"));
+      result.triggers.push({ event: "etb", text: line, ...parsedSupport });
       continue;
     }
     const mutate = line.match(/^mutate (\{[^}]+\}(?:\{[^}]+\})*)$/i);
@@ -1506,7 +1593,7 @@ export function parseCardText({ name, typeLine, oracleText }) {
           ? [triggerEvent(trigger[1], "~ attacks"), triggerEvent(trigger[1], "~ blocks")]
           : [triggerEvent(trigger[1], condition)];
       if (events.every(Boolean)) {
-        const selfEvent = events.every(event => ["etb", "attacks", "blocks", "dealsCombatDamage", "dies", "dealtDamage"].includes(event.event));
+        const selfEvent = events.every(event => ["etb", "attacks", "blocks", "dealsCombatDamage", "dies", "dealtDamage", "selfCounter"].includes(event.event));
         const effectText = selfEvent ? trigger[3].replace(/\b(on|it deals|returns?|gets?) it\b/g, match => match.replace(/\bit\b/, "~")) : trigger[3];
         const parsed = parseEffectText(effectText);
         if (parsed.specs.length <= 3) {
@@ -1516,6 +1603,12 @@ export function parseCardText({ name, typeLine, oracleText }) {
       }
     }
     result.notes.push(line);
+  }
+  for (const modal of modalTriggers) {
+    const events = modal.condition === "~ attacks or blocks" ? [triggerEvent(modal.word, "~ attacks"), triggerEvent(modal.word, "~ blocks")] : modal.condition === "~ enters or attacks" ? [triggerEvent(modal.word, "~ enters"), triggerEvent(modal.word, "~ attacks")] : [triggerEvent(modal.word, modal.condition)];
+    const modes = modal.modes.map(text => ({ label: text, ...parseEffectText(text) }));
+    if (events.every(Boolean) && modes.every(mode => mode.specs.length <= 2)) for (const event of events) result.triggers.push({ ...event, text: modal.line, modes, effects: [], specs: [], unparsed: modes.flatMap(mode => mode.unparsed) });
+    else result.notes.push(`${modal.word} ${modal.condition}, choose one — ${modal.modes.join(" • ")}`);
   }
   for (const tier of tiers) {
     for (const line of tier.lines) {

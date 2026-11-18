@@ -188,6 +188,14 @@ const protectedFrom = (game, card, sourceColors) => {
   return sourceColors.some(color => protection.includes(color));
 };
 
+/** „Whenever you put one or more counters on a creature“ und „whenever a +1/+1 counter is put on ~“. */
+function fireCountersPut(game, card, kind) {
+  if (game.phase !== "playing") return;
+  card.lastCounterKind = kind;
+  fireGlobal(game, "countersPut", card);
+  if (kind === "+1/+1") fireTriggers(game, card, "selfCounter");
+}
+
 /** Ersatzeffekte wie Hardened Scales: „that many plus one +1/+1 counters“ für Kreaturen des Kontrolleurs. */
 function counterAmount(game, card, kind, n) {
   if (kind !== "+1/+1" || n <= 0) return n;
@@ -419,6 +427,13 @@ function enterBattlefield(game, card) {
   else if (def.rules?.reveal) game.triggerQueue.push({ kind: "entry", entry: "reveal", cardId: card.id, controller: card.owner, types: def.rules.reveal.types });
   if (def.rules?.chooseType) game.triggerQueue.push({ kind: "entry", entry: "chooseType", cardId: card.id, controller: card.owner });
   if (def.rules?.chooseColor) game.triggerQueue.push({ kind: "entry", entry: "chooseColor", cardId: card.id, controller: card.owner, except: def.rules.chooseColor.except });
+  if (def.types.creature) {
+    for (const id of game.players[card.owner].battlefield) {
+      const bonus = defOf(game, game.cards[id]).rules?.etbBonus;
+      if (!bonus || id === card.id || (bonus.nontoken && card.token)) continue;
+      card.counters[bonus.kind] = (card.counters[bonus.kind] ?? 0) + 1;
+    }
+  }
   fireTriggers(game, card, "etb");
   if (def.rules?.saga) addLore(game, card);
   if (def.types.land) fireGlobal(game, "landEnters", card);
@@ -577,6 +592,17 @@ const mutateTargets = (game, userId) => game.players[userId].battlefield.filter(
 /** „Whenever you discard (or cycle) a card“: ein Auslöser je abgeworfener Karte. */
 function fireDiscards(game, ids) {
   if (game.phase !== "playing") return;
+  // Madness: die abgeworfene Karte geht ins Exil; ihr Besitzer darf sie für die Madness-Kosten wirken
+  for (const id of ids) {
+    const card = game.cards[id];
+    const madness = card ? defOf(game, card).rules?.madness : null;
+    const owner = card ? game.players[card.owner] : null;
+    if (!madness || !owner || !owner.graveyard.includes(id) || (defOf(game, card).rules?.spell?.specs?.length ?? 0) > 0) continue;
+    owner.graveyard.splice(owner.graveyard.indexOf(id), 1);
+    owner.exile.push(id);
+    game.triggerQueue.push({ kind: "madness", cardId: id, controller: card.owner });
+    addLog(game, `${nameOf(game, id)} wird mit Madness abgeworfen (Exil).`);
+  }
   for (const id of ids) if (game.cards[id]) fireGlobal(game, "youDiscard", game.cards[id]);
 }
 
@@ -710,6 +736,7 @@ function startTurn(game, userId, { skipDraw = false } = {}) {
   game.turn.drawBlocked = skipDraw;
   game.turn.drew = false;
   game.turn.fog = false;
+  game.turn.attackedWith = 0;
   game.turn.extraLands = 0;
   game.turn.manualStart = player.autoStart === false && !skipDraw;
   player.turnsTaken = (player.turnsTaken ?? 0) + 1;
@@ -1663,6 +1690,11 @@ function inflictDamage(game, source, targetId, amount, { combat = false } = {}) 
     const target = game.players[targetId];
     if (infect) target.poison += amount;
     else target.life -= amount;
+    if (target.dmgTurn !== game.turn?.number) {
+      target.dmgTurn = game.turn?.number;
+      target.dmgTaken = 0;
+    }
+    target.dmgTaken += amount;
     pushFx(game, { type: "damage", player: targetId, amount });
     if (!combat) addLog(game, `${sourceName} fügt ${target.name} ${amount} ${infect ? "Giftmarken" : "Schaden"} zu.`);
     if (source?.cmd) {
@@ -1777,6 +1809,8 @@ function fireGlobal(game, event, subject) {
         if (scope.another && typeof subject !== "string" && subject.id === source.id) continue;
         if (trigger.cond === "evolve" && (typeof subject === "string" || !(powerOf(game, subject) > powerOf(game, source) || toughnessOf(game, subject) > toughnessOf(game, source)))) continue;
         if (scope.subtype && (typeof subject === "string" || !hasSubtype(defOf(game, subject), scope.subtype))) continue;
+        if (trigger.counterKind && (typeof subject === "string" || subject.lastCounterKind !== trigger.counterKind)) continue;
+        if (scope.counter && (typeof subject === "string" || !(scope.counter === "any" ? Object.values(subject.counters).some(value => value > 0) : subject.counters[scope.counter] > 0))) continue;
         if (trigger.minAttackers && (game.combat?.attackers?.length ?? 0) < trigger.minAttackers) continue;
         if (scope.nontoken && typeof subject !== "string" && subject.token) continue;
         if (trigger.kinds && (typeof subject === "string" || !trigger.kinds.some(kind => defOf(game, subject).types[kind]))) continue;
@@ -1896,6 +1930,32 @@ function flushTriggers(game) {
       openEntryChoice(game, next);
       continue;
     }
+    if (next.kind === "madness") {
+      const card = game.cards[next.cardId];
+      const player = game.players[next.controller];
+      const madness = card ? defOf(game, card).rules?.madness : null;
+      if (!card || !madness || !player.exile.includes(card.id)) continue;
+      const affordable = !madness.hasX && player.life > madness.life && planPayment({ manaCost: madness.cost, pool: player.pool, sources: manaSources(game, next.controller) }).ok;
+      if (!affordable) {
+        player.exile.splice(player.exile.indexOf(card.id), 1);
+        player.graveyard.push(card.id);
+        addLog(game, `${nameOf(game, card.id)} kommt in den Friedhof (Madness nicht bezahlbar).`);
+        continue;
+      }
+      openChoice(game, {
+        userId: next.controller,
+        kind: "yesno",
+        prompt: `Madness: ${nameOf(game, card.id)} für ${describeCost(madness.cost)}${madness.life ? ` und ${madness.life} Leben` : ""} wirken?`,
+        options: ["yes", "no"],
+        labels: { yes: "Wirken", no: "In den Friedhof" },
+        min: 1,
+        max: 1,
+        step: { type: "madness", cardId: card.id },
+        queue: [],
+        ctx: null
+      });
+      continue;
+    }
     const { trigger } = next;
     const base = {
       controller: next.controller,
@@ -1909,6 +1969,22 @@ function flushTriggers(game) {
       specs: trigger.specs,
       unparsed: trigger.unparsed
     };
+    if (trigger.modes) {
+      // Modaler Auslöser: erst den Modus wählen, dann ggf. Ziele
+      openChoice(game, {
+        userId: next.controller,
+        kind: "yesno",
+        prompt: `${next.sourceName}: Wähle einen Modus.`,
+        options: trigger.modes.map((_, index) => String(index)),
+        labels: Object.fromEntries(trigger.modes.map((mode, index) => [String(index), mode.label])),
+        min: 1,
+        max: 1,
+        step: { type: "triggerMode", base, trigger },
+        queue: [],
+        ctx: null
+      });
+      continue;
+    }
     if (trigger.effects.length === 0 && trigger.unparsed.length === 0) continue;
     if (trigger.specs.length === 0) {
       pushAbility(game, { ...base, targets: [] });
@@ -2321,6 +2397,7 @@ function runEffect(game, rawEffect, ctx, rest) {
         if (effect.subtype && !hasSubtype(defOf(game, c), effect.subtype)) continue;
         if (effect.attacking && !game.combat?.attackers?.some(attacker => attacker.id === c.id)) continue;
         c.counters[effect.kind] = Math.min(MAX_COUNTERS, (c.counters[effect.kind] ?? 0) + counterAmount(game, c, effect.kind, effect.n));
+        fireCountersPut(game, c, effect.kind);
         c.counterTurn = game.turn.number;
       }
       addLog(game, `Jede ${effect.other ? "andere " : ""}Kreatur von ${controller.name} erhält ${effect.n}× ${effect.kind} (${name}).`);
@@ -2392,6 +2469,7 @@ function runEffect(game, rawEffect, ctx, rest) {
       for (const id of [...controller.battlefield]) {
         const c = game.cards[id];
         if (effect.what === "creature" && !defOf(game, c).types.creature) continue;
+        if (effect.withCounter && !Object.values(c.counters).some(value => value > 0)) continue;
         c.tk = [...(c.tk ?? []), ...effect.kws];
       }
       addLog(game, `Deine ${effect.what === "permanent" ? "Permanents" : "Kreaturen"} erhalten ${effect.kws.join(", ")} bis zum Zugende (${name}).`);
@@ -2668,6 +2746,7 @@ function runEffect(game, rawEffect, ctx, rest) {
       const card = effect.subjectCard ? game.cards[ctx.subjectCard] : effect.self ? sourceCard : targetCard;
       if (card && onBattlefield(game, card.id)) {
         card.counters[effect.kind] = Math.min(MAX_COUNTERS, (card.counters[effect.kind] ?? 0) + counterAmount(game, card, effect.kind, effect.n));
+        fireCountersPut(game, card, effect.kind);
         if (effect.n > 0) card.counterTurn = game.turn.number;
         const both = Math.min(card.counters["+1/+1"] ?? 0, card.counters["-1/-1"] ?? 0);
         if (both > 0) {
@@ -2758,6 +2837,63 @@ function runEffect(game, rawEffect, ctx, rest) {
         queue: rest,
         ctx
       });
+    }
+    case "jobSelect": {
+      const hero = createToken(game, ctx.controller, { name: "Hero", power: 1, toughness: 1, typeLine: "Token Creature — Hero" });
+      if (hero && sourceCard && onBattlefield(game, sourceCard.id)) {
+        sourceCard.attachedTo = hero;
+        addLog(game, `${nameOf(game, sourceCard.id)} hängt sich an einen Hero-Spielstein (${name}).`);
+      }
+      return false;
+    }
+    case "hideaway": {
+      const n = Math.min(effect.n, controller.library.length);
+      if (n === 0 || !sourceCard) return false;
+      const top = controller.library.slice(-n);
+      return openChoice(game, {
+        userId: ctx.controller,
+        kind: "cards",
+        prompt: `${name}: Wähle eine der obersten ${n} Karten, die verdeckt ins Exil kommt (der Rest geht unten in die Bibliothek).`,
+        options: top,
+        min: 1,
+        max: 1,
+        step: { type: "hideaway", source: sourceCard.id, top },
+        queue: rest,
+        ctx
+      });
+    }
+    case "playHidden": {
+      if (!sourceCard?.hidden || !game.cards[sourceCard.hidden]) {
+        addLog(game, `${name}: Es gibt keine versteckte Karte.`);
+        return false;
+      }
+      const cond = effect.cond;
+      const met =
+        !cond ||
+        (cond.kind === "totalPower" && controller.battlefield.reduce((sum, id) => sum + (defOf(game, game.cards[id]).types.creature ? Math.max(0, powerOf(game, game.cards[id])) : 0), 0) >= cond.n) ||
+        (cond.kind === "creaturePower" && controller.battlefield.some(id => defOf(game, game.cards[id]).types.creature && powerOf(game, game.cards[id]) >= cond.n)) ||
+        (cond.kind === "oppDamage" && game.seats.some(id => id !== ctx.controller && game.players[id].dmgTurn === game.turn.number && game.players[id].dmgTaken >= cond.n)) ||
+        (cond.kind === "attacked" && (game.turn.attackedWith ?? 0) >= cond.n);
+      if (!met) {
+        addLog(game, `${name}: Die Bedingung ist nicht erfüllt.`);
+        return false;
+      }
+      const hidden = game.cards[sourceCard.hidden];
+      const hiddenDef = defOf(game, hidden);
+      if (hiddenDef.types.instant || hiddenDef.types.sorcery) {
+        addLog(game, `${name}: ${hiddenDef.name} ist ein Spontan-/Hexereizauber – bitte von Hand wirken (die Karte bleibt im Exil).`);
+        hidden.faceDown = false;
+        sourceCard.hidden = null;
+        game.manual = { userId: ctx.controller, text: `${hiddenDef.name} ohne Manakosten wirken (liegt im Exil).`, source: name };
+        return false;
+      }
+      controller.exile.splice(controller.exile.indexOf(hidden.id), 1);
+      hidden.faceDown = false;
+      sourceCard.hidden = null;
+      controller.battlefield.push(hidden.id);
+      enterBattlefield(game, hidden);
+      addLog(game, `${controller.name} spielt ${hiddenDef.name} kostenlos (${name}).`);
+      return false;
     }
     case "gyReturnAll": {
       for (const id of [...controller.graveyard]) {
@@ -2997,6 +3133,22 @@ function runEffect(game, rawEffect, ctx, rest) {
       }
       return false;
     }
+    case "moveCounter": {
+      const from = game.cards[ctx.targets[effect.from]];
+      const to = game.cards[ctx.targets[effect.to]];
+      if (!from || !to || from.id === to.id || !onBattlefield(game, from.id) || !onBattlefield(game, to.id)) return false;
+      const kinds = Object.keys(from.counters).filter(kind => from.counters[kind] > 0);
+      if (kinds.length === 0) return false;
+      const kind = kinds.includes("+1/+1") ? "+1/+1" : kinds[0];
+      const amount = effect.all ? from.counters[kind] : 1;
+      from.counters[kind] -= amount;
+      if (from.counters[kind] <= 0) delete from.counters[kind];
+      to.counters[kind] = Math.min(MAX_COUNTERS, (to.counters[kind] ?? 0) + amount);
+      to.counterTurn = game.turn.number;
+      addLog(game, `${amount}× ${kind} wandert von ${nameOf(game, from.id)} auf ${nameOf(game, to.id)} (${name}).`);
+      fireGlobal(game, "countersPut", to);
+      return false;
+    }
     case "doubleCounters": {
       const card = game.cards[ctx.targets[effect.t]];
       if (card && onBattlefield(game, card.id)) {
@@ -3095,6 +3247,36 @@ function chooseAction(game, userId, action, random, now) {
         return ok();
       }
       pushAbility(game, { ...step.item, targets: picked });
+      break;
+    }
+    case "madness": {
+      const card = game.cards[step.cardId];
+      const madness = card ? defOf(game, card).rules?.madness : null;
+      if (!card || !madness || !player.exile.includes(card.id)) break;
+      player.exile.splice(player.exile.indexOf(card.id), 1);
+      const plan = ids[0] === "yes" ? planPayment({ manaCost: madness.cost, pool: player.pool, sources: manaSources(game, userId) }) : null;
+      if (!plan?.ok || player.life <= madness.life) {
+        player.graveyard.push(card.id);
+        addLog(game, `${nameOf(game, card.id)} kommt in den Friedhof.`);
+        break;
+      }
+      for (const id of plan.tap) game.cards[id].tapped = true;
+      spendSacrificial(game, plan.tap);
+      for (const color of Object.keys(plan.poolUsed)) player.pool[color] -= plan.poolUsed[color];
+      for (const color of Object.keys(plan.poolAdd)) player.pool[color] += plan.poolAdd[color];
+      if (madness.life) player.life -= madness.life;
+      game.stack.push({ sid: newId(game, "s"), kind: "spell", controller: userId, cardId: card.id, x: 0, flashback: false, mode: null, targets: [], fromExile: true });
+      game.priority = userId;
+      game.passed = [];
+      addLog(game, `${player.name} wirkt ${nameOf(game, card.id)} für Madness (${describeCost(madness.cost)}).`);
+      break;
+    }
+    case "triggerMode": {
+      const mode = step.trigger.modes[Number(ids[0])];
+      if (!mode) break;
+      const base = { ...step.base, text: mode.label, effects: mode.effects, specs: mode.specs, unparsed: mode.unparsed };
+      if (mode.specs.length === 0) pushAbility(game, { ...base, targets: [] });
+      else openTriggerTarget(game, userId, base, [], base.sourceName, mode.label);
       break;
     }
     case "chooseColor": {
@@ -3259,6 +3441,21 @@ function chooseAction(game, userId, action, random, now) {
         player.library.unshift(id);
       }
       addLog(game, `${player.name} legt ${ids.length} Karte${ids.length === 1 ? "" : "n"} unter die Bibliothek.`);
+      break;
+    }
+    case "hideaway": {
+      const picked = game.cards[ids[0]];
+      if (!picked) break;
+      player.library.splice(player.library.indexOf(picked.id), 1);
+      const rest = step.top.filter(id => id !== picked.id && player.library.includes(id));
+      for (const id of rest) player.library.splice(player.library.indexOf(id), 1);
+      shuffle(rest);
+      player.library.unshift(...rest); // unten in zufälliger Reihenfolge
+      picked.faceDown = true;
+      player.exile.push(picked.id);
+      const host = game.cards[step.source];
+      if (host) host.hidden = picked.id;
+      addLog(game, `${player.name} legt eine Karte verdeckt ins Exil (Hideaway), der Rest kommt nach unten.`);
       break;
     }
     case "search":
@@ -4012,6 +4209,13 @@ function castAction(game, userId, action) {
   }
   player.castsThisTurn += 1;
   if (player.castsThisTurn === 2) fireGlobal(game, "castSecond", found.card);
+  if (def.rules?.storm && (def.types.instant || def.types.sorcery)) {
+    const original = game.stack.find(item => item.cardId === found.card.id && item.kind === "spell" && !item.copy);
+    for (let i = 0; i < player.castsThisTurn - 1 && original && game.stack.length < MAX_STACK; i += 1) {
+      game.stack.push({ ...original, sid: newId(game, "s"), copy: true, targets: [...(original.targets ?? [])] });
+    }
+    if (player.castsThisTurn > 1) addLog(game, `Storm: ${def.name} wird ${player.castsThisTurn - 1}× kopiert.`);
+  }
   if (!def.types.creature) {
     for (const id of player.battlefield) {
       const card = game.cards[id];
@@ -4295,6 +4499,7 @@ function declareAttackersAction(game, userId, action, random, now) {
     }
   }
   game.combat = { attackers, blocks: [], done: [], phaseWaiting: true };
+  game.turn.attackedWith = attackers.length;
   fireGlobal(game, "youAttack", userId); // „Whenever you attack“ (einmal je Angriff)
   game.turn.phase = "blockers";
   game.priority = null;
