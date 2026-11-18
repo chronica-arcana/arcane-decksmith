@@ -500,6 +500,14 @@ export function createGameApi(options: {
       call<{ code: string; expiresAt: number }>("POST", "/api/rooms", input),
     joinRoom: (input: { code: string; deckId: string }) => call<{ code: string }>("POST", "/api/rooms/join", input),
     leaveRoom: () => call<{ ok: true }>("POST", "/api/rooms/leave", {}),
+    /** Beim Schließen von Tab oder Fenster: Der Token muss schon vorliegen, die Anfrage überlebt das Entladen der Seite (keepalive). */
+    leaveRoomOnUnload: (token: string) => {
+      try {
+        void doFetch(`${base}/api/rooms/leave`, { method: "POST", keepalive: true, headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }, body: "{}" }).catch(() => undefined);
+      } catch {
+        // Beim Schließen gibt es nichts mehr zu melden.
+      }
+    },
     getHistory: async () => (await call<{ entries: HistoryEntry[] }>("GET", "/api/history")).entries,
     kickPlayer: (userId: string) => call<{ ok: true }>("POST", "/api/rooms/kick", { userId })
   };

@@ -93,6 +93,29 @@ export default function GameRoomPanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [code, baseUrl, attempt]);
 
+  // Tab oder Fenster geschlossen: Raum verlassen bzw. (als Gastgeber) schließen. Der Token wird vorab gemerkt, weil beim Schließen nicht mehr gewartet werden kann.
+  const tokenRef = useRef<string | null>(null);
+  useEffect(() => {
+    let alive = true;
+    const refresh = () => void getSession().then(session => {
+      if (alive) tokenRef.current = session?.accessToken ?? null;
+    });
+    refresh();
+    const timer = window.setInterval(refresh, 5 * 60_000);
+    const onHide = (event: PageTransitionEvent) => {
+      if (event.persisted || finished.current || !tokenRef.current) return;
+      finished.current = true;
+      api.leaveRoomOnUnload(tokenRef.current);
+    };
+    window.addEventListener("pagehide", onHide);
+    return () => {
+      alive = false;
+      window.clearInterval(timer);
+      window.removeEventListener("pagehide", onHide);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [code]);
+
   // Stand abgleichen, wenn der Tab wieder sichtbar wird und regelmäßig, damit keine Seite mit einem veralteten Spiel hängen bleibt.
   useEffect(() => {
     if (status.state !== "open") return undefined;

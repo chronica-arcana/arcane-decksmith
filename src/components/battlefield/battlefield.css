@@ -317,3 +317,19 @@
 .mode-list button small { font-size: 0.72rem; }
 
 .stack-chip { display: inline-block; padding: 3px 10px; border-radius: 999px; background: #c9a24b26; border: 1px solid var(--gold-dim); font-size: 0.72rem; color: var(--gold-bright); }
+
+/* Phasenleiste: Weiter-Knopf – die nächste Phase pulsiert und ist anklickbar */
+.phase-next { font: inherit; font-weight: 700; color: #1b1405; background: var(--gold-bright); border: 0; border-radius: 999px; padding: 1px 10px; cursor: pointer; animation: phase-pulse 1.3s ease-in-out infinite; }
+.phase.next .phase-dot { border-color: var(--gold-bright); animation: phase-pulse 1.3s ease-in-out infinite; }
+@keyframes phase-pulse { 0%, 100% { box-shadow: 0 0 0 0 #e6c872aa; transform: scale(1); } 50% { box-shadow: 0 0 10px 4px #e6c872cc; transform: scale(1.06); } }
+@media (prefers-reduced-motion: reduce) { .phase-next, .phase.next .phase-dot { animation: none; } }
+
+/* Hinweise und Rückfragen: kleines kompaktes Pop-up am linken Rand statt über dem Spielfeld */
+.action-bar.side { position: fixed; left: 8px; top: 50%; transform: translateY(-50%); z-index: 40; max-width: 190px; flex-direction: column; align-items: stretch; gap: 6px; padding: 8px 10px; font-size: 0.76rem; line-height: 1.3; text-align: left; box-shadow: 0 4px 16px #000a; pointer-events: auto; }
+.action-bar.side strong { font-size: 0.78rem; }
+.action-bar.side .muted { font-size: 0.7rem; }
+.action-bar.side button { width: 100%; }
+.action-bar.side.hint { opacity: 0.92; }
+.bar-dock:has(> .action-bar.side) { padding: 0; }
+.gc-badge.cmd { max-width: none; overflow: visible; text-overflow: clip; font-size: 0.56rem; padding: 0 5px; }
+.gc.sm .gc-badge.cmd { font-size: 0.5rem; padding: 0 3px; }

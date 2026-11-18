@@ -38,6 +38,26 @@ const TARGET_LABELS: Record<string, string> = {
   paySacrifice: "eine Karte, die du opferst", payDiscard: "eine Karte, die du abwirfst", payTap: "ein Permanent, das du tappst", spell: "einen Zauber", creatureSpell: "einen Kreaturenzauber", noncreatureSpell: "einen Nichtkreaturenzauber", instantOrSorcerySpell: "einen Spontan- oder Hexereizauber"
 };
 
+/**
+ * Kann der Spieler gerade einfach zur nächsten Phase weitergehen? Dann übernimmt die Phasenleiste unten den Knopf
+ * (die nächste Phase pulsiert) – die Aktionsleiste zeigt ihn nicht mehr. Rückgabe: Beschriftung und Ziel-Phase.
+ */
+export function passInfo(props: ActionBarProps): { label: string; next: "combat" | "main2" | "end" } | null {
+  const { game } = props;
+  const step: GameStep = game.turn.phase;
+  if (game.phase === "ended" || props.targeting || game.manual?.userId === game.you || props.me.prompts[0]) return null;
+  if (props.discarding && game.pendingDiscard) return null;
+  if (props.attackStep && props.iHavePriority) return null;
+  if (props.awaitingMe && step === "blockers" && game.stack.length === 0) return null;
+  if (!props.iHavePriority || !props.isActive || game.stack.length > 0 || step === "draw" || step === "blockers") return null;
+  const attack = props.canAttack && props.livingOpponents.length > 0;
+  if (step === "main1") return { label: attack ? "Weiter zum Kampf" : "Weiter zur Hauptphase 2", next: attack ? "combat" : "main2" };
+  if (step === "attackers") return { label: "Kein Angriff", next: "main2" };
+  if (step === "damage") return { label: "Kampfschaden verursachen", next: "main2" };
+  if (step === "main2") return { label: "Zug beenden", next: "end" };
+  return { label: "Zug beenden", next: "end" };
+}
+
 /** Die einzige Schaltflächenleiste: zeigt nur, was im aktuellen Moment wirklich möglich ist. Prioritäts-Hinweise gibt es bewusst nicht. */
 export default function ActionBar(props: ActionBarProps) {
   const { game, me, act, nameOf } = props;
@@ -179,7 +199,7 @@ export default function ActionBar(props: ActionBarProps) {
 
   if (props.iHavePriority && props.isActive && game.stack.length === 0 && step === "draw") {
     return (
-      <div className="action-bar" role="status">
+      <div className="action-bar side" role="status">
         <strong>Ziehen: Klicke auf deine Bibliothek, um eine Karte zu ziehen.</strong>
       </div>
     );
@@ -190,7 +210,7 @@ export default function ActionBar(props: ActionBarProps) {
     const top = game.stack.at(-1)!;
     const what = top.card ? `${top.card.name}.` : `${top.sourceName ?? "Effekt"}: ${(top.text || "Fähigkeit").replace(/~/g, top.sourceName ?? "")}`;
     return (
-      <div className="action-bar" role="alert">
+      <div className="action-bar side" role="alert">
         <strong>Reaktion ausspielen? {nameOf(top.controller)} spielt {what}</strong>
         <span className="muted">Die leuchtenden Karten kannst du jetzt spielen.</span>
         <button type="button" className="primary go" onClick={() => act({ type: "pass" })}>Nein</button>
@@ -201,7 +221,7 @@ export default function ActionBar(props: ActionBarProps) {
   // Antwortfenster ohne Stapel (z. B. vor dem Kampfschaden): nur wer reagieren darf, sieht die Frage.
   if (props.iHavePriority && !props.isActive) {
     return (
-      <div className="action-bar" role="alert">
+      <div className="action-bar side" role="alert">
         <strong>Reaktion ausspielen?</strong>
         <span className="muted">Die leuchtenden Karten kannst du jetzt spielen.</span>
         <button type="button" className="primary go" onClick={() => act({ type: "pass" })}>Nein</button>
@@ -209,21 +229,9 @@ export default function ActionBar(props: ActionBarProps) {
     );
   }
 
-  if (props.iHavePriority) {
-    const label =
-      step === "main1"
-        ? props.canAttack && props.livingOpponents.length > 0 ? "Weiter zum Kampf" : "Weiter zur Hauptphase 2"
-        : step === "attackers"
-          ? "Kein Angriff"
-          : step === "damage"
-            ? props.isActive ? "Kampfschaden verursachen" : "Nein"
-            : "Zug beenden";
-    return (
-      <div className="action-bar" role="status">
-        <button type="button" className="primary go" onClick={() => act({ type: "pass" })}>{label}</button>
-      </div>
-    );
-  }
+  // Weiter-Knopf: sitzt in der Phasenleiste (nächste Phase pulsiert).
+  if (passInfo(props)) return null;
+  if (props.iHavePriority) return null;
 
   const waiting = game.manual
     ? `${nameOf(game.manual.userId)} setzt einen Kartentext um …`
@@ -241,7 +249,7 @@ export default function ActionBar(props: ActionBarProps) {
   if (!waiting) return null;
   // „Warten auf Reaktion“ bleibt stehen, solange das Spiel wirklich auf jemanden wartet; bloßes „überlegt“ verschwindet nach kurzer Zeit.
   return /^Warten auf Reaktion/.test(waiting) ? (
-    <div className="action-bar hint" role="status">
+    <div className="action-bar side hint" role="status">
       <span className="muted">{waiting}</span>
     </div>
   ) : (
@@ -257,7 +265,7 @@ function TransientHint({ text }: { text: string }) {
     return () => window.clearTimeout(timer);
   }, []);
   return visible ? (
-    <div className="action-bar hint" role="status">
+    <div className="action-bar side hint" role="status">
       <span className="muted">{text}</span>
     </div>
   ) : null;

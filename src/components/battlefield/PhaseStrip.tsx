@@ -22,7 +22,7 @@ const ITEMS: Item[] = [
 ];
 
 /** Zeitleiste des Zuges unter der eigenen Hand: Enttappen, Versorgung und Ziehen laufen automatisch, danach Haupt-, Kampf- und Endphasen. */
-export default function PhaseStrip({ game, activeName, hint, detail }: { game: GameView; activeName: string; hint?: string; detail?: string }) {
+export default function PhaseStrip({ game, activeName, hint, detail, pass, onPass }: { game: GameView; activeName: string; hint?: string; detail?: string; pass?: { label: string; next: "combat" | "main2" | "end" } | null; onPass?: () => void }) {
   const current = game.turn.phase;
   const currentIndex = ITEMS.findIndex(item => item.steps.includes(current));
   return (
@@ -40,10 +40,17 @@ export default function PhaseStrip({ game, activeName, hint, detail }: { game: G
           const on = item.steps.includes(current);
           const manualDraw = item.key === "draw" && game.turn.manualStart;
           const done = (item.auto && !manualDraw) || currentIndex > index;
+          const next = Boolean(pass && onPass && ((pass.next === "combat" && item.key === "combat") || (pass.next === "main2" && item.key === "main2") || (pass.next === "end" && item.key === "end")));
           return (
-            <li key={item.key} className={`phase${on ? " on" : ""}${done ? " done" : ""}${item.auto && !manualDraw ? " auto" : ""}`} aria-current={on ? "step" : undefined}>
+            <li key={item.key} className={`phase${next ? " next" : ""}${on ? " on" : ""}${done ? " done" : ""}${item.auto && !manualDraw ? " auto" : ""}`} aria-current={on ? "step" : undefined}>
               <span className="phase-dot" aria-hidden="true" />
-              <span className="phase-label">{item.label}</span>
+              {next && pass ? (
+                <button type="button" className="phase-next" title={pass.label} aria-label={pass.label} onClick={onPass}>
+                  {item.label}<span aria-hidden="true"> →</span>
+                </button>
+              ) : (
+                <span className="phase-label">{item.label}</span>
+              )}
               {item.sub && on && (
                 <span className="phase-sub">
                   {item.sub.map(sub => (
