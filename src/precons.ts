@@ -74,7 +74,8 @@ export function parsePreconDeckList(payload: unknown): PreconDeckSummary[] {
     const item = asRecord(entry);
     const fileName = text(item?.fileName);
     const name = text(item?.name);
-    if (!fileName || !name || !/^[A-Za-z0-9_.-]+$/.test(fileName)) continue;
+    // Dateinamen dürfen Buchstaben (auch mit Akzenten), Ziffern sowie _ . ' - enthalten; Pfadtricks ("..", "/") bleiben ausgeschlossen.
+    if (!fileName || !name || fileName.includes("..") || !/^[\p{L}\p{N}_.'-]+$/u.test(fileName)) continue;
     decks.push({
       fileName,
       name,

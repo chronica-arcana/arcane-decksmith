@@ -20,7 +20,8 @@ type PreconImportDialogProps = {
   onSaveDeck: (deck: DeckRecord) => Promise<void>;
 };
 
-const MAX_LIST_RESULTS = 60;
+/** So viele Decks zeigt die Liste auf einmal; „Mehr anzeigen“ lädt weitere (es gibt über 200 Commander-Decks). */
+const PAGE_SIZE = 60;
 
 function sectionLabel(section: string): string {
   if (section === "commander") return "Commander";
@@ -39,6 +40,7 @@ export default function PreconImportDialog({
   const [listBusy, setListBusy] = useState(true);
   const [query, setQuery] = useState("");
   const [type, setType] = useState("Commander Deck");
+  const [limit, setLimit] = useState(PAGE_SIZE);
   const [deck, setDeck] = useState<PreconDeck | null>(null);
   const [resolution, setResolution] = useState<PreconResolution | null>(null);
   const [busy, setBusy] = useState(false);
@@ -72,10 +74,11 @@ export default function PreconImportDialog({
     };
   }, []);
 
-  const types = useMemo(
-    () => Array.from(new Set(decks.map(item => item.type))).sort((a, b) => a.localeCompare(b, "de")),
-    [decks]
-  );
+  const types = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const item of decks) counts.set(item.type, (counts.get(item.type) ?? 0) + 1);
+    return Array.from(counts, ([name, count]) => ({ name, count })).sort((a, b) => a.name.localeCompare(b.name, "de"));
+  }, [decks]);
 
   const filteredDecks = useMemo(() => {
     const search = query.trim().toLowerCase();
@@ -88,7 +91,7 @@ export default function PreconImportDialog({
     );
   }, [decks, query, type]);
 
-  const visibleDecks = filteredDecks.slice(0, MAX_LIST_RESULTS);
+  const visibleDecks = filteredDecks.slice(0, limit);
 
   const collectionCards = useMemo(
     () => resolution ? preconCollectionCards(resolution.resolved) : [],
@@ -204,16 +207,25 @@ export default function PreconImportDialog({
                 <span>Suche</span>
                 <input
                   value={query}
-                  onChange={event => setQuery(event.target.value)}
+                  onChange={event => {
+                    setQuery(event.target.value);
+                    setLimit(PAGE_SIZE);
+                  }}
                   placeholder="Name, Setcode oder Jahr"
                   autoFocus
                 />
               </label>
               <label>
                 <span>Produkttyp</span>
-                <select value={type} onChange={event => setType(event.target.value)}>
-                  <option value="">Alle Typen</option>
-                  {types.map(item => <option key={item} value={item}>{item}</option>)}
+                <select
+                  value={type}
+                  onChange={event => {
+                    setType(event.target.value);
+                    setLimit(PAGE_SIZE);
+                  }}
+                >
+                  <option value="">Alle Typen ({decks.length})</option>
+                  {types.map(item => <option key={item.name} value={item.name}>{item.name} ({item.count})</option>)}
                 </select>
               </label>
             </div>
@@ -246,10 +258,20 @@ export default function PreconImportDialog({
                     <div className="external-import-summary-note">Keine passenden Decks gefunden.</div>
                   )}
                 </div>
-                {filteredDecks.length > MAX_LIST_RESULTS && (
-                  <p className="muted external-import-help">
-                    {filteredDecks.length - MAX_LIST_RESULTS} weitere Treffer – bitte die Suche verfeinern.
+                {decks.length > 0 && (
+                  <p className="muted external-import-help" role="status">
+                    {visibleDecks.length} von {filteredDecks.length} Decks angezeigt (insgesamt {decks.length} verfügbar).
                   </p>
+                )}
+                {filteredDecks.length > visibleDecks.length && (
+                  <div className="external-import-actions">
+                    <button type="button" className="secondary" onClick={() => setLimit(value => value + PAGE_SIZE)}>
+                      Mehr anzeigen (+{Math.min(PAGE_SIZE, filteredDecks.length - visibleDecks.length)})
+                    </button>
+                    <button type="button" className="secondary" onClick={() => setLimit(filteredDecks.length)}>
+                      Alle anzeigen ({filteredDecks.length})
+                    </button>
+                  </div>
                 )}
               </>
             )}
