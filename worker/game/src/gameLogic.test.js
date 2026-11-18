@@ -101,7 +101,7 @@ const LIB = [
   ["rip", "Zerreißen", "Instant", "{R}", 2, {}, "Destroy target artifact or enchantment."],
   ["striker", "Plünderer", "Creature — Rogue", "{G}", 2, { power: "2", toughness: "2" }, "Whenever this creature deals combat damage to a player, draw a card."],
   ["herald", "Herold", "Creature — Human", "{G}", 2, { power: "1", toughness: "1" }, "At the beginning of combat on your turn, you gain 1 life."],
-  ["seer", "Opfer-Seher", "Creature — Vampire Wizard", "{G}", 2, { power: "1", toughness: "1" }, "Sacrifice a creature: Scry 1."],
+  ["sacseer", "Opfer-Seher", "Creature — Vampire Wizard", "{G}", 2, { power: "1", toughness: "1" }, "Sacrifice a creature: Scry 1."],
   ["altar", "Altar", "Artifact", "{3}", 2, {}, "Sacrifice a creature: Add {C}{C}."],
   ["rites", "Opferriten", "Instant", "{G}", 2, {}, "As an additional cost to cast this spell, sacrifice a creature.\nDraw two cards."],
   ["reunion", "Wiedersehen", "Sorcery", "{1}{G}", 2, {}, "As an additional cost to cast this spell, discard two cards.\nDraw three cards."],
