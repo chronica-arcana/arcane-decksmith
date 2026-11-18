@@ -552,7 +552,10 @@ export default function Battlefield({
                 <PlayerZone key={player.userId} player={player} />
               ))}
             </div>
-            <CenterZone>
+            <CenterZone />
+            <PlayerZone player={me} />
+            {/* Aktionsleiste und Hinweise ganz unten bei den Phasen, nicht mitten auf dem Tisch */}
+            <div className="bar-dock">
               <ActionBar
                 game={game}
                 me={me}
@@ -584,8 +587,7 @@ export default function Battlefield({
                 onRematch={onRematch}
                 onLeave={onLeave}
               />
-            </CenterZone>
-            <PlayerZone player={me} />
+            </div>
             <PhaseStrip
               game={game}
               activeName={nameOf(game.turn.active)}
@@ -625,7 +627,8 @@ export default function Battlefield({
                           startCast(card, x, index);
                         }}
                       >
-                        {mode.label}
+                        <strong>{mode.label.replace(/~/g, modePick.card.name ?? "")}</strong>
+                        {mode.summary && <small className="muted">{mode.summary}</small>}
                       </button>
                     );
                   })}

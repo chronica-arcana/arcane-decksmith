@@ -6,7 +6,7 @@ const spell = (name, typeLine, oracleText) => parseCardText({ name, typeLine, or
 describe("cardText: Zauber", () => {
   it("Lightning Bolt: Schaden auf ein beliebiges Ziel", () => {
     const parsed = spell("Lightning Bolt", "Instant", "Lightning Bolt deals 3 damage to any target.");
-    expect(parsed).toEqual({ effects: [{ type: "damage", n: 3, to: { k: "target", t: 0 } }], specs: [{ kind: "any" }], unparsed: [], summary: "3 Schaden an das Ziel." });
+    expect(parsed).toEqual({ effects: [{ type: "damage", n: 3, to: { k: "target", t: 0 } }], specs: [{ kind: "any" }], unparsed: [], summary: "3 Schaden an das Ziel. Ziel: Beliebiges Ziel (Spieler, Kreatur oder Planeswalker)." });
   });
 
   it("Divination, Giant Growth, Counterspell, Murder", () => {

@@ -187,7 +187,7 @@ describe("Spielraum", () => {
     fireEvent.contextMenu(within(stack).getByRole("button", { name: "Blitz" }));
     expect(screen.getAllByRole("menuitem").map(item => item.textContent)).toEqual(["Groß ansehen"]);
     fireEvent.click(screen.getByRole("menuitem", { name: "Groß ansehen" }));
-    fireEvent.click(screen.getByRole("button", { name: "Nicht antworten" }));
+    fireEvent.click(screen.getByRole("button", { name: "Nein" }));
     expect(send).toHaveBeenCalledWith({ type: "pass" });
   });
 
@@ -489,7 +489,7 @@ describe("Antwortfenster", () => {
     const damage = { number: 3, active: "they", phase: "damage" as const, first: "me", landsPlayed: 0 };
     const { send } = setup(view({ priority: "me", turn: damage }));
     expect(screen.getByText("Reaktion ausspielen?")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Nicht antworten" }));
+    fireEvent.click(screen.getByRole("button", { name: "Nein" }));
     expect(send).toHaveBeenCalledWith({ type: "pass" });
     cleanup();
     setup(view({ priority: "they", turn: { ...damage, active: "me" } }));

@@ -193,7 +193,7 @@ export default function ActionBar(props: ActionBarProps) {
       <div className="action-bar" role="alert">
         <strong>Reaktion ausspielen? {nameOf(top.controller)} spielt {what}</strong>
         <span className="muted">Die leuchtenden Karten kannst du jetzt spielen.</span>
-        <button type="button" className="primary go" onClick={() => act({ type: "pass" })}>Nicht antworten</button>
+        <button type="button" className="primary go" onClick={() => act({ type: "pass" })}>Nein</button>
       </div>
     );
   }
@@ -204,7 +204,7 @@ export default function ActionBar(props: ActionBarProps) {
       <div className="action-bar" role="alert">
         <strong>Reaktion ausspielen?</strong>
         <span className="muted">Die leuchtenden Karten kannst du jetzt spielen.</span>
-        <button type="button" className="primary go" onClick={() => act({ type: "pass" })}>Nicht antworten</button>
+        <button type="button" className="primary go" onClick={() => act({ type: "pass" })}>Nein</button>
       </div>
     );
   }
@@ -216,7 +216,7 @@ export default function ActionBar(props: ActionBarProps) {
         : step === "attackers"
           ? "Kein Angriff"
           : step === "damage"
-            ? props.isActive ? "Kampfschaden verursachen" : "Nicht antworten"
+            ? props.isActive ? "Kampfschaden verursachen" : "Nein"
             : "Zug beenden";
     return (
       <div className="action-bar" role="status">

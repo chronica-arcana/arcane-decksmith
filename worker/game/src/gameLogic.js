@@ -2576,7 +2576,7 @@ export function playOptions(game, userId, id) {
     timingOk,
     pays: def.rules?.additionalCost ? payRequirements(game, userId, def.rules.additionalCost, id) : [],
     targets: spell && !spell.modes && spell.specs.length > 0 ? targetOptions(game, spell.specs, userId, srcOfDef(def, id)) : [],
-    modes: spell?.modes?.map(mode => ({ label: mode.summary || mode.label, targets: targetOptions(game, mode.specs, userId, srcOfDef(def, id)), manual: mode.unparsed.length > 0 })),
+    modes: spell?.modes?.map(mode => ({ label: mode.label, summary: mode.summary, targets: targetOptions(game, mode.specs, userId, srcOfDef(def, id)), manual: mode.unparsed.length > 0 })),
     manual: Boolean(spell && !spell.modes && spell.unparsed.length > 0)
   };
 }

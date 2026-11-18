@@ -12,8 +12,8 @@ import { LibraryPile, ZonePile } from "./Pile";
  * der gegnerische oben und gespiegelt (HUD, Hand und Ablagen am oberen Rand, Länder vor Kreaturen zur Mitte hin).
  */
 /**
- * Passt das Feld dem Platz an: Reichen die Reihen nicht in die Höhe, überlappen sie (Karten bleiben anwählbar);
- * reicht auch das nicht, werden die Karten bis zu 45 % kleiner. Setzt nur CSS-Variablen, damit nichts neu gerendert wird.
+ * Passt das Feld dem Platz an: Zuerst werden die Karten kleiner (bis auf die Hälfte), damit der Text lesbar bleibt; nur wenn das nicht
+ * reicht, überlappen sich Reihen (höchstens ein Drittel, Karten bleiben anwählbar). Setzt nur CSS-Variablen, damit nichts neu gerendert wird.
  */
 function useFieldFit(ref: React.RefObject<HTMLDivElement | null>) {
   useLayoutEffect(() => {
@@ -21,20 +21,33 @@ function useFieldFit(ref: React.RefObject<HTMLDivElement | null>) {
     if (!el) return;
     const apply = () => {
       const rows = [...el.querySelectorAll<HTMLElement>(":scope > .field-row")];
-      const available = el.clientHeight;
-      if (rows.length === 0 || available <= 0) return;
+      const availableH = el.clientHeight;
+      const availableW = el.clientWidth;
+      if (rows.length === 0 || availableH <= 0 || availableW <= 0) return;
       const fit0 = parseFloat(el.style.getPropertyValue("--fit")) || 1;
       const heights = rows.map(row => row.offsetHeight / fit0);
-      const gap = parseFloat(getComputedStyle(el).rowGap) || 0;
-      const total = heights.reduce((sum, h) => sum + h, 0) + gap * (rows.length - 1);
-      let fit = 1;
-      let overlap = 0;
-      if (total > available + 1) {
-        const need = total - available;
-        const boundaries = rows.length - 1;
-        if (boundaries > 0) overlap = Math.min(need / boundaries, 0.6 * Math.min(...heights));
-        fit = Math.min(1, Math.max(0.55, (available + overlap * boundaries) / total));
+      const gapY = parseFloat(getComputedStyle(el).rowGap) || 0;
+      const totalH = heights.reduce((sum, h) => sum + h, 0) + gapY * (rows.length - 1);
+      // Breite: wie viel Platz brauchen die Karten einer Reihe nebeneinander?
+      let fitW = 1;
+      for (const row of rows) {
+        const slots = [...row.children] as HTMLElement[];
+        const gapX = parseFloat(getComputedStyle(row).columnGap) || 0;
+        const natural = slots.reduce((sum, slot) => sum + (parseFloat(getComputedStyle(slot).flexBasis) || slot.offsetWidth), 0) / fit0 + gapX * Math.max(0, slots.length - 1);
+        if (natural > 0) fitW = Math.min(fitW, availableW / natural);
       }
+      let fitH = 1;
+      let overlap = 0;
+      if (totalH > availableH + 1) {
+        const need = totalH - availableH;
+        const boundaries = rows.length - 1;
+        // erst verkleinern (bis 0,5), dann höchstens ein Drittel überlappen
+        fitH = Math.max(0.5, availableH / totalH);
+        const remaining = Math.max(0, totalH * fitH - availableH);
+        if (boundaries > 0 && remaining > 0) overlap = Math.min(remaining / boundaries, 0.33 * Math.min(...heights) * fitH);
+        void need;
+      }
+      const fit = Math.min(1, Math.max(0.5, Math.min(fitH, fitW)));
       el.style.setProperty("--fit", fit.toFixed(3));
       el.style.setProperty("--row-overlap", `${Math.round(overlap)}px`);
     };

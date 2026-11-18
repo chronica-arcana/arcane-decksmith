@@ -88,7 +88,7 @@ export type GameCard = {
   /** Farben, die diese Manaquelle erzeugen kann. */
   manaColors?: string[];
   /** Nur für eigene Karten: Was ist jetzt möglich? */
-  play?: { kind: "land" | "spell"; ok: boolean; timingOk?: boolean; pays?: PayRequirement[]; targets?: TargetOption[]; modes?: { label: string; targets: TargetOption[]; manual: boolean }[]; manual?: boolean } | null;
+  play?: { kind: "land" | "spell"; ok: boolean; timingOk?: boolean; pays?: PayRequirement[]; targets?: TargetOption[]; modes?: { label: string; summary?: string; targets: TargetOption[]; manual: boolean }[]; manual?: boolean } | null;
   /** Cycling aus der Hand (falls die Karte es hat). */
   cycle?: { ok: boolean; cost: string; search: string | null } | null;
   /** Nur eigene Karten auf dem Schlachtfeld: aktivierbare Fähigkeiten laut Kartentext. */

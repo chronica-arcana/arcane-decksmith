@@ -582,9 +582,45 @@ function describeBase(effect) {
   }
 }
 
+const KIND_DE = {
+  creature: "Kreatur", permanent: "Permanent", artifact: "Artefakt", enchantment: "Verzauberung", land: "Land", planeswalker: "Planeswalker",
+  creatureOrPlaneswalker: "Kreatur oder Planeswalker", artifactOrEnchantment: "Artefakt oder Verzauberung", player: "Spieler", opponent: "Gegner",
+  any: "beliebiges Ziel (Spieler, Kreatur oder Planeswalker)", myCreature: "eigene Kreatur", playerOrPlaneswalker: "Spieler oder Planeswalker",
+  spell: "Zauber", creatureSpell: "Kreaturenzauber", noncreatureSpell: "Nichtkreaturenzauber", instantOrSorcerySpell: "Spontan- oder Hexereizauber",
+  gyAny: "Karte aus deinem Friedhof", gyCreature: "Kreaturenkarte aus deinem Friedhof", gyCreatureAny: "Kreaturenkarte aus einem Friedhof",
+  gyArtifact: "Artefaktkarte aus deinem Friedhof", gyEnchantment: "Verzauberungskarte aus deinem Friedhof", gyLand: "Landkarte aus deinem Friedhof", gyPermanent: "Permanent-Karte aus deinem Friedhof"
+};
+const COLOR_DE = { W: "weiß", U: "blau", B: "schwarz", R: "rot", G: "grün" };
+const TYPE_DE = { artifact: "Artefakt", land: "Land", creature: "Kreatur", enchantment: "Verzauberung", planeswalker: "Planeswalker" };
+
+/** Zielangabe auf Deutsch: „Kreatur mit Widerstandskraft 4 oder mehr“, „nicht-schwarze Kreatur“, „Permanent eines Gegners“ … */
+export function describeSpec(spec) {
+  let noun = spec.anyTypes ? spec.anyTypes.map(type => TYPE_DE[type] ?? type).join(", ").replace(/, ([^,]+)$/, " oder $1") : KIND_DE[spec.kind] ?? "Ziel";
+  const adjectives = [];
+  if (spec.tapped === true) adjectives.push("getappte");
+  if (spec.tapped === false) adjectives.push("ungetappte");
+  if (spec.attacking) adjectives.push("angreifende");
+  if (spec.blocking) adjectives.push("blockende");
+  if (spec.legendary === true) adjectives.push("legendäre");
+  if (spec.legendary === false) adjectives.push("nicht legendäre");
+  for (const color of spec.colors ?? []) adjectives.push(`${COLOR_DE[color]}e`);
+  for (const color of spec.nonColors ?? []) adjectives.push(`nicht-${COLOR_DE[color]}e`);
+  for (const type of spec.nonTypes ?? []) adjectives.push(`nicht-${(TYPE_DE[type] ?? type).toLowerCase()}`);
+  for (const type of spec.types ?? []) adjectives.push(`${(TYPE_DE[type] ?? type).toLowerCase()}-`);
+  noun = `${adjectives.join(" ")}${adjectives.length ? " " : ""}${noun}`.replace("- ", "-");
+  const tail = [];
+  if (spec.stat) tail.push(`mit ${spec.stat.of === "power" ? "Stärke" : "Widerstandskraft"} ${spec.stat.n} oder ${spec.stat.op === "gte" ? "mehr" : "weniger"}`);
+  if (spec.keyword) tail.push(`mit ${spec.keyword}`);
+  if (spec.ctrl === "opp") tail.push("eines Gegners");
+  if (spec.ctrl === "you") tail.push("von dir");
+  if (spec.optional) tail.push("(optional)");
+  return `${noun.charAt(0).toUpperCase()}${noun.slice(1)}${tail.length ? ` ${tail.join(" ")}` : ""}`;
+}
+
 /** Fasst die Effekte zusammen; nicht verstandene Sätze bleiben im englischen Original stehen. */
-export function summarize({ effects, unparsed }) {
-  return [...effects.map(describeEffect).filter(Boolean), ...unparsed.map(sentence => `${sentence}.`)].join(" ");
+export function summarize({ effects, unparsed, specs = [] }) {
+  const targets = specs.length > 0 ? [`Ziel${specs.length > 1 ? "e" : ""}: ${specs.map(describeSpec).join("; ")}.`] : [];
+  return [...effects.map(describeEffect).filter(Boolean), ...targets, ...unparsed.map(sentence => `${sentence}.`)].join(" ");
 }
 
 /** Mehrere Sätze eines Effekt-Textes. */
@@ -620,7 +656,7 @@ function parseEffectText(text) {
     if (split) effects.push(...split);
     else unparsed.push(sentence);
   }
-  return { effects, specs, unparsed, summary: summarize({ effects, unparsed }) };
+  return { effects, specs, unparsed, summary: summarize({ effects, unparsed, specs }) };
 }
 
 const BASIC_TYPES = ["plains", "island", "swamp", "mountain", "forest"];

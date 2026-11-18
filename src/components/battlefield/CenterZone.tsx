@@ -7,7 +7,7 @@ import CardView from "./CardView";
  * Mitte des Tisches (kein eigener Kasten, nur die Mitte der Matte): links der Stapel (oberster zuerst), daneben die Kampfbahnen
  * (Angreifer mit Blockern darunter) und die Aktionsleiste. Sie erscheinen nur, wenn es etwas zu zeigen gibt.
  */
-export default function CenterZone({ children }: { children: ReactNode }) {
+export default function CenterZone({ children }: { children?: ReactNode }) {
   const { game, allCards, nameOf, clickCard, cardMenu, setHover, markOf, pendingBlocks, isTarget, pickTarget } = useBattlefield();
   const combat = game.combat;
   const opponentCount = game.players.filter(player => !player.eliminated).length - 1;
