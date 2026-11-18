@@ -123,6 +123,8 @@ const LIB = [
   ["encorer", "Echogeist", "Creature — Spirit", "{1}", 2, { power: "2", toughness: "1" }, "Flying\nEncore {1}{R} (Exile this card from your graveyard: For each opponent, create a token copy that attacks that opponent this turn if able. They gain haste. Sacrifice them at the beginning of the next end step. Activate only as a sorcery.)"],
   ["eternal", "Ewiger", "Creature — Human Warrior", "{1}", 2, { power: "1", toughness: "1" }, "Eternalize {1}{G} (Exile from graveyard: create a token copy, except it's a 4/4 black Zombie.)"],
   ["prodigy", "Zauberlehrling", "Creature — Wizard", "{1}", 2, { power: "1", toughness: "1" }, "Whenever you cast an instant or sorcery spell, each opponent loses 1 life.\nWhenever you draw your second card each turn, you gain 2 life.\nWhenever a nontoken creature you control enters, it explores."],
+  ["swarmer", "Schwarmwesen", "Creature — Horror", "{G}", 2, { power: "*", toughness: "*" }, "~'s power and toughness are each equal to twice the number of creatures you control."],
+  ["freebie", "Gratisgabe", "Sorcery", "{5}{G}{G}", 2, {}, "If you control a commander, you may cast ~ without paying its mana cost.\nDraw a card."],
   ["convoker", "Einberufer", "Sorcery", "{3}{G}", 2, {}, "Convoke\nDraw a card."],
   ["delver", "Schürfer", "Sorcery", "{4}{G}", 2, {}, "Delve\nDraw a card."],
   ["sculptor", "Bildhauer", "Creature — Vedalken", "{G}", 2, { power: "1", toughness: "1" }, "Artifact spells you cast cost {1} less to cast."],
@@ -2244,6 +2246,18 @@ describe("Neue Mechaniken aus den Commander-Decks", () => {
     go(game, random);
     const land = game.defs[game.cards[top].def].types.land;
     expect(land ? game.players.u0.hand.includes(top) : game.cards[bear].counters["+1/+1"]).toBeTruthy();
+  });
+
+  it("Dynamische Stärke („twice the number“) und Gratis-Zauber mit Kommandant", () => {
+    const { game, random } = started("commander");
+    const swarm = put(game, "u0", "Schwarmwesen", "battlefield");
+    put(game, "u0", "Bär", "battlefield");
+    const card = view(game, "u0").players[0].battlefield.find(c => c.id === swarm);
+    expect(card.power).toBe(4);
+    const gift = put(game, "u0", "Gratisgabe", "hand");
+    expect(view(game, "u0").players[0].hand.find(c => c.id === gift).play.ok).toBe(false);
+    put(game, "u0", "Boss d0", "battlefield");
+    expect(view(game, "u0").players[0].hand.find(c => c.id === gift).play.ok).toBe(true);
   });
 
   it("Convoke und Delve bezahlen fehlendes Mana mit Kreaturen bzw. Friedhofskarten", () => {

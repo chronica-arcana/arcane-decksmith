@@ -183,7 +183,7 @@ const counterOf = (card, kind) => card.counters[kind] ?? 0;
 const bonus = card => counterOf(card, "+1/+1") - counterOf(card, "-1/-1");
 const dynamicBase = (game, card) => {
   const rule = defOf(game, card).rules?.dynamicPT;
-  return rule ? perCount(game, { controller: card.owner }, rule.per) : 0;
+  return rule ? perCount(game, { controller: card.owner, source: card.id }, rule.per) * (rule.mult ?? 1) : 0;
 };
 const powerOf = (game, card) => (defOf(game, card).power ?? 0) + dynamicBase(game, card) + bonus(card) + (card.tp ?? 0) + staticEffects(game, card).p;
 const toughnessOf = (game, card) => (defOf(game, card).toughness ?? 0) + dynamicBase(game, card) + bonus(card) + (card.tt ?? 0) + staticEffects(game, card).th;
@@ -740,6 +740,9 @@ function applyPay(game, userId, picks, name, selfId) {
   }
 }
 
+/** „If you control a commander, you may cast ~ without paying its mana cost.“ */
+const hasFreeCast = (game, userId, def) => Boolean(def.rules?.freeWithCommander) && game.players[userId].battlefield.some(id => game.cards[id].cmd);
+
 /** Kostenverringerung wie „costs {1} less for each creature on the battlefield“ (in Mana). */
 function costReduction(game, def, userId) {
   let total = 0;
@@ -1132,6 +1135,7 @@ function settleCombatWaiting(game) {
 }
 
 function dealCombatDamage(game, now) {
+  const hitOwners = new Set(); // „one or more creatures you control deal combat damage“: einmal je Kontrolleur
   const combat = game.combat;
   if (!combat) return;
   if (game.turn.fog) {
@@ -1188,6 +1192,10 @@ function dealCombatDamage(game, now) {
       }
       if (dealt > 0 && hit.player) {
         fireGlobal(game, "creatureDealsCombatDamage", source);
+        if (!hitOwners.has(source.owner)) {
+          hitOwners.add(source.owner);
+          fireGlobal(game, "creaturesDealDamage", source);
+        }
         fireTriggers(game, source, "dealsCombatDamage", hit.player);
         for (const other of Object.values(game.cards)) {
           if (other.attachedTo !== source.id || !onBattlefield(game, other.id)) continue;
@@ -1821,6 +1829,9 @@ function perCount(game, ctx, per) {
     case "land": return everyone("land");
     case "artifact": return everyone("artifact");
     case "card in your hand": return mine.hand.length;
+    case "card in your graveyard": return mine.graveyard.length;
+    case "creature card in your graveyard": return mine.graveyard.filter(id => defOf(game, game.cards[id]).types.creature).length;
+    case "other creature you control": return ofType(mine.battlefield, "creature") - (ctx.source && mine.battlefield.includes(ctx.source) && defOf(game, game.cards[ctx.source]).types.creature ? 1 : 0);
     case "opponent": return alive(game).filter(id => id !== ctx.controller).length;
     default: return 0;
   }
@@ -2775,6 +2786,14 @@ function runEffect(game, rawEffect, ctx, rest) {
       }
       return false;
     }
+    case "doubleCounters": {
+      const card = game.cards[ctx.targets[effect.t]];
+      if (card && onBattlefield(game, card.id)) {
+        for (const kind of Object.keys(card.counters)) card.counters[kind] *= 2;
+        addLog(game, `Die Marker auf ${nameOf(game, card.id)} werden verdoppelt (${name}).`);
+      }
+      return false;
+    }
     case "freeze": {
       const card = effect.t !== null && effect.t !== undefined ? game.cards[ctx.targets[effect.t]] : ctx.subjectCard ? game.cards[ctx.subjectCard] : ctx.lastControlled ? game.cards[ctx.lastControlled] : null;
       if (card) {
@@ -3086,7 +3105,7 @@ export function playOptions(game, userId, id) {
   let affordable = false;
   if (timingOk) {
     const tax = found.zone === "command" ? 2 * (player.cmdCasts[id] ?? 0) : 0;
-    affordable = planWithAlternatives(game, userId, def, { manaCost: flashbackOk ? def.rules.flashback : foretoldOk ? def.rules.foretell : def.manaCost, extraGeneric: tax - costReduction(game, def, userId), pool: player.pool, sources: manaSources(game, userId) }).plan.ok;
+    affordable = planWithAlternatives(game, userId, def, { manaCost: flashbackOk ? def.rules.flashback : foretoldOk ? def.rules.foretell : hasFreeCast(game, userId, def) ? "" : def.manaCost, extraGeneric: tax - costReduction(game, def, userId), pool: player.pool, sources: manaSources(game, userId) }).plan.ok;
     if (affordable && def.rules?.additionalCost && !canPayExtras(game, userId, def.rules.additionalCost, id)) affordable = false;
   }
   const spell = def.rules?.spell;
@@ -3177,8 +3196,8 @@ function cardView(game, id, viewerId, { hideFace = false } = {}) {
     manaCost: def.manaCost,
     imageUri: def.imageUri,
     keywords: keywordsOfCard(game, card),
-    power: creature ? (def.powerText !== null && def.power === null ? null : powerOf(game, card)) : null,
-    toughness: creature ? (def.toughnessText !== null && def.toughness === null ? null : toughnessOf(game, card)) : null,
+    power: creature ? (def.powerText !== null && def.power === null && !def.rules?.dynamicPT ? null : powerOf(game, card)) : null,
+    toughness: creature ? (def.toughnessText !== null && def.toughness === null && !def.rules?.dynamicPT ? null : toughnessOf(game, card)) : null,
     abilities: card.owner === viewerId && (onBattlefield(game, id) || game.players[card.owner].graveyard.includes(id)) ? abilityOptions(game, viewerId, card) : [],
     cycle: card.owner === viewerId ? cycleOptions(game, viewerId, card) : null,
     foretell: card.owner === viewerId ? foretellOptions(game, viewerId, card) : null,
@@ -3733,7 +3752,7 @@ function castAction(game, userId, action) {
   if (extraPay.error) return fail(extraPay.error);
   const ward = specs.length > 0 ? wardExtra(game, userId, action.targets) : "";
   const evoked = action.evoke === true && Boolean(def.rules?.evoke) && found.zone === "hand";
-  const cost = (flashback ? def.rules.flashback : foretold ? def.rules.foretell : evoked ? def.rules.evoke : def.manaCost) + ward;
+  const cost = (flashback ? def.rules.flashback : foretold ? def.rules.foretell : evoked ? def.rules.evoke : hasFreeCast(game, userId, def) ? "" : def.manaCost) + ward;
   const alt = planWithAlternatives(game, userId, def, { manaCost: cost, x, extraGeneric: tax - costReduction(game, def, userId), pool: player.pool, sources: chosenSources(manaSources(game, userId), action) });
   const plan = alt.plan;
   if (!plan.ok) {

@@ -330,6 +330,10 @@ function parseSentence(raw, specs) {
     const t = addTarget(specs, m[1]);
     return t === null ? null : [{ type: "control", t, untilEot: Boolean(m[2]) }];
   }
+  if ((m = lower.match(/^double the number of each kind of counter on (target (?:permanent|creature|artifact|planeswalker))$/))) {
+    const t = addTarget(specs, m[1]);
+    return t === null ? null : [{ type: "doubleCounters", t }];
+  }
   if ((m = lower.match(/^(~|it|that creature) explores$/))) return [{ type: "explore", who: m[1] === "~" ? "self" : "subject" }];
   if (/^(?:that creature|it|those creatures) doesn't untap during (?:its|their) controller's next untap step$/.test(lower)) return [{ type: "freeze", t: specs.length > 0 ? 0 : null }];
   if (lower === "untap that creature" || lower === "untap it") return [{ type: "untapLast" }];
@@ -911,6 +915,7 @@ function triggerEvent(word, condition) {
   if ((m = condition.match(/^(another|a) (nontoken )?creature (you control|an opponent controls) (enters|dies)( the battlefield)?$/))) {
     return { event: m[4] === "dies" ? "creatureDies" : "creatureEnters", scope: { owner: m[3] === "you control" ? "you" : "opp", another: m[1] === "another", ...(m[2] ? { nontoken: true } : {}) } };
   }
+  if (/^one or more creatures you control deal combat damage to a player$/.test(condition)) return { event: "creaturesDealDamage", scope: { owner: "you", another: false } };
   if (/^you draw your second card each turn$/.test(condition)) return { event: "youDrawSecond", scope: { owner: "you", another: false } };
   if ((m = condition.match(/^you cast an? (instant or sorcery|artifact|enchantment|instant|sorcery|planeswalker|historic|legendary|multicolored|nonland) spell$/))) {
     const kinds = { "instant or sorcery": ["instant", "sorcery"], historic: ["artifact", "legendary"], nonland: ["creature", "artifact", "enchantment", "instant", "sorcery", "planeswalker"] }[m[1]] ?? [m[1]];
@@ -983,6 +988,10 @@ export function parseCardText({ name, typeLine, oracleText }) {
         result.convoke = true;
         continue;
       }
+      if (/^if you control a commander, you may cast ~ without paying its mana cost\.?$/i.test(line)) {
+        result.freeWithCommander = true;
+        continue;
+      }
       if (/^delve$/i.test(line)) {
         result.delve = true;
         continue;
@@ -1049,9 +1058,15 @@ export function parseCardText({ name, typeLine, oracleText }) {
       result.attackTax = Number(tax[1]);
       continue;
     }
-    const dynamic = line.match(/^~'s power and toughness are each equal to the number of (artifacts|creatures|lands) you control\.?$/i);
+    const dynamic = line.match(/^~'s power and toughness are each equal to (twice )?the number of (other )?(artifacts|creatures|lands|creature cards|cards) (you control|in your graveyard|in your hand)\.?$/i);
     if (dynamic) {
-      result.dynamicPT = { per: `${dynamic[1].slice(0, -1).toLowerCase()} you control` };
+      const kind = dynamic[3].toLowerCase().replace(/s$/, "");
+      const where = dynamic[4].toLowerCase();
+      result.dynamicPT = { per: `${dynamic[2] ? "other " : ""}${kind} ${where}`.replace(/^other (card|creature card) in/, "$1 in"), mult: dynamic[1] ? 2 : 1 };
+      continue;
+    }
+    if (/^if you control a commander, you may cast ~ without paying its mana cost\.?$/i.test(line)) {
+      result.freeWithCommander = true;
       continue;
     }
     const unblockable = line.match(/^equipped creature can't be blocked(?: and has ([a-z, ]+))?\.?$/i);
@@ -1089,7 +1104,7 @@ export function parseCardText({ name, typeLine, oracleText }) {
       continue;
     }
     // Reine Deckbau-Hinweise ohne Spielwirkung
-    if (/^(partner|partner with .+|doctor's companion|friends forever|choose a background|~ can be your commander|ascend|companion .+)\.?$/i.test(line)) {
+    if (/^(partner|partner\s*[—-]\s*.+|partner with .+|doctor's companion|friends forever|choose a background|~ can be your commander|ascend|companion .+)\.?$/i.test(line)) {
       result.inert = [...(result.inert ?? []), line];
       continue;
     }
