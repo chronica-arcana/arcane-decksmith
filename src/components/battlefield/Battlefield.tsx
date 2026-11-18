@@ -301,6 +301,11 @@ export default function Battlefield({
       if ((zone === "hand" || zone === "command" || zone === "graveyard" || zone === "exile") && card.play) {
         items.push({ label: card.play.kind === "land" ? "Land spielen" : zone === "graveyard" ? "Mit Rückblende wirken" : "Wirken", disabled: !card.play.ok, onClick: () => startCast(card) });
       }
+      if (zone === "graveyard") {
+        for (const ability of card.abilities ?? []) {
+          items.push({ label: `Fähigkeit: ${ability.text}`, disabled: !ability.ok, onClick: () => startActivate(card, ability) });
+        }
+      }
       if (zone === "battlefield") {
         if (card.mana && !card.tapped && !card.sick) {
           for (const color of card.manaColors ?? []) {

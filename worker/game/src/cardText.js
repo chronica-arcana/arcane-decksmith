@@ -23,6 +23,7 @@ export function normalizeText(oracleText, name) {
   text = text.replace(/(choose a creature type\.)[ \t]+/gi, "$1\n");
   text = text.replace(/\bAs it enters\b/g, "As ~ enters").replace(/\. (?=As ~ enters)/g, ".\n");
   text = text.replace(/\bthis (creature|permanent|artifact|enchantment|land|planeswalker|spell|equipment|aura|vehicle)\b/gi, "~");
+  text = text.replace(/ +([.,;])/g, "$1");
   return text
     .split("\n")
     .map(line => line.trim())
@@ -329,6 +330,8 @@ function parseSentence(raw, specs) {
     const t = addTarget(specs, m[1]);
     return t === null ? null : [{ type: "control", t, untilEot: Boolean(m[2]) }];
   }
+  if ((m = lower.match(/^(~|it|that creature) explores$/))) return [{ type: "explore", who: m[1] === "~" ? "self" : "subject" }];
+  if (/^(?:that creature|it|those creatures) doesn't untap during (?:its|their) controller's next untap step$/.test(lower)) return [{ type: "freeze", t: specs.length > 0 ? 0 : null }];
   if (lower === "untap that creature" || lower === "untap it") return [{ type: "untapLast" }];
   if (/^(?:it|that creature) gains haste until end of turn$/.test(lower)) return [{ type: "hasteLast" }];
   if (lower === "prevent all combat damage that would be dealt this turn") return [{ type: "fog" }];
@@ -377,6 +380,7 @@ function parseSentence(raw, specs) {
     const to = m[2];
     if (n === null) return null;
     if (to === "each opponent") return [{ type: "damage", n, to: { k: "eachOpp" } }];
+    if (to === "you") return [{ type: "damage", n, to: { k: "you" } }];
     if (to === "each player") return [{ type: "damage", n, to: { k: "each" } }];
     if (to === "each creature") return [{ type: "damage", n, to: { k: "eachCreature" } }];
     if (to === "each creature you don't control") return [{ type: "damage", n, to: { k: "eachOppCreature" } }];
@@ -902,7 +906,16 @@ function triggerEvent(word, condition) {
   if ((m = condition.match(/^(another|a) creature enters( the battlefield)? under your control$/))) {
     return { event: "creatureEnters", scope: { owner: "you", another: m[1] === "another" } };
   }
-  if (/^a land enters( the battlefield)? under your control$/.test(condition)) return { event: "landEnters", scope: { owner: "you", another: false } };
+  if (/^a land (enters( the battlefield)? under your control|you control enters( the battlefield)?)$/.test(condition)) return { event: "landEnters", scope: { owner: "you", another: false } };
+  if (/^a land (an opponent controls enters( the battlefield)?|enters( the battlefield)? under an opponent's control)$/.test(condition)) return { event: "landEnters", scope: { owner: "opp", another: false } };
+  if ((m = condition.match(/^(another|a) (nontoken )?creature (you control|an opponent controls) (enters|dies)( the battlefield)?$/))) {
+    return { event: m[4] === "dies" ? "creatureDies" : "creatureEnters", scope: { owner: m[3] === "you control" ? "you" : "opp", another: m[1] === "another", ...(m[2] ? { nontoken: true } : {}) } };
+  }
+  if (/^you draw your second card each turn$/.test(condition)) return { event: "youDrawSecond", scope: { owner: "you", another: false } };
+  if ((m = condition.match(/^you cast an? (instant or sorcery|artifact|enchantment|instant|sorcery|planeswalker|historic|legendary|multicolored|nonland) spell$/))) {
+    const kinds = { "instant or sorcery": ["instant", "sorcery"], historic: ["artifact", "legendary"], nonland: ["creature", "artifact", "enchantment", "instant", "sorcery", "planeswalker"] }[m[1]] ?? [m[1]];
+    if (m[1] !== "multicolored") return { event: "castKind", kinds, scope: { owner: "you", another: false } };
+  }
   if (/^you cast a creature spell of the chosen type$/.test(condition)) return { event: "castCreature", chosenType: true, scope: { owner: "you", another: false } };
   if (/^you cast a creature spell$/.test(condition)) return { event: "castCreature", scope: { owner: "you", another: false } };
   if (/^you cast a spell$/.test(condition)) return { event: "castSpell", scope: { owner: "you", another: false } };
@@ -1142,6 +1155,14 @@ export function parseCardText({ name, typeLine, oracleText }) {
     const evoke = line.match(/^evoke (\{[^}]+\}(?:\{[^}]+\})*)$/i);
     if (evoke) {
       result.evoke = evoke[1];
+      continue;
+    }
+    // Aus dem Friedhof: Encore / Eternalize / Embalm (Kopie als Spielstein, Karte wird ins Exil gelegt)
+    const yard = line.match(/^(encore|eternalize|embalm) (\{[^}]+\}(?:\{[^}]+\})*)$/i);
+    if (yard) {
+      const mode = yard[1].toLowerCase();
+      const summary = { encore: "Encore: Karte ins Exil – für jeden Gegner ein Spielstein-Kopie mit Eile, die ihn angreifen muss; am Zugende opfern.", eternalize: "Eternalize: Karte ins Exil – schwarze 4/4-Zombie-Spielstein-Kopie.", embalm: "Embalm: Karte ins Exil – weiße Zombie-Spielstein-Kopie." }[mode];
+      result.activated.push({ index: result.activated.length, text: line, zone: "graveyard", cost: { tap: false, sacrifice: false, mana: yard[2], exileSelf: true }, sorcery: true, effects: [{ type: "copyToken", mode }], specs: [], unparsed: [], summary });
       continue;
     }
     if (/^station$/i.test(line)) {

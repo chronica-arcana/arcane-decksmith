@@ -120,6 +120,9 @@ const LIB = [
   ["whistle", "Yunas Pfeife", "Instant", "{1}{G}{G}", 2, {}, "Reveal cards from the top of your library until you reveal a creature card. Put that card into your hand and the rest on the bottom of your library in a random order. When you reveal a creature card this way, put X +1/+1 counters on target creature you control, where X is the mana value of that card."],
   ["vehicle", "Karren", "Artifact — Vehicle", "{2}", 2, { power: "3", toughness: "3" }, "Crew 2"],
   ["spaceship", "Raumkreuzer", "Artifact — Spacecraft", "{2}", 2, { power: "3", toughness: "3", keywords: ["Station", "Flying"] }, "Station (Tap another creature you control: Put charge counters equal to its power on this Spacecraft. Station only as a sorcery. It's an artifact creature at 3+.)\n1+ | You gain 1 life whenever you draw a card.\n3+ | Flying"],
+  ["encorer", "Echogeist", "Creature — Spirit", "{1}", 2, { power: "2", toughness: "1" }, "Flying\nEncore {1}{R} (Exile this card from your graveyard: For each opponent, create a token copy that attacks that opponent this turn if able. They gain haste. Sacrifice them at the beginning of the next end step. Activate only as a sorcery.)"],
+  ["eternal", "Ewiger", "Creature — Human Warrior", "{1}", 2, { power: "1", toughness: "1" }, "Eternalize {1}{G} (Exile from graveyard: create a token copy, except it's a 4/4 black Zombie.)"],
+  ["prodigy", "Zauberlehrling", "Creature — Wizard", "{1}", 2, { power: "1", toughness: "1" }, "Whenever you cast an instant or sorcery spell, each opponent loses 1 life.\nWhenever you draw your second card each turn, you gain 2 life.\nWhenever a nontoken creature you control enters, it explores."],
   ["convoker", "Einberufer", "Sorcery", "{3}{G}", 2, {}, "Convoke\nDraw a card."],
   ["delver", "Schürfer", "Sorcery", "{4}{G}", 2, {}, "Delve\nDraw a card."],
   ["sculptor", "Bildhauer", "Creature — Vedalken", "{G}", 2, { power: "1", toughness: "1" }, "Artifact spells you cast cost {1} less to cast."],
@@ -2202,6 +2205,45 @@ describe("Neue Mechaniken aus den Commander-Decks", () => {
     const v = view(game, "u0").players[0].battlefield.find(c => c.id === ship);
     expect(v.kind).toBe("creature");
     expect(v.keywords).toContain("flying");
+  });
+
+  it("Encore und Eternalize: aus dem Friedhof, Kopie als Spielstein", () => {
+    const { game, random } = started();
+    forest(game, "u0", 4);
+    for (let i = 0; i < 2; i += 1) put(game, "u0", "Mountain", "battlefield");
+    const rev = put(game, "u0", "Echogeist", "graveyard");
+    const eternal = put(game, "u0", "Ewiger", "graveyard");
+    const ab = view(game, "u0").players[0].graveyard.find(c => c.id === rev).abilities[0];
+    expect(ab.ok).toBe(true);
+    expect(act(game, "u0", { type: "activate", id: rev, index: 0 }, random).ok).toBe(true);
+    go(game, random);
+    expect(game.players.u0.exile).toContain(rev);
+    const tokens = game.players.u0.battlefield.filter(id => game.cards[id].token && game.defs[game.cards[id].def]?.name !== "x" && game.xdefs[game.cards[id].def]?.name === "Echogeist");
+    expect(tokens.length).toBe(1);
+    expect(game.cards[tokens[0]].sacEnd).toBe(true);
+    expect(act(game, "u0", { type: "activate", id: eternal, index: 0 }, random).ok).toBe(true);
+    go(game, random);
+    const zombie = game.players.u0.battlefield.find(id => game.xdefs[game.cards[id].def]?.name === "Ewiger");
+    expect(zombie).toBeTruthy();
+    expect(game.xdefs[game.cards[zombie].def].power).toBe(4);
+  });
+
+  it("Allgemeine Auslöser: Zauberart, zweite Karte pro Zug, Erkunden", () => {
+    const { game, random } = started();
+    forest(game, "u0", 12);
+    put(game, "u0", "Zauberlehrling", "battlefield");
+    const life = game.players.u1.life;
+    const own = game.players.u0.life;
+    cast(game, random, "u0", "Einberufer");
+    cast(game, random, "u0", "Einberufer");
+    expect(game.players.u1.life).toBe(life - 2);
+    expect(game.players.u0.life).toBe(own + 2);
+    const bear = put(game, "u0", "Bär", "hand");
+    const top = game.players.u0.library[game.players.u0.library.length - 1];
+    expect(act(game, "u0", { type: "cast", id: bear }, random).ok).toBe(true);
+    go(game, random);
+    const land = game.defs[game.cards[top].def].types.land;
+    expect(land ? game.players.u0.hand.includes(top) : game.cards[bear].counters["+1/+1"]).toBeTruthy();
   });
 
   it("Convoke und Delve bezahlen fehlendes Mana mit Kreaturen bzw. Friedhofskarten", () => {
