@@ -142,6 +142,12 @@ const LIB = [
   ["manland", "Wandelland", "Land", "", 2, {}, "{1}{G}: This land becomes a 3/3 green Elemental creature until end of turn. It's still a land."],
   ["heirloom", "Heldenerbstück", "Artifact — Equipment", "{1}", 2, {}, "Equipped creature gets +2/+1.\nAs long as equipped creature is legendary, it has trample and haste.\nEquip {2}"],
   ["ballista", "Wandelnde Balliste", "Artifact Creature — Construct", "{X}{X}", 2, { power: "0", toughness: "0" }, "This creature enters with X +1/+1 counters on it.\n{4}: Put a +1/+1 counter on this creature.\nRemove a +1/+1 counter from this creature: It deals 1 damage to any target."],
+  ["toxic", "Giftkäfer", "Creature — Phyrexian Insect", "{G}", 2, { power: "1", toughness: "1" }, "Toxic 1"],
+  ["undead", "Wiederkehrer", "Creature — Zombie", "{G}", 2, { power: "2", toughness: "2" }, "Undying"],
+  ["adapter", "Anpasser", "Creature — Druid", "{G}", 2, { power: "1", toughness: "1" }, "{1}{G}: Adapt 2."],
+  ["drifter", "Treiber", "Creature — Elemental", "{3}{G}", 2, { power: "2", toughness: "2" }, "When this creature enters, draw two cards.\nEvoke {1}{G}"],
+  ["humanlord", "Menschenhauptmann", "Creature — Human Soldier", "{G}", 2, { power: "1", toughness: "1" }, "Whenever another Human you control enters, put a +1/+1 counter on this creature."],
+  ["human2", "Mensch", "Creature — Human Peasant", "{G}", 2, { power: "1", toughness: "1" }],
   ["priest", "Priester", "Creature — Cleric", "{G}", 2, { power: "1", toughness: "1" }, "At the beginning of your end step, you gain 1 life."]
 ];
 const facts = new Map();
@@ -2361,5 +2367,73 @@ describe("Hero's Heirloom und Walking Ballista", () => {
     for (let i = 0; i < 4 && game.stack.length > 0; i += 1) act(game, game.priority, { type: "pass" }, random);
     expect(game.players.u1.life).toBe(life - 1);
     expect(game.cards[ballista].counters["+1/+1"]).toBe(1);
+  });
+});
+
+describe("Mechaniken aus den Set-Decks (Toxic, Undying, Adapt, Evoke, Typ-Auslöser)", () => {
+  const go = (game, random, n = 10) => {
+    for (let i = 0; i < n && (game.stack.length > 0 || game.choice); i += 1) {
+      if (game.choice) act(game, game.choice.userId, { type: "choose", ids: game.choice.kind === "yesno" ? ["yes"] : game.choice.options.slice(0, Math.max(1, game.choice.min)) }, random);
+      else act(game, game.priority, { type: "pass" }, random);
+    }
+  };
+
+  it("Toxic gibt Giftmarken bei Kampfschaden an einen Spieler", () => {
+    const { game, random } = started();
+    const bug = put(game, "u0", "Giftkäfer", "battlefield");
+    toAttackers(game, random);
+    act(game, "u0", { type: "declareAttackers", attackers: [{ id: bug, target: "u1" }] }, random);
+    go(game, random);
+    for (let i = 0; i < 6 && game.combat; i += 1) act(game, game.priority, { type: "pass" }, random);
+    expect(game.players.u1.poison).toBe(1);
+  });
+
+  it("Undying: stirbt ohne Marker → kommt mit +1/+1-Marker zurück; mit Marker bleibt sie tot", () => {
+    const { game, random } = started();
+    const z = put(game, "u0", "Wiederkehrer", "battlefield");
+    game.cards[z].damage = 5;
+    act(game, "u0", { type: "pass" }, random);
+    go(game, random);
+    expect(game.players.u0.battlefield).toContain(z);
+    expect(game.cards[z].counters["+1/+1"]).toBe(1);
+    game.cards[z].damage = 9;
+    act(game, game.priority, { type: "pass" }, random);
+    go(game, random);
+    expect(game.players.u0.graveyard).toContain(z);
+  });
+
+  it("Adapt nur ohne Marker; Evoke wird geopfert, löst aber aus", () => {
+    const { game, random } = started();
+    forest(game, "u0", 4);
+    const druid = put(game, "u0", "Anpasser", "battlefield");
+    act(game, "u0", { type: "activate", id: druid, index: 0 }, random);
+    go(game, random);
+    expect(game.cards[druid].counters["+1/+1"]).toBe(2);
+    for (const id of game.players.u0.battlefield) game.cards[id].tapped = false;
+    act(game, "u0", { type: "activate", id: druid, index: 0 }, random);
+    go(game, random);
+    expect(game.cards[druid].counters["+1/+1"]).toBe(2); // bleibt bei 2
+    const drifter = put(game, "u0", "Treiber", "hand");
+    const hand = game.players.u0.hand.length;
+    expect(view(game, "u0").players[0].hand.find(c => c.id === drifter).evoke).toMatchObject({ ok: true, cost: "{1}{G}" });
+    expect(act(game, "u0", { type: "cast", id: drifter, evoke: true }, random).error ?? "ok").toBe("ok");
+    go(game, random);
+    expect(game.players.u0.graveyard).toContain(drifter);
+    expect(game.players.u0.hand.length).toBe(hand - 1 + 2);
+  });
+
+  it("„Whenever another Human you control enters“: nur Menschen lösen aus", () => {
+    const { game, random } = started();
+    forest(game, "u0", 4);
+    const lord = put(game, "u0", "Menschenhauptmann", "battlefield");
+    cast(game, random, "u0", "Mensch");
+    expect(game.cards[lord].counters["+1/+1"]).toBe(1);
+    cast(game, random, "u0", "Bär");
+    expect(game.cards[lord].counters["+1/+1"]).toBe(1);
+    function cast(g, r, uid, name) {
+      const id = put(g, uid, name, "hand");
+      expect(act(g, uid, { type: "cast", id }, r).error ?? "ok").toBe("ok");
+      go(g, r);
+    }
   });
 });

@@ -294,6 +294,20 @@ function parseSentence(raw, specs) {
     const t = addTarget(specs, m[1]);
     return t === null || kws.length === 0 ? null : [{ type: "pump", p: Number(m[2]), th: Number(m[3]), t }, { type: "grantKw", kws, t }];
   }
+  if (/^activate (?:only )?(?:as a sorcery|during your turn|only once each turn)$/.test(lower)) return [{ type: "noop" }];
+  if ((m = lower.match(/^adapt (\d+)$/))) return [{ type: "adapt", n: Number(m[1]) }];
+  if ((m = lower.match(new RegExp(`^put ${N} ([+-]1/[+-]1) counters? on each other ([a-z]+) you control$`)))) {
+    const n = num(m[1]);
+    return n === null || n === "X" ? null : [{ type: "countersAll", n, kind: m[2], other: true, subtype: m[3] }];
+  }
+  if ((m = lower.match(new RegExp(`^put ${N} ([+-]1/[+-]1) counters? on that creature$`)))) {
+    const n = num(m[1]);
+    return n === null || n === "X" ? null : [{ type: "counters", n, kind: m[2], subjectCard: true }];
+  }
+  if ((m = lower.match(new RegExp(`^put ${N} ([a-z]+) counters? on ~$`))) && !/[+-]1/.test(m[2])) {
+    const n = num(m[1]);
+    return n === null || n === "X" ? null : [{ type: "counters", n, kind: m[2], self: true }];
+  }
   // „… for each …“: der Effekt wird mit der Anzahl multipliziert.
   if ((m = lower.match(/^(.+?) for each (creature you control|land you control|artifact you control|creature your opponents control|creature|land|artifact|card in your hand|opponent)$/))) {
     const head = parseSentence(s.slice(0, m[1].length), specs);
@@ -705,6 +719,9 @@ function describeBase(effect) {
     case "lookTake": return "Nimm eine passende Karte davon auf die Hand.";
     case "lookRest": return effect.to === "graveyard" ? "Der Rest kommt auf den Friedhof." : "Der Rest kommt in zufälliger Reihenfolge unter die Bibliothek.";
     case "livingWeapon": return "Erzeugt einen 0/0-Germ-Spielstein und hängt sich daran.";
+    case "undying": return `Kam die Karte ohne ${effect.kind}-Marker ins Grab, kehrt sie mit einem ${effect.kind}-Marker zurück.`;
+    case "melee": return "+1/+1 für jeden Gegner, den du in diesem Kampf angegriffen hast.";
+    case "adapt": return `Adapt ${effect.n}: ${effect.n} +1/+1-Marker, falls die Karte keine hat.`;
     case "bounceOwn": return "Du legst ein eigenes Permanent zurück auf die Hand.";
     case "tapOrUntap": return "Tappt oder enttappt das Ziel.";
     case "flicker": return "Das Ziel wird exiliert und kommt sofort zurück.";
@@ -872,6 +889,10 @@ function triggerEvent(word, condition) {
   if ((m = condition.match(/^another creature with power (\d+) or less enters( the battlefield)? under your control$/))) {
     return { event: "creatureEnters", scope: { owner: "you", another: true, maxPower: Number(m[1]) } };
   }
+  if ((m = condition.match(/^another ([a-z]+) you control enters( the battlefield)?$/)) && !["creature", "nontoken"].includes(m[1])) {
+    return { event: "creatureEnters", scope: { owner: "you", another: true, subtype: m[1] } };
+  }
+  if (/^a creature you control deals combat damage to a player$/.test(condition)) return { event: "creatureDealsCombatDamage", scope: { owner: "you", another: false } };
   if (/^another creature enters( the battlefield)?$/.test(condition)) return { event: "creatureEnters", scope: { owner: "any", another: true } };
   if (/^~ attacks$/.test(condition)) return { event: "attacks" };
   if ((m = condition.match(/^(another|a) creature (you control|an opponent controls) dies$/))) {
@@ -1009,6 +1030,14 @@ export function parseCardText({ name, typeLine, oracleText }) {
       result.attach = { p: result.attach?.p ?? 0, th: result.attach?.th ?? 0, grants: [...(result.attach?.grants ?? []), ...grants] };
       continue;
     }
+    const haveKw = line.match(/^(other )?creatures you control have ([a-z, ]+)\.?$/i);
+    if (haveKw) {
+      const grants = haveKw[2].split(/,| and /).map(word => word.trim().toLowerCase()).filter(word => KEYWORDS.includes(word));
+      if (grants.length > 0) {
+        result.statics.push({ scope: haveKw[1] ? "youOther" : "you", p: 0, th: 0, grants });
+        continue;
+      }
+    }
     const costMod = line.match(/^(creature|artifact|enchantment|noncreature|instant and sorcery|instant|sorcery) spells you cast cost \{(\d+)\} less to cast\.?$/i);
     if (costMod) {
       result.costMod = { amount: Number(costMod[2]), what: costMod[1].toLowerCase() };
@@ -1074,6 +1103,28 @@ export function parseCardText({ name, typeLine, oracleText }) {
     }
     if (/^convoke$/i.test(line)) {
       result.convoke = true;
+      continue;
+    }
+    const toxic = line.match(/^toxic (\d+)$/i);
+    if (toxic) {
+      result.toxic = Number(toxic[1]);
+      continue;
+    }
+    if (/^undying$/i.test(line)) {
+      result.triggers.push({ event: "dies", text: "Undying", effects: [{ type: "undying", kind: "+1/+1" }], specs: [], unparsed: [], summary: "Kam ohne +1/+1-Marker ins Grab: kehrt mit einem +1/+1-Marker zurück." });
+      continue;
+    }
+    if (/^persist$/i.test(line)) {
+      result.triggers.push({ event: "dies", text: "Persist", effects: [{ type: "undying", kind: "-1/-1" }], specs: [], unparsed: [], summary: "Kam ohne −1/−1-Marker ins Grab: kehrt mit einem −1/−1-Marker zurück." });
+      continue;
+    }
+    if (/^melee$/i.test(line)) {
+      result.triggers.push({ event: "attacks", text: "Melee", effects: [{ type: "melee" }], specs: [], unparsed: [], summary: "Melee: +1/+1 für jeden angegriffenen Gegner." });
+      continue;
+    }
+    const evoke = line.match(/^evoke (\{[^}]+\}(?:\{[^}]+\})*)$/i);
+    if (evoke) {
+      result.evoke = evoke[1];
       continue;
     }
     const crew = line.match(/^crew (\d+)$/i);
@@ -1248,7 +1299,9 @@ export function parseCardText({ name, typeLine, oracleText }) {
         ? [triggerEvent(trigger[1], "~ enters"), triggerEvent(trigger[1], "~ attacks")]
         : [triggerEvent(trigger[1], condition)];
       if (events.every(Boolean)) {
-        const parsed = parseEffectText(trigger[3]);
+        const selfEvent = events.every(event => ["etb", "attacks", "dealsCombatDamage", "dies"].includes(event.event));
+        const effectText = selfEvent ? trigger[3].replace(/\b(on|it deals|returns?|gets?) it\b/g, match => match.replace(/\bit\b/, "~")) : trigger[3];
+        const parsed = parseEffectText(effectText);
         if (parsed.specs.length <= 3) {
           for (const event of events) result.triggers.push({ ...event, text: line, ...parsed });
           continue;

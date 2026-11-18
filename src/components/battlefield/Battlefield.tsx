@@ -214,7 +214,7 @@ export default function Battlefield({
     const card = allCards.get(action.id);
     if (!card) return act(action);
     let cost = "";
-    if (action.type === "cast") cost = (card.manaCost ?? "").replace(/\{X\}/gi, () => `{${action.x ?? 0}}`);
+    if (action.type === "cast") cost = (action.evoke ? card.evoke?.cost ?? "" : card.manaCost ?? "").replace(/\{X\}/gi, () => `{${action.x ?? 0}}`);
     else if (action.type === "cycle") cost = card.cycle?.cost ?? "";
     else if (action.type === "foretell") cost = "{2}";
     else cost = (card.abilities?.find(ability => ability.index === action.index)?.costLabel ?? "").replace(/\{T\}/g, "");
@@ -289,6 +289,9 @@ export default function Battlefield({
         { label: "→ Bibliothek oben", onClick: () => moveCard(card, "library", { position: "top" }) },
         { label: "→ Bibliothek unten", onClick: () => moveCard(card, "library", { position: "bottom" }) }
       ];
+      if (zone === "hand" && card.evoke) {
+        items.push({ label: `Evoke ${card.evoke.cost} (wird geopfert)`, disabled: !card.evoke.ok, onClick: () => payOrAct({ type: "cast", id: card.id, evoke: true }) });
+      }
       if (zone === "hand" && card.foretell) {
         items.push({ label: `Vorhersagen (Foretell) {2} – später für ${card.foretell.cost}`, disabled: !card.foretell.ok, onClick: () => payOrAct({ type: "foretell", id: card.id }) });
       }

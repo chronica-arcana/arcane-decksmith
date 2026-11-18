@@ -499,6 +499,7 @@ function toGraveyard(game, card, from = "battlefield") {
     delete game.cards[card.id];
     return;
   }
+  card.lastCounters = { ...card.counters };
   resetCardState(card);
   owner.graveyard.push(card.id);
   if (from === "battlefield") offerCommanderReturn(game, card, "graveyard");
@@ -914,7 +915,7 @@ function resolveTop(game) {
   if (!item) return;
   const controller = game.players[item.controller];
   if (item.kind === "ability") {
-    const ctx = { controller: item.controller, source: item.source, sourceName: item.sourceName, targets: item.targets ?? [], unparsed: item.unparsed ?? [], subject: item.subject, snap: snapshotTargets(game, item.targets) };
+    const ctx = { controller: item.controller, source: item.source, sourceName: item.sourceName, targets: item.targets ?? [], unparsed: item.unparsed ?? [], subject: item.subject, subjectCard: item.subjectCard, snap: snapshotTargets(game, item.targets) };
     if ((item.specs?.length ?? 0) > 0 && !targetsLegal(game, item.specs, ctx.targets, item.controller, item.source && game.cards[item.source] ? { ...srcOfCard(game, game.cards[item.source]), subject: item.subject } : undefined)) {
       addLog(game, `${item.sourceName}: Fähigkeit verpufft (Ziel nicht mehr gültig).`);
       return;
@@ -952,6 +953,10 @@ function resolveTop(game) {
     owner.battlefield.push(card.id);
     card.enterX = item.x;
     enterBattlefield(game, card);
+    if (item.evoked) {
+      game.triggerQueue.push({ controller: item.controller, source: card.id, sourceName: def.name, trigger: { event: "etb", text: "Evoke: opfern", effects: [{ type: "sacrificeSelf" }], specs: [], unparsed: [], summary: "Evoke: wird geopfert." } });
+      addLog(game, `${def.name} wurde mit Evoke gewirkt und wird geopfert.`);
+    }
     addLog(game, `${def.name} löst sich auf → Schlachtfeld.`);
   }
 }
@@ -1145,6 +1150,7 @@ function dealCombatDamage(game, now) {
         addLog(game, `${game.players[source.owner].name} wird durch Kampfschaden zum Monarchen.`);
       }
       if (dealt > 0 && hit.player) {
+        fireGlobal(game, "creatureDealsCombatDamage", source);
         fireTriggers(game, source, "dealsCombatDamage", hit.player);
         for (const other of Object.values(game.cards)) {
           if (other.attachedTo !== source.id || !onBattlefield(game, other.id)) continue;
@@ -1480,6 +1486,10 @@ function inflictDamage(game, source, targetId, amount, { combat = false } = {}) 
     }
     if (!combat) addLog(game, `${sourceName} fügt ${def.name} ${amount} Schaden zu.`);
   }
+  if (dealt > 0 && combat && source && game.players[targetId] && defOf(game, source).rules?.toxic) {
+    game.players[targetId].poison += defOf(game, source).rules.toxic;
+    addLog(game, `${game.players[targetId].name} erhält ${defOf(game, source).rules.toxic} Giftmarke(n) (Toxic).`);
+  }
   if (dealt > 0 && source && hasKeyword(game, source, "lifelink")) {
     game.players[source.owner].life += dealt;
     pushFx(game, { type: "heal", player: source.owner, amount: dealt });
@@ -1542,9 +1552,10 @@ function fireGlobal(game, event, subject) {
         if (scope.owner === "opp" && subjectOwner === source.owner) continue;
         if (scope.another && typeof subject !== "string" && subject.id === source.id) continue;
         if (trigger.cond === "evolve" && (typeof subject === "string" || !(powerOf(game, subject) > powerOf(game, source) || toughnessOf(game, subject) > toughnessOf(game, source)))) continue;
+        if (scope.subtype && (typeof subject === "string" || !hasSubtype(defOf(game, subject), scope.subtype))) continue;
         if (scope.maxPower !== undefined && (typeof subject === "string" || powerOf(game, subject) > scope.maxPower)) continue;
         if (trigger.chosenType && (!source.chosenType || typeof subject === "string" || !hasSubtype(defOf(game, subject), source.chosenType))) continue;
-        game.triggerQueue.push({ controller: source.owner, source: source.id, sourceName: def.name, trigger, subject: subjectOwner });
+        game.triggerQueue.push({ controller: source.owner, source: source.id, sourceName: def.name, trigger, subject: subjectOwner, subjectCard: typeof subject === "string" ? null : subject.id });
       }
     }
   }
@@ -1663,6 +1674,7 @@ function flushTriggers(game) {
       source: next.source,
       sourceName: next.sourceName,
       subject: next.subject,
+      subjectCard: next.subjectCard,
       text: trigger.summary || trigger.text,
       effects: trigger.effects,
       specs: trigger.specs,
@@ -2057,6 +2069,7 @@ function runEffect(game, rawEffect, ctx, rest) {
       for (const id of [...controller.battlefield]) {
         const c = game.cards[id];
         if (!defOf(game, c).types.creature || (effect.other && c.id === ctx.source)) continue;
+        if (effect.subtype && !hasSubtype(defOf(game, c), effect.subtype)) continue;
         c.counters[effect.kind] = Math.min(MAX_COUNTERS, (c.counters[effect.kind] ?? 0) + effect.n);
         c.counterTurn = game.turn.number;
       }
@@ -2389,7 +2402,7 @@ function runEffect(game, rawEffect, ctx, rest) {
       return false;
     }
     case "counters": {
-      const card = effect.self ? sourceCard : targetCard;
+      const card = effect.subjectCard ? game.cards[ctx.subjectCard] : effect.self ? sourceCard : targetCard;
       if (card && onBattlefield(game, card.id)) {
         card.counters[effect.kind] = Math.min(MAX_COUNTERS, (card.counters[effect.kind] ?? 0) + effect.n);
         if (effect.n > 0) card.counterTurn = game.turn.number;
@@ -2550,6 +2563,34 @@ function runEffect(game, rawEffect, ctx, rest) {
         }
       }
       addLog(game, `${controller.name} verbreitet Marker (${count}×, ${name}).`);
+      return false;
+    }
+    case "undying": {
+      const card = sourceCard;
+      if (!card) return false;
+      const owner = game.players[card.origOwner ?? card.owner];
+      if (!owner.graveyard.includes(card.id) || (card.lastCounters?.[effect.kind] ?? 0) > 0) return false;
+      owner.graveyard.splice(owner.graveyard.indexOf(card.id), 1);
+      owner.battlefield.push(card.id);
+      card.owner = owner === game.players[card.owner] ? card.owner : card.origOwner ?? card.owner;
+      enterBattlefield(game, card);
+      card.counters[effect.kind] = (card.counters[effect.kind] ?? 0) + 1;
+      addLog(game, `${nameOf(game, card.id)} kehrt mit einem ${effect.kind}-Marker zurück (${effect.kind === "+1/+1" ? "Undying" : "Persist"}).`);
+      return false;
+    }
+    case "melee": {
+      if (!sourceCard || !game.combat) return false;
+      const defenders = new Set(game.combat.attackers.filter(a => game.cards[a.id]?.owner === ctx.controller).map(a => attackTargetOwner(game, a.target)));
+      sourceCard.tp = (sourceCard.tp ?? 0) + defenders.size;
+      sourceCard.tt = (sourceCard.tt ?? 0) + defenders.size;
+      addLog(game, `${nameOf(game, sourceCard.id)} erhält +${defenders.size}/+${defenders.size} (Melee).`);
+      return false;
+    }
+    case "adapt": {
+      if (!sourceCard || (sourceCard.counters["+1/+1"] ?? 0) > 0) return false;
+      sourceCard.counters["+1/+1"] = effect.n;
+      sourceCard.counterTurn = game.turn.number;
+      addLog(game, `${nameOf(game, sourceCard.id)} adaptiert: ${effect.n} +1/+1-Marker.`);
       return false;
     }
     case "monarch":
@@ -3031,6 +3072,7 @@ function cardView(game, id, viewerId, { hideFace = false } = {}) {
     abilities: card.owner === viewerId && onBattlefield(game, id) ? abilityOptions(game, viewerId, card) : [],
     cycle: card.owner === viewerId ? cycleOptions(game, viewerId, card) : null,
     foretell: card.owner === viewerId ? foretellOptions(game, viewerId, card) : null,
+    evoke: card.owner === viewerId ? evokeOptions(game, viewerId, card) : null,
     rulesNotes: (def.rules?.notes ?? []).slice(0, 4).map(note => note.replace(/~/g, def.name)),
     mana: Boolean(def.mana),
     manaColors: def.mana ? [...new Set(effectiveMana(game, card).flat())] : [],
@@ -3580,7 +3622,8 @@ function castAction(game, userId, action) {
   const extraPay = resolvePay(game, userId, def.rules?.additionalCost, action.pay, found.card.id);
   if (extraPay.error) return fail(extraPay.error);
   const ward = specs.length > 0 ? wardExtra(game, userId, action.targets) : "";
-  const cost = (flashback ? def.rules.flashback : foretold ? def.rules.foretell : def.manaCost) + ward;
+  const evoked = action.evoke === true && Boolean(def.rules?.evoke) && found.zone === "hand";
+  const cost = (flashback ? def.rules.flashback : foretold ? def.rules.foretell : evoked ? def.rules.evoke : def.manaCost) + ward;
   const alt = planWithAlternatives(game, userId, def, { manaCost: cost, x, extraGeneric: tax - costReduction(game, def, userId), pool: player.pool, sources: chosenSources(manaSources(game, userId), action) });
   const plan = alt.plan;
   if (!plan.ok) {
@@ -3609,7 +3652,7 @@ function castAction(game, userId, action) {
   found.card.revealed = false;
   const greatestPower = player.battlefield.reduce((max, id) => (defOf(game, game.cards[id]).types.creature ? Math.max(max, powerOf(game, game.cards[id])) : max), 0);
   found.card.faceDown = false;
-  game.stack.push({ sid: newId(game, "s"), kind: "spell", controller: userId, cardId: found.card.id, x, flashback, mode, targets: specs.length > 0 ? action.targets : [], greatestPower, fromExile: found.zone === "exile" });
+  game.stack.push({ sid: newId(game, "s"), kind: "spell", controller: userId, cardId: found.card.id, x, flashback, mode, targets: specs.length > 0 ? action.targets : [], greatestPower, fromExile: found.zone === "exile", evoked });
   game.priority = userId;
   game.passed = [];
   addLog(game, `${player.name} wirkt ${def.name}${paid}.`);
@@ -3658,6 +3701,18 @@ function foretellAction(game, userId, action) {
   found.card.foretoldTurn = game.turn.number;
   addLog(game, `${player.name} sagt eine Karte vorher (verdeckt im Exil).`);
   return ok();
+}
+
+/** Evoke: alternative Kosten; die Kreatur wird beim Ins-Spiel-Kommen geopfert. */
+function evokeOptions(game, userId, card) {
+  const def = defOf(game, card);
+  if (!def.rules?.evoke || !game.players[userId].hand.includes(card.id)) return null;
+  const player = game.players[userId];
+  const playing = game.phase === "playing" && !player.eliminated && !game.pendingDiscard && !game.choice && !game.manual;
+  const mainPhase = game.turn.active === userId && (game.turn.phase === "main1" || game.turn.phase === "main2") && game.stack.length === 0;
+  const timing = playing && hasWindow(game, userId) && (def.keywords.includes("flash") || mainPhase);
+  const ok = timing && planPayment({ manaCost: def.rules.evoke, pool: player.pool, sources: manaSources(game, userId) }).ok;
+  return { ok, cost: def.rules.evoke };
 }
 
 function cycleOptions(game, userId, card) {
