@@ -187,3 +187,39 @@ describe("cardText: Modi, X-Werte, Cycling", () => {
     expect(parseCardText({ name: "Karte", typeLine: "Instant", oracleText: "Draw a card.\nCycling {1}" }).spell.effects).toHaveLength(1);
   });
 });
+
+describe("cardText: neue Mechaniken (Station, Encore, allgemeine Auslöser)", () => {
+  const parse = (typeLine, oracleText) => parseCardText({ name: "Karte", typeLine, oracleText });
+
+  it("Station: Fähigkeit, Schwelle als Kreatur und Stufen", () => {
+    const parsed = parse("Artifact — Spacecraft", "Station (Tap another creature you control: Put charge counters equal to its power on this Spacecraft. Station only as a sorcery. It's an artifact creature at 8+.)\n1+ | Whenever you draw a card, you gain 1 life.\n8+ | Flying\nOther artifacts you control have hexproof.");
+    expect(parsed.station).toEqual({ at: 8 });
+    expect(parsed.activated[0]).toMatchObject({ sorcery: true, effects: [{ type: "station" }] });
+    expect(parsed.tiers).toEqual([{ n: 8, kws: ["flying"] }]);
+    expect(parsed.triggers[0]).toMatchObject({ event: "youDraw", minCharge: 1 });
+  });
+
+  it("Encore/Eternalize/Embalm sind Fähigkeiten aus dem Friedhof", () => {
+    for (const word of ["Encore", "Eternalize", "Embalm"]) {
+      const parsed = parse("Creature — Spirit", `${word} {2}{B}`);
+      expect(parsed.activated[0]).toMatchObject({ zone: "graveyard", sorcery: true, cost: { mana: "{2}{B}", exileSelf: true }, effects: [{ type: "copyToken", mode: word.toLowerCase() }] });
+    }
+  });
+
+  it("Auslöser nach Zauberart, Nichtspielstein, zweiter Karte und mehreren Kreaturen", () => {
+    const events = text => parse("Creature — X", text).triggers.map(trigger => trigger.event);
+    expect(events("Whenever you cast an instant or sorcery spell, draw a card.")).toEqual(["castKind"]);
+    expect(events("Whenever a nontoken creature you control dies, draw a card.")).toEqual(["creatureDies"]);
+    expect(events("Whenever you draw your second card each turn, draw a card.")).toEqual(["youDrawSecond"]);
+    expect(events("Whenever one or more creatures you control deal combat damage to a player, draw a card.")).toEqual(["creaturesDealDamage"]);
+    expect(events("Whenever a land you control enters, proliferate.")).toEqual(["landEnters"]);
+  });
+
+  it("Erkunden, Einfrieren, Marker verdoppeln, Gratis-Zauber, Partner", () => {
+    const parsed = parse("Creature — X", "Whenever a creature you control enters, it explores.\nWhenever ~ attacks, double the number of each kind of counter on target creature.");
+    expect(parsed.triggers[0].effects).toEqual([{ type: "explore", who: "subject" }]);
+    expect(parsed.triggers[1].effects).toEqual([{ type: "doubleCounters", t: 0 }]);
+    expect(parse("Sorcery", "If you control a commander, you may cast ~ without paying its mana cost.\nDraw a card.").freeWithCommander).toBe(true);
+    expect(parse("Legendary Creature — X", "Partner—Character select").notes).toEqual([]);
+  });
+});

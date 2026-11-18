@@ -35,11 +35,14 @@ export function typesOf(typeLine) {
 /** Schlüsselwörter aus Scryfall-Liste und Regeltext (Zeilen, die mit einem Schlüsselwort beginnen). */
 export function keywordsOf({ keywords, oracleText } = {}) {
   const found = new Set();
+  const front = String(oracleText ?? "").split("//")[0];
+  // Raumschiffe (Station): Schlüsselwörter hinter „N+ |“ gelten erst ab genug Ladungsmarkern, nicht dauerhaft.
+  const tiered = /^\d+\+ \|/m.test(front);
+  const outside = tiered ? front.split("\n").filter(line => !/^\d+\+ \|/.test(line)).join("\n").toLowerCase() : "";
   for (const keyword of keywords ?? []) {
     const lower = String(keyword).toLowerCase();
-    if (KEYWORDS.includes(lower)) found.add(lower);
+    if (KEYWORDS.includes(lower) && (!tiered || outside.includes(lower))) found.add(lower);
   }
-  const front = String(oracleText ?? "").split("//")[0];
   for (const line of front.split("\n")) {
     const head = line.replace(/\(.*?\)/g, "").trim();
     if (!head || head.length > 80) continue;

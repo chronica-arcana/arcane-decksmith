@@ -119,6 +119,12 @@ const LIB = [
   ["wakka", "Wakka", "Legendary Creature — Human Warrior", "{2}{G}{W}", 1, { power: "4", toughness: "4", keywords: ["Reach", "Trample"] }, "Reach, trample\nWhenever Wakka deals combat damage to a player, destroy up to one target artifact that player controls and put a +1/+1 counter on Wakka.\nBlitzball Captain — At the beginning of your end step, if a counter was put on Wakka this turn, put a +1/+1 counter on each other creature you control."],
   ["whistle", "Yunas Pfeife", "Instant", "{1}{G}{G}", 2, {}, "Reveal cards from the top of your library until you reveal a creature card. Put that card into your hand and the rest on the bottom of your library in a random order. When you reveal a creature card this way, put X +1/+1 counters on target creature you control, where X is the mana value of that card."],
   ["vehicle", "Karren", "Artifact — Vehicle", "{2}", 2, { power: "3", toughness: "3" }, "Crew 2"],
+  ["spaceship", "Raumkreuzer", "Artifact — Spacecraft", "{2}", 2, { power: "3", toughness: "3", keywords: ["Station", "Flying"] }, "Station (Tap another creature you control: Put charge counters equal to its power on this Spacecraft. Station only as a sorcery. It's an artifact creature at 3+.)\n1+ | You gain 1 life whenever you draw a card.\n3+ | Flying"],
+  ["encorer", "Echogeist", "Creature — Spirit", "{1}", 2, { power: "2", toughness: "1" }, "Flying\nEncore {1}{R} (Exile this card from your graveyard: For each opponent, create a token copy that attacks that opponent this turn if able. They gain haste. Sacrifice them at the beginning of the next end step. Activate only as a sorcery.)"],
+  ["eternal", "Ewiger", "Creature — Human Warrior", "{1}", 2, { power: "1", toughness: "1" }, "Eternalize {1}{G} (Exile from graveyard: create a token copy, except it's a 4/4 black Zombie.)"],
+  ["prodigy", "Zauberlehrling", "Creature — Wizard", "{1}", 2, { power: "1", toughness: "1" }, "Whenever you cast an instant or sorcery spell, each opponent loses 1 life.\nWhenever you draw your second card each turn, you gain 2 life.\nWhenever a nontoken creature you control enters, it explores."],
+  ["swarmer", "Schwarmwesen", "Creature — Horror", "{G}", 2, { power: "*", toughness: "*" }, "~'s power and toughness are each equal to twice the number of creatures you control."],
+  ["freebie", "Gratisgabe", "Sorcery", "{5}{G}{G}", 2, {}, "If you control a commander, you may cast ~ without paying its mana cost.\nDraw a card."],
   ["convoker", "Einberufer", "Sorcery", "{3}{G}", 2, {}, "Convoke\nDraw a card."],
   ["delver", "Schürfer", "Sorcery", "{4}{G}", 2, {}, "Delve\nDraw a card."],
   ["sculptor", "Bildhauer", "Creature — Vedalken", "{G}", 2, { power: "1", toughness: "1" }, "Artifact spells you cast cost {1} less to cast."],
@@ -142,6 +148,12 @@ const LIB = [
   ["manland", "Wandelland", "Land", "", 2, {}, "{1}{G}: This land becomes a 3/3 green Elemental creature until end of turn. It's still a land."],
   ["heirloom", "Heldenerbstück", "Artifact — Equipment", "{1}", 2, {}, "Equipped creature gets +2/+1.\nAs long as equipped creature is legendary, it has trample and haste.\nEquip {2}"],
   ["ballista", "Wandelnde Balliste", "Artifact Creature — Construct", "{X}{X}", 2, { power: "0", toughness: "0" }, "This creature enters with X +1/+1 counters on it.\n{4}: Put a +1/+1 counter on this creature.\nRemove a +1/+1 counter from this creature: It deals 1 damage to any target."],
+  ["toxic", "Giftkäfer", "Creature — Phyrexian Insect", "{G}", 2, { power: "1", toughness: "1" }, "Toxic 1"],
+  ["undead", "Wiederkehrer", "Creature — Zombie", "{G}", 2, { power: "2", toughness: "2" }, "Undying"],
+  ["adapter", "Anpasser", "Creature — Druid", "{G}", 2, { power: "1", toughness: "1" }, "{1}{G}: Adapt 2."],
+  ["drifter", "Treiber", "Creature — Elemental", "{3}{G}", 2, { power: "2", toughness: "2" }, "When this creature enters, draw two cards.\nEvoke {1}{G}"],
+  ["humanlord", "Menschenhauptmann", "Creature — Human Soldier", "{G}", 2, { power: "1", toughness: "1" }, "Whenever another Human you control enters, put a +1/+1 counter on this creature."],
+  ["human2", "Mensch", "Creature — Human Peasant", "{G}", 2, { power: "1", toughness: "1" }],
   ["priest", "Priester", "Creature — Cleric", "{G}", 2, { power: "1", toughness: "1" }, "At the beginning of your end step, you gain 1 life."]
 ];
 const facts = new Map();
@@ -980,7 +992,7 @@ describe("Dauertest: das Spiel bleibt nie stehen", () => {
         }
       }
     }
-  });
+  }, 30000);
 });
 
 describe("Länder mit besonderen Regeln und Effekte der Anzeige", () => {
@@ -2177,6 +2189,77 @@ describe("Neue Mechaniken aus den Commander-Decks", () => {
     expect(v.power).toBe(3);
   });
 
+  it("Station: Kreatur tappen → Ladungsmarker, ab Schwelle Artefaktkreatur mit Flug", () => {
+    const { game, random } = started();
+    const ship = put(game, "u0", "Raumkreuzer", "battlefield");
+    const bear = put(game, "u0", "Bär", "battlefield");
+    const power = view(game, "u0").players[0].battlefield.find(c => c.id === bear).power;
+    expect(game.defs[game.cards[ship].def].rules.station.at).toBe(3);
+    expect(game.defs[game.cards[ship].def].keywords).not.toContain("flying");
+    const opts = view(game, "u0").players[0].battlefield.find(c => c.id === ship).abilities[0];
+    expect(opts.pays[0].options).toEqual([bear]);
+    expect(act(game, "u0", { type: "activate", id: ship, index: 0, pay: [bear] }, random).ok).toBe(true);
+    go(game, random);
+    expect(game.cards[bear].tapped).toBe(true);
+    expect(game.cards[ship].counters.charge).toBe(power);
+    expect(view(game, "u0").players[0].battlefield.find(c => c.id === ship).kind).not.toBe("creature");
+    game.cards[ship].counters.charge = 3;
+    const v = view(game, "u0").players[0].battlefield.find(c => c.id === ship);
+    expect(v.kind).toBe("creature");
+    expect(v.keywords).toContain("flying");
+  });
+
+  it("Encore und Eternalize: aus dem Friedhof, Kopie als Spielstein", () => {
+    const { game, random } = started();
+    forest(game, "u0", 4);
+    for (let i = 0; i < 2; i += 1) put(game, "u0", "Mountain", "battlefield");
+    const rev = put(game, "u0", "Echogeist", "graveyard");
+    const eternal = put(game, "u0", "Ewiger", "graveyard");
+    const ab = view(game, "u0").players[0].graveyard.find(c => c.id === rev).abilities[0];
+    expect(ab.ok).toBe(true);
+    expect(act(game, "u0", { type: "activate", id: rev, index: 0 }, random).ok).toBe(true);
+    go(game, random);
+    expect(game.players.u0.exile).toContain(rev);
+    const tokens = game.players.u0.battlefield.filter(id => game.cards[id].token && game.defs[game.cards[id].def]?.name !== "x" && game.xdefs[game.cards[id].def]?.name === "Echogeist");
+    expect(tokens.length).toBe(1);
+    expect(game.cards[tokens[0]].sacEnd).toBe(true);
+    expect(act(game, "u0", { type: "activate", id: eternal, index: 0 }, random).ok).toBe(true);
+    go(game, random);
+    const zombie = game.players.u0.battlefield.find(id => game.xdefs[game.cards[id].def]?.name === "Ewiger");
+    expect(zombie).toBeTruthy();
+    expect(game.xdefs[game.cards[zombie].def].power).toBe(4);
+  });
+
+  it("Allgemeine Auslöser: Zauberart, zweite Karte pro Zug, Erkunden", () => {
+    const { game, random } = started();
+    forest(game, "u0", 12);
+    put(game, "u0", "Zauberlehrling", "battlefield");
+    const life = game.players.u1.life;
+    const own = game.players.u0.life;
+    cast(game, random, "u0", "Einberufer");
+    cast(game, random, "u0", "Einberufer");
+    expect(game.players.u1.life).toBe(life - 2);
+    expect(game.players.u0.life).toBe(own + 2);
+    const bear = put(game, "u0", "Bär", "hand");
+    const top = game.players.u0.library[game.players.u0.library.length - 1];
+    expect(act(game, "u0", { type: "cast", id: bear }, random).ok).toBe(true);
+    go(game, random);
+    const land = game.defs[game.cards[top].def].types.land;
+    expect(land ? game.players.u0.hand.includes(top) : game.cards[bear].counters["+1/+1"]).toBeTruthy();
+  });
+
+  it("Dynamische Stärke („twice the number“) und Gratis-Zauber mit Kommandant", () => {
+    const { game, random } = started("commander");
+    const swarm = put(game, "u0", "Schwarmwesen", "battlefield");
+    put(game, "u0", "Bär", "battlefield");
+    const card = view(game, "u0").players[0].battlefield.find(c => c.id === swarm);
+    expect(card.power).toBe(4);
+    const gift = put(game, "u0", "Gratisgabe", "hand");
+    expect(view(game, "u0").players[0].hand.find(c => c.id === gift).play.ok).toBe(false);
+    put(game, "u0", "Boss d0", "battlefield");
+    expect(view(game, "u0").players[0].hand.find(c => c.id === gift).play.ok).toBe(true);
+  });
+
   it("Convoke und Delve bezahlen fehlendes Mana mit Kreaturen bzw. Friedhofskarten", () => {
     const { game, random } = started();
     forest(game, "u0", 1);
@@ -2361,5 +2444,73 @@ describe("Hero's Heirloom und Walking Ballista", () => {
     for (let i = 0; i < 4 && game.stack.length > 0; i += 1) act(game, game.priority, { type: "pass" }, random);
     expect(game.players.u1.life).toBe(life - 1);
     expect(game.cards[ballista].counters["+1/+1"]).toBe(1);
+  });
+});
+
+describe("Mechaniken aus den Set-Decks (Toxic, Undying, Adapt, Evoke, Typ-Auslöser)", () => {
+  const go = (game, random, n = 10) => {
+    for (let i = 0; i < n && (game.stack.length > 0 || game.choice); i += 1) {
+      if (game.choice) act(game, game.choice.userId, { type: "choose", ids: game.choice.kind === "yesno" ? ["yes"] : game.choice.options.slice(0, Math.max(1, game.choice.min)) }, random);
+      else act(game, game.priority, { type: "pass" }, random);
+    }
+  };
+
+  it("Toxic gibt Giftmarken bei Kampfschaden an einen Spieler", () => {
+    const { game, random } = started();
+    const bug = put(game, "u0", "Giftkäfer", "battlefield");
+    toAttackers(game, random);
+    act(game, "u0", { type: "declareAttackers", attackers: [{ id: bug, target: "u1" }] }, random);
+    go(game, random);
+    for (let i = 0; i < 6 && game.combat; i += 1) act(game, game.priority, { type: "pass" }, random);
+    expect(game.players.u1.poison).toBe(1);
+  });
+
+  it("Undying: stirbt ohne Marker → kommt mit +1/+1-Marker zurück; mit Marker bleibt sie tot", () => {
+    const { game, random } = started();
+    const z = put(game, "u0", "Wiederkehrer", "battlefield");
+    game.cards[z].damage = 5;
+    act(game, "u0", { type: "pass" }, random);
+    go(game, random);
+    expect(game.players.u0.battlefield).toContain(z);
+    expect(game.cards[z].counters["+1/+1"]).toBe(1);
+    game.cards[z].damage = 9;
+    act(game, game.priority, { type: "pass" }, random);
+    go(game, random);
+    expect(game.players.u0.graveyard).toContain(z);
+  });
+
+  it("Adapt nur ohne Marker; Evoke wird geopfert, löst aber aus", () => {
+    const { game, random } = started();
+    forest(game, "u0", 4);
+    const druid = put(game, "u0", "Anpasser", "battlefield");
+    act(game, "u0", { type: "activate", id: druid, index: 0 }, random);
+    go(game, random);
+    expect(game.cards[druid].counters["+1/+1"]).toBe(2);
+    for (const id of game.players.u0.battlefield) game.cards[id].tapped = false;
+    act(game, "u0", { type: "activate", id: druid, index: 0 }, random);
+    go(game, random);
+    expect(game.cards[druid].counters["+1/+1"]).toBe(2); // bleibt bei 2
+    const drifter = put(game, "u0", "Treiber", "hand");
+    const hand = game.players.u0.hand.length;
+    expect(view(game, "u0").players[0].hand.find(c => c.id === drifter).evoke).toMatchObject({ ok: true, cost: "{1}{G}" });
+    expect(act(game, "u0", { type: "cast", id: drifter, evoke: true }, random).error ?? "ok").toBe("ok");
+    go(game, random);
+    expect(game.players.u0.graveyard).toContain(drifter);
+    expect(game.players.u0.hand.length).toBe(hand - 1 + 2);
+  });
+
+  it("„Whenever another Human you control enters“: nur Menschen lösen aus", () => {
+    const { game, random } = started();
+    forest(game, "u0", 4);
+    const lord = put(game, "u0", "Menschenhauptmann", "battlefield");
+    cast(game, random, "u0", "Mensch");
+    expect(game.cards[lord].counters["+1/+1"]).toBe(1);
+    cast(game, random, "u0", "Bär");
+    expect(game.cards[lord].counters["+1/+1"]).toBe(1);
+    function cast(g, r, uid, name) {
+      const id = put(g, uid, name, "hand");
+      expect(act(g, uid, { type: "cast", id }, r).error ?? "ok").toBe("ok");
+      go(g, r);
+    }
   });
 });

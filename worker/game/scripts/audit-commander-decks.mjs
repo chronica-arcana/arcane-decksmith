@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * Prüft, wie viele Karten aller Commander-Precons (MTGJSON) die Regel-Engine vollständig automatisch versteht.
- * Aufruf (braucht Netzwerk zu mtgjson.com):  node worker/game/scripts/audit-commander-decks.mjs [Cache-Ordner] [Deck-Filter]
+ * Aufruf (braucht Netzwerk zu mtgjson.com):  node worker/game/scripts/audit-commander-decks.mjs [Cache-Ordner] [Filter: Namen oder Set-Codes, kommagetrennt]
  * Ausgabe: Gesamtquote, Quote je Deck und die häufigsten Lücken (nach Anzahl der Decks gewichtet).
  */
 import fs from "node:fs";
@@ -10,7 +10,7 @@ import { parseCardText } from "../src/cardText.js";
 
 const API = "https://mtgjson.com/api/v5";
 const cache = path.resolve(process.argv[2] ?? "/tmp/arcane-decksmith-audit");
-const filter = (process.argv[3] ?? "").toLowerCase();
+const filters = (process.argv[3] ?? "").toLowerCase().split(",").map(item => item.trim()).filter(Boolean);
 fs.mkdirSync(cache, { recursive: true });
 
 async function getJson(url, file) {
@@ -35,7 +35,7 @@ function gaps(card) {
   ];
 }
 
-const list = (await getJson(`${API}/DeckList.json`, "DeckList.json")).data.filter(deck => deck.type === "Commander Deck" && (!filter || deck.name.toLowerCase().includes(filter) || deck.code.toLowerCase() === filter));
+const list = (await getJson(`${API}/DeckList.json`, "DeckList.json")).data.filter(deck => deck.type === "Commander Deck" && (filters.length === 0 || filters.some(filter => deck.name.toLowerCase().includes(filter) || deck.code.toLowerCase() === filter)));
 const unique = new Map();
 const perDeck = [];
 for (const entry of list) {

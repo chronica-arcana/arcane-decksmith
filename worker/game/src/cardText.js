@@ -23,6 +23,7 @@ export function normalizeText(oracleText, name) {
   text = text.replace(/(choose a creature type\.)[ \t]+/gi, "$1\n");
   text = text.replace(/\bAs it enters\b/g, "As ~ enters").replace(/\. (?=As ~ enters)/g, ".\n");
   text = text.replace(/\bthis (creature|permanent|artifact|enchantment|land|planeswalker|spell|equipment|aura|vehicle)\b/gi, "~");
+  text = text.replace(/ +([.,;])/g, "$1");
   return text
     .split("\n")
     .map(line => line.trim())
@@ -294,6 +295,20 @@ function parseSentence(raw, specs) {
     const t = addTarget(specs, m[1]);
     return t === null || kws.length === 0 ? null : [{ type: "pump", p: Number(m[2]), th: Number(m[3]), t }, { type: "grantKw", kws, t }];
   }
+  if (/^activate (?:only )?(?:as a sorcery|during your turn|only once each turn)$/.test(lower)) return [{ type: "noop" }];
+  if ((m = lower.match(/^adapt (\d+)$/))) return [{ type: "adapt", n: Number(m[1]) }];
+  if ((m = lower.match(new RegExp(`^put ${N} ([+-]1/[+-]1) counters? on each other ([a-z]+) you control$`)))) {
+    const n = num(m[1]);
+    return n === null || n === "X" ? null : [{ type: "countersAll", n, kind: m[2], other: true, subtype: m[3] }];
+  }
+  if ((m = lower.match(new RegExp(`^put ${N} ([+-]1/[+-]1) counters? on that creature$`)))) {
+    const n = num(m[1]);
+    return n === null || n === "X" ? null : [{ type: "counters", n, kind: m[2], subjectCard: true }];
+  }
+  if ((m = lower.match(new RegExp(`^put ${N} ([a-z]+) counters? on ~$`))) && !/[+-]1/.test(m[2])) {
+    const n = num(m[1]);
+    return n === null || n === "X" ? null : [{ type: "counters", n, kind: m[2], self: true }];
+  }
   // „… for each …“: der Effekt wird mit der Anzahl multipliziert.
   if ((m = lower.match(/^(.+?) for each (creature you control|land you control|artifact you control|creature your opponents control|creature|land|artifact|card in your hand|opponent)$/))) {
     const head = parseSentence(s.slice(0, m[1].length), specs);
@@ -315,6 +330,12 @@ function parseSentence(raw, specs) {
     const t = addTarget(specs, m[1]);
     return t === null ? null : [{ type: "control", t, untilEot: Boolean(m[2]) }];
   }
+  if ((m = lower.match(/^double the number of each kind of counter on (target (?:permanent|creature|artifact|planeswalker))$/))) {
+    const t = addTarget(specs, m[1]);
+    return t === null ? null : [{ type: "doubleCounters", t }];
+  }
+  if ((m = lower.match(/^(~|it|that creature) explores$/))) return [{ type: "explore", who: m[1] === "~" ? "self" : "subject" }];
+  if (/^(?:that creature|it|those creatures) doesn't untap during (?:its|their) controller's next untap step$/.test(lower)) return [{ type: "freeze", t: specs.length > 0 ? 0 : null }];
   if (lower === "untap that creature" || lower === "untap it") return [{ type: "untapLast" }];
   if (/^(?:it|that creature) gains haste until end of turn$/.test(lower)) return [{ type: "hasteLast" }];
   if (lower === "prevent all combat damage that would be dealt this turn") return [{ type: "fog" }];
@@ -363,6 +384,7 @@ function parseSentence(raw, specs) {
     const to = m[2];
     if (n === null) return null;
     if (to === "each opponent") return [{ type: "damage", n, to: { k: "eachOpp" } }];
+    if (to === "you") return [{ type: "damage", n, to: { k: "you" } }];
     if (to === "each player") return [{ type: "damage", n, to: { k: "each" } }];
     if (to === "each creature") return [{ type: "damage", n, to: { k: "eachCreature" } }];
     if (to === "each creature you don't control") return [{ type: "damage", n, to: { k: "eachOppCreature" } }];
@@ -705,6 +727,9 @@ function describeBase(effect) {
     case "lookTake": return "Nimm eine passende Karte davon auf die Hand.";
     case "lookRest": return effect.to === "graveyard" ? "Der Rest kommt auf den Friedhof." : "Der Rest kommt in zufälliger Reihenfolge unter die Bibliothek.";
     case "livingWeapon": return "Erzeugt einen 0/0-Germ-Spielstein und hängt sich daran.";
+    case "undying": return `Kam die Karte ohne ${effect.kind}-Marker ins Grab, kehrt sie mit einem ${effect.kind}-Marker zurück.`;
+    case "melee": return "+1/+1 für jeden Gegner, den du in diesem Kampf angegriffen hast.";
+    case "adapt": return `Adapt ${effect.n}: ${effect.n} +1/+1-Marker, falls die Karte keine hat.`;
     case "bounceOwn": return "Du legst ein eigenes Permanent zurück auf die Hand.";
     case "tapOrUntap": return "Tappt oder enttappt das Ziel.";
     case "flicker": return "Das Ziel wird exiliert und kommt sofort zurück.";
@@ -872,6 +897,10 @@ function triggerEvent(word, condition) {
   if ((m = condition.match(/^another creature with power (\d+) or less enters( the battlefield)? under your control$/))) {
     return { event: "creatureEnters", scope: { owner: "you", another: true, maxPower: Number(m[1]) } };
   }
+  if ((m = condition.match(/^another ([a-z]+) you control enters( the battlefield)?$/)) && !["creature", "nontoken"].includes(m[1])) {
+    return { event: "creatureEnters", scope: { owner: "you", another: true, subtype: m[1] } };
+  }
+  if (/^a creature you control deals combat damage to a player$/.test(condition)) return { event: "creatureDealsCombatDamage", scope: { owner: "you", another: false } };
   if (/^another creature enters( the battlefield)?$/.test(condition)) return { event: "creatureEnters", scope: { owner: "any", another: true } };
   if (/^~ attacks$/.test(condition)) return { event: "attacks" };
   if ((m = condition.match(/^(another|a) creature (you control|an opponent controls) dies$/))) {
@@ -881,7 +910,17 @@ function triggerEvent(word, condition) {
   if ((m = condition.match(/^(another|a) creature enters( the battlefield)? under your control$/))) {
     return { event: "creatureEnters", scope: { owner: "you", another: m[1] === "another" } };
   }
-  if (/^a land enters( the battlefield)? under your control$/.test(condition)) return { event: "landEnters", scope: { owner: "you", another: false } };
+  if (/^a land (enters( the battlefield)? under your control|you control enters( the battlefield)?)$/.test(condition)) return { event: "landEnters", scope: { owner: "you", another: false } };
+  if (/^a land (an opponent controls enters( the battlefield)?|enters( the battlefield)? under an opponent's control)$/.test(condition)) return { event: "landEnters", scope: { owner: "opp", another: false } };
+  if ((m = condition.match(/^(another|a) (nontoken )?creature (you control|an opponent controls) (enters|dies)( the battlefield)?$/))) {
+    return { event: m[4] === "dies" ? "creatureDies" : "creatureEnters", scope: { owner: m[3] === "you control" ? "you" : "opp", another: m[1] === "another", ...(m[2] ? { nontoken: true } : {}) } };
+  }
+  if (/^one or more creatures you control deal combat damage to a player$/.test(condition)) return { event: "creaturesDealDamage", scope: { owner: "you", another: false } };
+  if (/^you draw your second card each turn$/.test(condition)) return { event: "youDrawSecond", scope: { owner: "you", another: false } };
+  if ((m = condition.match(/^you cast an? (instant or sorcery|artifact|enchantment|instant|sorcery|planeswalker|historic|legendary|multicolored|nonland) spell$/))) {
+    const kinds = { "instant or sorcery": ["instant", "sorcery"], historic: ["artifact", "legendary"], nonland: ["creature", "artifact", "enchantment", "instant", "sorcery", "planeswalker"] }[m[1]] ?? [m[1]];
+    if (m[1] !== "multicolored") return { event: "castKind", kinds, scope: { owner: "you", another: false } };
+  }
   if (/^you cast a creature spell of the chosen type$/.test(condition)) return { event: "castCreature", chosenType: true, scope: { owner: "you", another: false } };
   if (/^you cast a creature spell$/.test(condition)) return { event: "castCreature", scope: { owner: "you", another: false } };
   if (/^you cast a spell$/.test(condition)) return { event: "castSpell", scope: { owner: "you", another: false } };
@@ -902,7 +941,24 @@ const stripPrefix = line => line.replace(/^[•*]\s*/, "").replace(/^[A-Z][^—.
  */
 export function parseCardText({ name, typeLine, oracleText }) {
   const types = typesOf(typeLine);
-  const rawLines = normalizeText(oracleText, name);
+  let rawLines = normalizeText(oracleText, name);
+  // Raumschiffe: Zeilen „N+ | …“ gehören zu Ladungsstufen; sie werden getrennt ausgewertet und mit Schwelle versehen.
+  const tiers = [];
+  let stationAt = null;
+  if (rawLines.some(line => /^station$/i.test(line))) {
+    const keep = [];
+    let current = null;
+    for (const line of rawLines) {
+      const tier = line.match(/^(\d+)\+ \| (.*)$/);
+      if (tier) {
+        current = { n: Number(tier[1]), lines: [tier[2]] };
+        tiers.push(current);
+      } else if (current) current.lines.push(line);
+      else keep.push(line);
+    }
+    rawLines = keep;
+    stationAt = Number(/artifact creature at (\d+)\+/i.exec(String(oracleText))?.[1]) || (tiers.length > 0 ? tiers[tiers.length - 1].n : null);
+  }
   const result = { spell: null, triggers: [], activated: [], notes: [], statics: [], flashback: null, cycling: null, entersTapped: false, entersTappedUnless: null, shock: null, reveal: null };
 
   // Cycling (Abwerfen aus der Hand gegen Mana: eine Karte ziehen oder nach Land suchen)
@@ -930,6 +986,10 @@ export function parseCardText({ name, typeLine, oracleText }) {
       }
       if (/^convoke$/i.test(line)) {
         result.convoke = true;
+        continue;
+      }
+      if (/^if you control a commander, you may cast ~ without paying its mana cost\.?$/i.test(line)) {
+        result.freeWithCommander = true;
         continue;
       }
       if (/^delve$/i.test(line)) {
@@ -998,9 +1058,15 @@ export function parseCardText({ name, typeLine, oracleText }) {
       result.attackTax = Number(tax[1]);
       continue;
     }
-    const dynamic = line.match(/^~'s power and toughness are each equal to the number of (artifacts|creatures|lands) you control\.?$/i);
+    const dynamic = line.match(/^~'s power and toughness are each equal to (twice )?the number of (other )?(artifacts|creatures|lands|creature cards|cards) (you control|in your graveyard|in your hand)\.?$/i);
     if (dynamic) {
-      result.dynamicPT = { per: `${dynamic[1].slice(0, -1).toLowerCase()} you control` };
+      const kind = dynamic[3].toLowerCase().replace(/s$/, "");
+      const where = dynamic[4].toLowerCase();
+      result.dynamicPT = { per: `${dynamic[2] ? "other " : ""}${kind} ${where}`.replace(/^other (card|creature card) in/, "$1 in"), mult: dynamic[1] ? 2 : 1 };
+      continue;
+    }
+    if (/^if you control a commander, you may cast ~ without paying its mana cost\.?$/i.test(line)) {
+      result.freeWithCommander = true;
       continue;
     }
     const unblockable = line.match(/^equipped creature can't be blocked(?: and has ([a-z, ]+))?\.?$/i);
@@ -1008,6 +1074,14 @@ export function parseCardText({ name, typeLine, oracleText }) {
       const grants = ["unblockable", ...(unblockable[1] ?? "").split(/,| and /).map(word => word.trim().toLowerCase()).filter(word => KEYWORDS.includes(word))];
       result.attach = { p: result.attach?.p ?? 0, th: result.attach?.th ?? 0, grants: [...(result.attach?.grants ?? []), ...grants] };
       continue;
+    }
+    const haveKw = line.match(/^(other )?creatures you control have ([a-z, ]+)\.?$/i);
+    if (haveKw) {
+      const grants = haveKw[2].split(/,| and /).map(word => word.trim().toLowerCase()).filter(word => KEYWORDS.includes(word));
+      if (grants.length > 0) {
+        result.statics.push({ scope: haveKw[1] ? "youOther" : "you", p: 0, th: 0, grants });
+        continue;
+      }
     }
     const costMod = line.match(/^(creature|artifact|enchantment|noncreature|instant and sorcery|instant|sorcery) spells you cast cost \{(\d+)\} less to cast\.?$/i);
     if (costMod) {
@@ -1030,7 +1104,7 @@ export function parseCardText({ name, typeLine, oracleText }) {
       continue;
     }
     // Reine Deckbau-Hinweise ohne Spielwirkung
-    if (/^(partner|partner with .+|doctor's companion|friends forever|choose a background|~ can be your commander|ascend|companion .+)\.?$/i.test(line)) {
+    if (/^(partner|partner\s*[—-]\s*.+|partner with .+|doctor's companion|friends forever|choose a background|~ can be your commander|ascend|companion .+)\.?$/i.test(line)) {
       result.inert = [...(result.inert ?? []), line];
       continue;
     }
@@ -1074,6 +1148,41 @@ export function parseCardText({ name, typeLine, oracleText }) {
     }
     if (/^convoke$/i.test(line)) {
       result.convoke = true;
+      continue;
+    }
+    const toxic = line.match(/^toxic (\d+)$/i);
+    if (toxic) {
+      result.toxic = Number(toxic[1]);
+      continue;
+    }
+    if (/^undying$/i.test(line)) {
+      result.triggers.push({ event: "dies", text: "Undying", effects: [{ type: "undying", kind: "+1/+1" }], specs: [], unparsed: [], summary: "Kam ohne +1/+1-Marker ins Grab: kehrt mit einem +1/+1-Marker zurück." });
+      continue;
+    }
+    if (/^persist$/i.test(line)) {
+      result.triggers.push({ event: "dies", text: "Persist", effects: [{ type: "undying", kind: "-1/-1" }], specs: [], unparsed: [], summary: "Kam ohne −1/−1-Marker ins Grab: kehrt mit einem −1/−1-Marker zurück." });
+      continue;
+    }
+    if (/^melee$/i.test(line)) {
+      result.triggers.push({ event: "attacks", text: "Melee", effects: [{ type: "melee" }], specs: [], unparsed: [], summary: "Melee: +1/+1 für jeden angegriffenen Gegner." });
+      continue;
+    }
+    const evoke = line.match(/^evoke (\{[^}]+\}(?:\{[^}]+\})*)$/i);
+    if (evoke) {
+      result.evoke = evoke[1];
+      continue;
+    }
+    // Aus dem Friedhof: Encore / Eternalize / Embalm (Kopie als Spielstein, Karte wird ins Exil gelegt)
+    const yard = line.match(/^(encore|eternalize|embalm) (\{[^}]+\}(?:\{[^}]+\})*)$/i);
+    if (yard) {
+      const mode = yard[1].toLowerCase();
+      const summary = { encore: "Encore: Karte ins Exil – für jeden Gegner ein Spielstein-Kopie mit Eile, die ihn angreifen muss; am Zugende opfern.", eternalize: "Eternalize: Karte ins Exil – schwarze 4/4-Zombie-Spielstein-Kopie.", embalm: "Embalm: Karte ins Exil – weiße Zombie-Spielstein-Kopie." }[mode];
+      result.activated.push({ index: result.activated.length, text: line, zone: "graveyard", cost: { tap: false, sacrifice: false, mana: yard[2], exileSelf: true }, sorcery: true, effects: [{ type: "copyToken", mode }], specs: [], unparsed: [], summary });
+      continue;
+    }
+    if (/^station$/i.test(line)) {
+      result.station = { at: stationAt };
+      result.activated.push({ index: result.activated.length, text: line, cost: { tap: false, sacrifice: false, mana: "", extra: [{ kind: "tap", what: "creature", n: 1, other: true }] }, sorcery: true, effects: [{ type: "station" }], specs: [], unparsed: [], summary: `Station: tappe eine andere Kreatur, lege Ladungsmarker in Höhe ihrer Stärke auf diese Karte${stationAt ? ` (ab ${stationAt} Markern eine Artefaktkreatur)` : ""}.` });
       continue;
     }
     const crew = line.match(/^crew (\d+)$/i);
@@ -1248,7 +1357,9 @@ export function parseCardText({ name, typeLine, oracleText }) {
         ? [triggerEvent(trigger[1], "~ enters"), triggerEvent(trigger[1], "~ attacks")]
         : [triggerEvent(trigger[1], condition)];
       if (events.every(Boolean)) {
-        const parsed = parseEffectText(trigger[3]);
+        const selfEvent = events.every(event => ["etb", "attacks", "dealsCombatDamage", "dies"].includes(event.event));
+        const effectText = selfEvent ? trigger[3].replace(/\b(on|it deals|returns?|gets?) it\b/g, match => match.replace(/\bit\b/, "~")) : trigger[3];
+        const parsed = parseEffectText(effectText);
         if (parsed.specs.length <= 3) {
           for (const event of events) result.triggers.push({ ...event, text: line, ...parsed });
           continue;
@@ -1256,6 +1367,20 @@ export function parseCardText({ name, typeLine, oracleText }) {
       }
     }
     result.notes.push(line);
+  }
+  for (const tier of tiers) {
+    for (const line of tier.lines) {
+      const words = line.split(/[,;]/).map(part => part.trim().toLowerCase());
+      if (words.length > 0 && words.every(word => KEYWORDS.includes(word))) {
+        result.tiers = [...(result.tiers ?? []), { n: tier.n, kws: words }];
+        continue;
+      }
+      const sub = parseCardText({ name, typeLine, oracleText: line });
+      for (const item of sub.triggers) result.triggers.push({ ...item, minCharge: tier.n });
+      for (const item of sub.statics) result.statics.push({ ...item, minCharge: tier.n });
+      for (const item of sub.activated) result.activated.push({ ...item, index: result.activated.length, minCharge: tier.n });
+      for (const note of sub.notes) result.notes.push(`${tier.n}+ | ${note}`);
+    }
   }
   if (result.returnExiled) {
     for (const trigger of result.triggers) for (const effect of trigger.effects) if (effect.type === "exile") effect.until = true;
