@@ -256,6 +256,8 @@ describe("Spielraum", () => {
     fireEvent.click(screen.getByRole("button", { name: /^Räuber/ }));
     fireEvent.click(screen.getByRole("button", { name: "Blocken bestätigen" }));
     expect(send).toHaveBeenLastCalledWith({ type: "declareBlockers", blocks: [{ blocker: "b1", attacker: "a1" }] });
+    // Lehnt der Server ab, bleibt die Auswahl stehen (der Spieler muss nicht neu anfangen)
+    expect(screen.getByRole("button", { name: "Blocken bestätigen" })).toBeTruthy();
   });
 
   it("Kampfbahnen: Angreifer und Blocker liegen in der Mitte, nicht mehr auf dem Feld", () => {

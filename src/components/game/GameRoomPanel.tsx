@@ -36,6 +36,8 @@ export default function GameRoomPanel({
   const [log, setLog] = useState<LogLine[]>([]);
   const [chat, setChat] = useState("");
   const [error, setError] = useState("");
+  const [actionNotice, setActionNotice] = useState("");
+  const noticeTimer = useRef<number | undefined>(undefined);
   const [copied, setCopied] = useState(false);
   const [attempt, setAttempt] = useState(0);
   const connection = useRef<GameConnection | null>(null);
@@ -69,7 +71,13 @@ export default function GameRoomPanel({
         if (message.type === "game") setGame(message.game);
         if (message.type === "chat") addLog(`${message.from}: ${message.text}`);
         if (message.type === "system") addLog(message.text);
-        if (message.type === "error") addLog(`Hinweis: ${message.message}`);
+        if (message.type === "error") {
+          addLog(`Hinweis: ${message.message}`);
+          // Abgelehnte Aktionen (z. B. ein ungültiger Block) sofort sichtbar machen, nicht nur im Verlauf
+          setActionNotice(message.message);
+          window.clearTimeout(noticeTimer.current);
+          noticeTimer.current = window.setTimeout(() => setActionNotice(""), 6000);
+        }
         if (message.type === "closed" && !finished.current) {
           finished.current = true;
           onLeft(message.reason);
@@ -143,7 +151,7 @@ export default function GameRoomPanel({
         onRematch={() => connection.current?.send({ type: "rematch" })}
         onLeave={leave}
         chat={{ lines: log, onSend: text => connection.current?.send({ type: "chat", text }), connected }}
-        notice={error || (status.state !== "open" ? "Verbindung unterbrochen – verbinde neu …" : "")}
+        notice={error || (status.state !== "open" ? "Verbindung unterbrochen – verbinde neu …" : actionNotice)}
       />
     );
   }

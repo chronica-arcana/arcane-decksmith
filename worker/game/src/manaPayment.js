@@ -13,7 +13,7 @@ export const poolTotal = pool => COLORS.reduce((sum, color) => sum + (pool[color
 export function describeCost(manaCost, x = 0, extraGeneric = 0) {
   const parsed = parseManaCost(manaCost);
   const parts = [];
-  const generic = parsed.generic + parsed.x * x + extraGeneric;
+  const generic = Math.max(0, parsed.generic + parsed.x * x + extraGeneric);
   if (generic > 0) parts.push(`{${generic}}`);
   for (const req of parsed.reqs) parts.push(`{${req.opts.join("/")}}`);
   return parts.join("") || "{0}";
@@ -68,7 +68,7 @@ export function planPayment({ manaCost, x = 0, extraGeneric = 0, pool, sources }
   for (const color of COLORS) for (let i = 0; i < (pool[color] ?? 0); i += 1) units.push({ src: null, opts: [color] });
   for (const source of sources) for (const opts of source.units) units.push({ src: source.id, opts });
 
-  const baseGeneric = parsed.generic + parsed.x * x + extraGeneric;
+  const baseGeneric = Math.max(0, parsed.generic + parsed.x * x + extraGeneric);
   const attempts = [];
   attempts.push({ reqs: parsed.reqs, generic: baseGeneric, life: 0 });
   if (parsed.reqs.some(req => req.kind === "twobrid")) {

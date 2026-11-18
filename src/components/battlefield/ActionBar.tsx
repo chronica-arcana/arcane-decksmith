@@ -166,8 +166,8 @@ export default function ActionBar(props: ActionBarProps) {
           type="button"
           className="primary"
           onClick={() => {
+            // Die Auswahl bleibt stehen, bis der Server den Block annimmt (dann endet „awaitingMe“); bei Ablehnung erscheint die Meldung.
             act({ type: "declareBlockers", blocks: Object.entries(props.blocks).map(([blocker, attacker]) => ({ blocker, attacker })) });
-            props.resetBlocks();
           }}
         >
           {count === 0 ? "Nicht blocken" : "Blocken bestätigen"}

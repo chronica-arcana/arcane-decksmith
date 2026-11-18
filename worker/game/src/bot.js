@@ -133,7 +133,7 @@ function declareAttackers(game, botId) {
     .map(id => game.cards[id])
     .filter(card => {
       const def = defOf(game, card);
-      return def.types.creature && !card.tapped && !card.faceDown && !hasKeyword(game, card, "defender") && !(card.sinceSeq > me.turnStartSeq && !hasKeyword(game, card, "haste"));
+      return def.types.creature && !card.tapped && !card.faceDown && !hasKeyword(game, card, "defender") && !hasKeyword(game, card, "cant-attack") && !(card.sinceSeq > me.turnStartSeq && !hasKeyword(game, card, "haste"));
     });
   const totalPower = ready.reduce((sum, card) => sum + powerOf(game, card), 0);
   const lethal = foes.length === 0 ? totalPower >= game.players[target].life : false;
@@ -156,7 +156,7 @@ function declareAttackers(game, botId) {
 function declareBlockers(game, botId) {
   const me = game.players[botId];
   const attackers = game.combat.attackers.filter(a => attackTargetOwner(game, a.target) === botId).map(a => game.cards[a.id]).filter(Boolean);
-  const blockers = me.battlefield.map(id => game.cards[id]).filter(card => defOf(game, card).types.creature && !card.tapped && !card.faceDown);
+  const blockers = me.battlefield.map(id => game.cards[id]).filter(card => defOf(game, card).types.creature && !card.tapped && !card.faceDown && !hasKeyword(game, card, "cant-block"));
   const used = new Set();
   const blocks = [];
   let incoming = attackers.reduce((sum, card) => sum + powerOf(game, card), 0);

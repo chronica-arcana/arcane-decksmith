@@ -80,6 +80,12 @@ Neu automatisiert: Niederlage durch Ziehen aus leerer Bibliothek, Legendenregel 
 
 Bewusst vereinfacht: Ward gilt nur für Mana-Kosten und wird sofort beim Wirken bezahlt (nicht als Auslöser); Schutz gilt nur vor Farben; Schaden verhindern gibt es nur als „alle Kampfschaden dieses Zuges“; Kontrollwechsel durch Auren („You control enchanted creature“), Kopieren, Kicker, Ersatzeffekte, verzögerte Auslöser und doppelseitige Karten sind weiterhin nicht automatisiert (manuelles Fenster).
 
+## Kartentext-Abdeckung (Stichprobe)
+
+`src/cardCorpus.js` enthält eine Stichprobe von rund 120 echten Kartentexten (Removal, Zähler, Ramp, Auren, Ausrüstung, Planeswalker, Lands …). `cardCorpus.test.js` stellt sicher, dass mindestens 80 % davon vollständig automatisch verstanden werden (derzeit etwa 81 %). Zuletzt ergänzt: Zielfilter („nonblack“, „tapped“, „an opponent controls“, „with power 4 or greater“), Exil „bis die Karte das Spiel verlässt“ (Oblivion Ring, White Auracite), Biss und Kampf („deals damage equal to its power“, „fights“), „where X is that creature's power“, Friedhof exilieren, Leben in Höhe von Stärke/Widerstandskraft/Manawert, „unless its controller pays“, Suchen (mehrere Karten, bestimmte Landtypen, Cultivate), Schatz-, Nahrungs- und Hinweis-Spielsteine, Aufdecken und Abwerfen (Thoughtseize/Duress), „Can't attack or block“-Auren, Kostenverringerung, kein Handkartenlimit sowie neue Auslöser (Leben gewinnen, Karte ziehen, Kampfschaden, Kampfbeginn, Ausrüstung stirbt).
+
+Weiterhin manuell (bewusst nicht automatisiert): Kopieren, Teilen in Stapel (Fact or Fiction), Neuordnen der obersten Karten (Ponder), zusätzliche Kosten („As an additional cost“), „Choose a color/another creature“ beim Ins-Spiel-Kommen, Schaden verhindern (außer „all combat damage“), Planeswalker mit Verwandlung, Kicker/Evoke. Im manuellen Fenster geht jetzt auch Handarbeit an Karten der Gegner (Schaden, Marker, Tappen, zerstören/exilieren), damit nichts an der Bedienung scheitert.
+
 ## Bedienung am Spieltisch
 - Der Spielraum füllt den ganzen Bildschirm (ohne Sammlung und App-Menü); oben links „Raum verlassen“. Es ist eine einzige Matte: Gegner oben
   (gespiegelt), Mitte mit Stapel und Kampf, du unten; die Phasen stehen unter der eigenen Hand. Chat und Verlauf liegen optional in einer

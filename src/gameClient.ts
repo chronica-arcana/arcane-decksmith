@@ -205,6 +205,8 @@ export type GameAction =
   | { type: "playLand"; id: string }
   | { type: "cast"; id: string; x?: number; free?: boolean; targets?: string[]; mode?: number; tap?: string[] }
   | { type: "cycle"; id: string; tap?: string[] }
+  | { type: "damage"; id: string; delta: number }
+  | { type: "moveOther"; id: string; to: "graveyard" | "exile" | "hand" }
   | { type: "activate"; id: string; index: number; targets?: string[]; tap?: string[] }
   | { type: "choose"; ids: string[] }
   | { type: "manualDone" }
