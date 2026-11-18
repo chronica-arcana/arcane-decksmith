@@ -159,6 +159,17 @@ const LIB = [
   ["modalguy", "Wahlwesen", "Creature — Shapeshifter", "{1}", 2, { power: "1", toughness: "1" }, "When ~ enters, choose one —\n• You gain 3 life.\n• Draw a card."],
   ["madcreature", "Wahnsinnskrieger", "Creature — Berserker", "{3}{R}", 2, { power: "3", toughness: "2" }, "Madness {R} (If you discard this card, discard it into exile. When you do, cast it for its madness cost or put it into your graveyard.)"],
   ["discarder", "Abwurfritual", "Sorcery", "{G}", 2, {}, "Discard a card."],
+  ["impulse", "Impulsfunke", "Sorcery", "{G}", 2, {}, "Exile the top card of your library. You may play that card this turn."],
+  ["goblinswarm", "Koboldsturm", "Sorcery", "{G}", 2, {}, "Create two 1/1 red Goblin creature tokens. They gain haste until end of turn. Sacrifice them at the beginning of the next end step."],
+  ["dragonlord", "Drachenmeister", "Creature — Dragon", "{1}", 2, { power: "2", toughness: "2" }, "Dragon spells you cast cost {1} less to cast."],
+  ["bigdragon", "Großdrache", "Creature — Dragon", "{2}{G}", 2, { power: "4", toughness: "4" }],
+  ["crucible", "Tiegel", "Artifact", "{1}", 2, {}, "You may play lands from your graveyard."],
+  ["silencer", "Schweiger", "Creature — Wizard", "{1}", 2, { power: "1", toughness: "1" }, "Your opponents can't cast spells during your turn."],
+  ["oncer", "Einmalwesen", "Creature — Wizard", "{1}", 2, { power: "1", toughness: "1" }, "Whenever you gain life, draw a card. Do this only once each turn."],
+  ["condguy", "Bedingungswesen", "Creature — Wizard", "{1}", 2, { power: "1", toughness: "1" }, "When ~ enters, if you control a creature with power 4 or greater, draw a card."],
+  ["blinker", "Lichtsprung", "Instant", "{G}", 2, {}, "Exile target creature you control. Return that card to the battlefield under its owner's control at the beginning of the next end step."],
+  ["metalling", "Metallwesen", "Artifact Creature — Construct", "{1}", 2, { power: "1", toughness: "1" }],
+  ["core", "Energiekern", "Artifact", "{1}", 2, {}, "Whenever one or more artifact creatures you control deal combat damage to a player, you gain 1 life."],
   ["convoker", "Einberufer", "Sorcery", "{3}{G}", 2, {}, "Convoke\nDraw a card."],
   ["delver", "Schürfer", "Sorcery", "{4}{G}", 2, {}, "Delve\nDraw a card."],
   ["sculptor", "Bildhauer", "Creature — Vedalken", "{G}", 2, { power: "1", toughness: "1" }, "Artifact spells you cast cost {1} less to cast."],
@@ -2421,6 +2432,7 @@ describe("Neue Mechaniken aus den Commander-Decks", () => {
     forest(game, "u0", 2);
     const land = put(game, "u0", "Forest", "hand");
     const id = put(game, "u0", "Wachstumsspirale", "hand");
+    game.players.u0.hand = [land, id]; // nur dieses Land zur Auswahl
     expect(act(game, "u0", { type: "cast", id }, random).ok).toBe(true);
     go(game, random);
     expect(game.players.u0.battlefield.length).toBe(3); // 2 Länder + 1 aus der Hand („go“ antwortet automatisch mit Ja)
@@ -2625,7 +2637,9 @@ describe("Neue Mechaniken aus den Commander-Decks", () => {
     expect(act(game, "u0", { type: "activate", id: land, index: 0 }, random).ok).toBe(true);
     go(game, random);
     expect(host.hidden ?? null).toBeNull();
-    expect(game.players.u0.exile).not.toContain(hidden) || expect(game.manual).toBeTruthy();
+    const hiddenTypes = game.defs[game.cards[hidden].def].types;
+    if (hiddenTypes.instant || hiddenTypes.sorcery) expect(game.manual).toBeTruthy(); // Zauber: manuelles Fenster
+    else expect(game.players.u0.battlefield).toContain(hidden);
   });
 
   it("Storm kopiert den Zauber je vorher gewirktem Zauber, Support legt Marker auf andere Kreaturen", () => {
@@ -2688,6 +2702,88 @@ describe("Neue Mechaniken aus den Commander-Decks", () => {
     act(game, "u0", { type: "choose", ids: ["yes"] }, random);
     for (let i = 0; i < 4 && game.stack.length > 0; i += 1) act(game, game.priority, { type: "pass" }, random);
     expect(game.players.u0.battlefield).toContain(mad);
+  });
+
+  it("Impulse: oberste Karte ins Exil, in diesem Zug spielbar", () => {
+    const { game, random } = started();
+    forest(game, "u0", 3);
+    const top = game.players.u0.library[game.players.u0.library.length - 1];
+    castAndResolve(game, "u0", "Impulsfunke", random);
+    expect(game.players.u0.exile).toContain(top);
+    const card = view(game, "u0").players[0].exile.find(c => c.id === top);
+    expect(card.play).toBeTruthy(); // aus dem Exil spielbar
+    game.turn.number += 1;
+    expect(view(game, "u0").players[0].exile.find(c => c.id === top).play ?? null).toBeNull();
+  });
+
+  it("Spielsteine mit Eile, die am Zugende geopfert werden", () => {
+    const { game, random } = started();
+    forest(game, "u0", 1);
+    castAndResolve(game, "u0", "Koboldsturm", random);
+    const goblins = game.players.u0.battlefield.filter(id => game.cards[id].token);
+    expect(goblins).toHaveLength(2);
+    for (const id of goblins) {
+      expect(view(game, "u0").players[0].battlefield.find(c => c.id === id).keywords).toContain("haste");
+      expect(game.cards[id].sacEnd).toBe(true);
+    }
+  });
+
+  it("Kostenrabatt nach Kreaturentyp, Länder aus dem Friedhof, kein Zaubern im gegnerischen Zug", () => {
+    const { game, random } = started();
+    forest(game, "u0", 2);
+    put(game, "u0", "Drachenmeister", "battlefield");
+    const dragon = put(game, "u0", "Großdrache", "hand");
+    expect(view(game, "u0").players[0].hand.find(c => c.id === dragon).play.ok).toBe(true); // {2}{G} − {1}
+    put(game, "u0", "Tiegel", "battlefield");
+    const land = put(game, "u0", "Forest", "graveyard");
+    expect(act(game, "u0", { type: "playLand", id: land }, random).ok).toBe(true);
+    expect(game.players.u0.battlefield).toContain(land);
+    put(game, "u0", "Schweiger", "battlefield");
+    const bolt = put(game, "u1", "Blitz", "hand");
+    put(game, "u1", "Mountain", "battlefield");
+    game.priority = "u1";
+    expect(act(game, "u1", { type: "cast", id: bolt, targets: ["u0"] }, random).error).toMatch(/keine Zauber/);
+  });
+
+  it("„Do this only once each turn“ begrenzt den Auslöser", () => {
+    const { game, random } = started();
+    put(game, "u0", "Einmalwesen", "battlefield");
+    forest(game, "u0", 2);
+    const hand = game.players.u0.hand.length;
+    castAndResolve(game, "u0", "Heilung", random);
+    castAndResolve(game, "u0", "Heilung", random);
+    expect(game.players.u0.hand.length).toBe(hand + 1); // nur einmal gezogen (beide Heilungen kamen aus der Hand: −2, +1 gezogen, +2 hineingelegt)
+  });
+
+  it("Bedingter Effekt („if you control a creature with power 4 or greater“) und verzögertes Zurückkehren aus dem Exil", () => {
+    const { game, random } = started();
+    forest(game, "u0", 3);
+    const hand = game.players.u0.hand.length;
+    castAndResolve(game, "u0", "Bedingungswesen", random);
+    for (let i = 0; i < 4 && game.stack.length > 0; i += 1) act(game, game.priority, { type: "pass" }, random);
+    expect(game.players.u0.hand.length).toBe(hand); // keine Kreatur mit Stärke 4: nichts gezogen
+    const bear = put(game, "u0", "Bär", "battlefield");
+    castAndResolve(game, "u0", "Lichtsprung", random, [bear]);
+    expect(game.players.u0.exile).toContain(bear);
+    expect(game.delayedReturns).toContain(bear);
+  });
+
+  it("„one or more artifact creatures … deal combat damage“ löst einmal pro Kampfschaden aus", () => {
+    const { game, random } = started();
+    put(game, "u0", "Energiekern", "battlefield");
+    const a = put(game, "u0", "Metallwesen", "battlefield");
+    const b = put(game, "u0", "Metallwesen", "battlefield");
+    const bear = put(game, "u0", "Bär", "battlefield");
+    const life = game.players.u0.life;
+    game.turn.phase = "attackers";
+    expect(act(game, "u0", { type: "declareAttackers", attackers: [{ id: a, target: "u1" }, { id: b, target: "u1" }, { id: bear, target: "u1" }] }, random).ok).toBe(true);
+    act(game, "u1", { type: "declareBlockers", blocks: [] }, random);
+    for (let i = 0; i < 12 && game.turn.phase !== "main2"; i += 1) {
+      if (game.choice) act(game, game.choice.userId, { type: "choose", ids: game.choice.options.slice(0, 1) }, random);
+      else act(game, game.priority ?? "u0", { type: "pass" }, random);
+    }
+    go(game, random);
+    expect(game.players.u0.life).toBe(life + 1);
   });
 
   it("Convoke und Delve bezahlen fehlendes Mana mit Kreaturen bzw. Friedhofskarten", () => {

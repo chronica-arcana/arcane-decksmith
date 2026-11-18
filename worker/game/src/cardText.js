@@ -366,6 +366,56 @@ function parseSentence(raw, specs) {
     }
     return [{ type: "playHidden", cond }];
   }
+  // Impulse: „Exile the top card of your library. You may play that card this turn.“
+  if ((m = lower.match(new RegExp(`^exile the top (card|${N} cards) of your library$`)))) {
+    const n = m[1] === "card" ? 1 : num(m[2]);
+    return n === null || n === "X" ? null : [{ type: "exileTop", n }];
+  }
+  if (/^(?:until end of turn, )?you may play (?:that card|it|those cards|them|the exiled cards?)(?: this turn)?$/.test(lower)) return [{ type: "playExiled", next: false }];
+  if (/^until (?:the )?end of your next turn, you may play (?:that card|it|those cards|them)$/.test(lower)) return [{ type: "playExiled", next: true }];
+  if (/^(?:you may play lands from your graveyard)$/.test(lower)) return [{ type: "noop" }];
+  // Verzögerte Effekte auf zuletzt erzeugte/übernommene Karten
+  if (/^(?:it|they|that creature|those creatures|that token|those tokens) gains? haste(?: until end of turn)?$/.test(lower)) return [{ type: "grantLast", kws: ["haste"] }];
+  if ((m = lower.match(/^(?:it|they|that creature|those creatures) gains? (indestructible|lifelink|trample|flying|vigilance|menace|first strike|deathtouch) until end of turn$/))) return [{ type: "grantLast", kws: [m[1]] }];
+  if (/^sacrifice (?:it|them|that creature|those creatures|that token|those tokens) at the beginning of the next end step$/.test(lower)) return [{ type: "delayedLast", what: "sacrifice" }];
+  if (/^exile (?:it|them|that creature|those creatures|that token|those tokens) at (?:the beginning of the next end step|end of combat)$/.test(lower)) return [{ type: "delayedLast", what: "exile" }];
+  if (/^return ~ to its owner's hand at the beginning of the next end step$/.test(lower)) return [{ type: "delayedSelf", what: "hand" }];
+  if (/^(?:~|it) can't be blocked this turn$/.test(lower)) return [{ type: "selfGrant", kws: ["unblockable"] }];
+  if ((m = lower.match(/^~ gains (indestructible|haste|flying|trample|lifelink|vigilance|first strike|deathtouch|hexproof|menace) until end of turn$/))) return [{ type: "selfGrant", kws: [m[1]] }];
+  if (/^do this only once each turn$/.test(lower) || /^this ability triggers only once each turn$/.test(lower)) return [{ type: "onceTurn" }];
+  if (/^if you search your library this way, shuffle$/.test(lower)) return [{ type: "noop" }];
+  if ((m = lower.match(/^untap (another target permanent|another target creature|target permanent|target creature|target land|target artifact)$/))) {
+    const t = addTarget(specs, m[1]);
+    return t === null ? null : [{ type: "untap", t }];
+  }
+  if ((m = lower.match(/^tap up to one target (creature|permanent|artifact) and put a stun counter on (?:it|~)$/))) {
+    const spec = parseTargetSpec(`target ${m[1]}`);
+    if (!spec) return null;
+    specs.push({ ...spec, optional: true });
+    const t = specs.length - 1;
+    return [{ type: "tap", t }, { type: "counters", n: 1, kind: "stun", t }];
+  }
+  if ((m = lower.match(/^return up to (two|three) target (creature|permanent|artifact|land) cards from your graveyard to your hand$/))) {
+    const effects = [];
+    for (let i = 0; i < { two: 2, three: 3 }[m[1]]; i += 1) {
+      const t = addTarget(specs, `target ${m[2]} card from your graveyard`);
+      if (t === null) return null;
+      specs[t] = { ...specs[t], optional: true };
+      effects.push({ type: "reanimate", t, to: "hand", counters: 0 });
+    }
+    return effects;
+  }
+  if ((m = lower.match(/^(?:then )?if you control (an? [a-z ]+?|a creature with power \d+ or greater|three or more [a-z]+s?), (.+)$/))) {
+    let cond = null;
+    let c;
+    if ((c = m[1].match(/^a creature with power (\d+) or greater$/))) cond = { kind: "creaturePower", n: Number(c[1]) };
+    else if ((c = m[1].match(/^three or more ([a-z]+?)s?$/))) cond = { kind: "controlsCount", what: c[1], n: 3 };
+    else if (m[1] === "a commander") cond = { kind: "commander" };
+    else if ((c = m[1].match(/^an? ([a-z]+)$/))) cond = { kind: "controlsCount", what: c[1], n: 1 };
+    const inner = cond ? parseSentence(m[2], specs) : null;
+    return inner ? [{ type: "ifCond", cond, effects: inner }] : null;
+  }
+  if (/^return (?:that card|it|the exiled card) to the battlefield under (?:its owner's|your) control at the beginning of the next end step$/.test(lower)) return [{ type: "returnExiledEnd" }];
   if (/^you may choose new targets for (the|that|target) (cop(y|ies)|spell or ability)$/.test(lower)) return [{ type: "noop" }];
   if ((m = lower.match(new RegExp(`^you may have (?:it|~) deal ${N} damage to each creature$`)))) {
     const n = num(m[1]);
@@ -382,7 +432,7 @@ function parseSentence(raw, specs) {
     return inner ? [{ type: "ifDid", effects: inner }] : null;
   }
 
-  if ((m = lower.match(/^gain control of (target creature|target permanent|target artifact|target land|target enchantment)( until end of turn)?$/))) {
+  if ((m = lower.match(/^gain control of (target (?:creature|permanent|artifact|land|enchantment)(?: an opponent controls)?)( until end of turn)?$/))) {
     const t = addTarget(specs, m[1]);
     return t === null ? null : [{ type: "control", t, untilEot: Boolean(m[2]) }];
   }
@@ -627,7 +677,7 @@ function parseSentence(raw, specs) {
     const t = addTarget(specs, m[3]);
     return t === null ? null : [{ type: "counters", n, kind: m[2], t }];
   }
-  if ((m = lower.match(/^(~|target creature) gets ([+-]\d+)\/([+-]\d+) until end of turn$/))) {
+  if ((m = lower.match(/^(~|target creature(?: you control| an opponent controls)?|another target creature(?: you control)?) gets ([+-]\d+)\/([+-]\d+) until end of turn$/))) {
     if (m[1] === "~") return [{ type: "pump", p: Number(m[2]), th: Number(m[3]), self: true }];
     const t = addTarget(specs, m[1]);
     return t === null ? null : [{ type: "pump", p: Number(m[2]), th: Number(m[3]), t }];
@@ -691,6 +741,11 @@ function parseAttachClauses(text) {
       continue;
     }
     if (/^is an? [a-z ]+ in addition to its other (?:creature )?types$/.test(part)) continue;
+    if (part === "is goaded") {
+      out.grants.push("must-attack");
+      mode = null;
+      continue;
+    }
     if ((m = part.match(/^(has|loses) (.+)$/))) {
       mode = m[1] === "has" ? "grants" : "revokes";
       part = m[2];
@@ -759,6 +814,15 @@ function describeBase(effect) {
     case "surveil": return `Überwachen ${effect.n}.`;
     case "damage": return `${effect.n} Schaden an ${{ target: "das Ziel", eachOpp: "jeden Gegner", each: "jeden Spieler", eachCreature: "jede Kreatur", eachOppCreature: "jede gegnerische Kreatur" }[effect.to.k]}.`;
     case "destroy": return "Zerstört das Ziel.";
+    case "ifCond": return `Falls die Bedingung erfüllt ist: ${effect.effects.map(describeEffect).filter(Boolean).join(" ")}`;
+    case "returnExiledEnd": return "Kehrt zu Beginn des nächsten Endsegments zurück.";
+    case "exileTop": return `Legt die obersten ${effect.n} Karte(n) der Bibliothek ins Exil.`;
+    case "playExiled": return effect.next ? "Diese Karten darfst du bis zum Ende deines nächsten Zuges spielen." : "Diese Karten darfst du in diesem Zug spielen.";
+    case "grantLast": return `Die Karte erhält ${effect.kws.join(", ")} bis zum Zugende.`;
+    case "delayedLast": return effect.what === "sacrifice" ? "Wird zu Beginn des nächsten Endsegments geopfert." : "Wird später ins Exil geschickt.";
+    case "delayedSelf": return "Kehrt zu Beginn des nächsten Endsegments auf die Hand zurück.";
+    case "selfGrant": return `Erhält ${effect.kws.join(", ")} bis zum Zugende.`;
+    case "onceTurn": return "";
     case "jobSelect": return "Erzeugt einen 1/1-Hero-Spielstein und hängt die Ausrüstung daran.";
     case "hideaway": return `Hideaway ${effect.n}: eine der obersten ${effect.n} Karten verdeckt ins Exil.`;
     case "playHidden": return "Spielt die versteckte Karte kostenlos (falls die Bedingung erfüllt ist).";
@@ -769,7 +833,6 @@ function describeBase(effect) {
     case "bounce": return "Das Ziel geht zurück auf die Hand seines Besitzers.";
     case "bounceOwnLand": return "Du legst ein eigenes Land zurück auf die Hand.";
     case "tap": return "Tappt das Ziel.";
-    case "untap": return "Enttappt das Ziel.";
     case "counterSpell": return "Neutralisiert den Zielzauber.";
     case "copySpell": return effect.n > 1 ? "Kopiert den Zauber zweimal (Ziele bleiben gleich)." : "Kopiert den Zauber (Ziele bleiben gleich).";
     case "control": return `Übernimmt die Kontrolle über das Ziel${effect.untilEot ? " bis zum Zugende" : ""}.`;
@@ -983,6 +1046,9 @@ function triggerEvent(word, condition) {
   if ((m = condition.match(/^you put one or more ([+-]1\/[+-]1) counters on a creature$/))) return { event: "countersPut", counterKind: m[1], scope: { owner: "you", another: false } };
   if (/^(?:a|one or more) \+1\/\+1 counters? (?:is|are) put on ~$/.test(condition)) return { event: "selfCounter" };
   if ((m = condition.match(/^(?:a|an) creature you control with an? ([+-]1\/[+-]1) counter on it deals combat damage to a player$/))) return { event: "creatureDealsCombatDamage", scope: { owner: "you", another: false, counter: m[1] } };
+  if ((m = condition.match(/^one or more (artifact creatures|[a-z]+) you control deal (?:combat )?damage to (?:a player|one or more players|your opponents|one or more of your opponents)$/)) && m[1] !== "creatures") {
+    return { event: "creaturesDealDamage", scope: { owner: "you", another: false, creatureType: m[1] === "artifact creatures" ? "artifact" : m[1].replace(/s$/, "") } };
+  }
   if (/^one or more creatures you control with counters on them deal combat damage to a player$/.test(condition)) return { event: "creaturesDealDamage", scope: { owner: "you", another: false, counter: "any" } };
   if ((m = condition.match(/^one or more creatures you control with power (\d+) or greater deal combat damage to a player$/))) return { event: "creaturesDealDamage", scope: { owner: "you", another: false, minPower: Number(m[1]) } };
   if (/^~ mutates$/.test(condition)) return { event: "mutates" };
@@ -1027,6 +1093,7 @@ function triggerEvent(word, condition) {
   if (/^one or more creatures you control deal combat damage to a player$/.test(condition)) return { event: "creaturesDealDamage", scope: { owner: "you", another: false } };
   if (/^you cast your second spell each turn$/.test(condition)) return { event: "castSecond", scope: { owner: "you", another: false } };
   if (/^you draw your second card each turn$/.test(condition)) return { event: "youDrawSecond", scope: { owner: "you", another: false } };
+  if (condition === "you cast or copy an instant or sorcery spell") return { event: "castKind", kinds: ["instant", "sorcery"], scope: { owner: "you", another: false } };
   if ((m = condition.match(/^(you cast|an opponent casts) an? (instant or sorcery|artifact|enchantment|instant|sorcery|planeswalker|historic|legendary|multicolored|nonland) spell$/))) {
     const kinds = { "instant or sorcery": ["instant", "sorcery"], historic: ["artifact", "legendary"], nonland: ["creature", "artifact", "enchantment", "instant", "sorcery", "planeswalker"] }[m[2]] ?? [m[2]];
     if (m[2] !== "multicolored") return { event: "castKind", kinds, scope: { owner: m[1] === "you cast" ? "you" : "opp", another: false } };
@@ -1225,7 +1292,7 @@ export function parseCardText({ name, typeLine, oracleText }) {
         continue;
       }
     }
-    const costMod = line.match(/^(creature|artifact|enchantment|noncreature|instant and sorcery|instant|sorcery) spells you cast cost \{(\d+)\} less to cast\.?$/i);
+    const costMod = line.match(/^(creature|artifact|enchantment|noncreature|instant and sorcery|instant|sorcery|[A-Z][a-z]+) spells you cast cost \{(\d+)\} less to cast\.?$/i);
     if (costMod) {
       result.costMod = { amount: Number(costMod[2]), what: costMod[1].toLowerCase() };
       continue;
@@ -1328,6 +1395,22 @@ export function parseCardText({ name, typeLine, oracleText }) {
     }
     if (/^creatures your opponents control enter tapped\.?$/i.test(line)) {
       result.oppEnterTapped = true;
+      continue;
+    }
+    if (/^you may play lands from your graveyard\.?$/i.test(line)) {
+      result.landsFromGraveyard = true;
+      continue;
+    }
+    if (/^your opponents can't cast spells during your turn\.?$/i.test(line)) {
+      result.noOppCastOnMyTurn = true;
+      continue;
+    }
+    if (/^for mirrodin!$/i.test(line)) {
+      result.triggers.push({ event: "etb", text: line, effects: [{ type: "jobSelect", token: "Rebel" }], specs: [], unparsed: [], summary: "For Mirrodin!: Erzeuge einen roten 2/2-Rebellen und hänge diese Ausrüstung an." });
+      continue;
+    }
+    if (/^play with the top card of your library revealed\.?$/i.test(line)) {
+      result.inert = [...(result.inert ?? []), line];
       continue;
     }
     if (/^creatures your opponents control attack each combat if able\.?$/i.test(line)) {
