@@ -30,7 +30,7 @@ describe("cardText: Zauber", () => {
     expect(spell("Rampant Growth", "Sorcery", "Search your library for a basic land card, put that card onto the battlefield tapped, then shuffle.").effects)
       .toEqual([{ type: "search", what: "basic land", to: "battlefield", tapped: true, count: 1, upTo: false }]);
     expect(spell("Raise Dead", "Sorcery", "Return target creature card from your graveyard to your hand.").effects)
-      .toEqual([{ type: "gyReturn", what: "creature", to: "hand" }]);
+      .toEqual([{ type: "reanimate", t: 0, to: "hand", counters: 0 }]);
     expect(spell("Dark Ritual", "Instant", "Add {B}{B}{B}.").effects).toEqual([{ type: "mana", symbols: ["B", "B", "B"] }]);
     expect(spell("Raise the Alarm", "Instant", "Create two 1/1 white Soldier creature tokens.").effects)
       .toEqual([{ type: "token", n: 2, p: 1, th: 1, name: "Soldier" }]);

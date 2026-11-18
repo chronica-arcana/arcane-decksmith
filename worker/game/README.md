@@ -88,6 +88,10 @@ Zusätzlich automatisiert (zweite Runde): zusätzliche Kosten (Kreatur opfern, K
 
 Weiterhin manuell (bewusst nicht automatisiert): Kopieren, Teilen in Stapel (Fact or Fiction), Neuordnen der obersten Karten (Ponder), zusätzliche Kosten („As an additional cost“), „Choose a color/another creature“ beim Ins-Spiel-Kommen, Schaden verhindern (außer „all combat damage“), Planeswalker mit Verwandlung, Kicker/Evoke. Im manuellen Fenster geht jetzt auch Handarbeit an Karten der Gegner (Schaden, Marker, Tappen, zerstören/exilieren), damit nichts an der Bedienung scheitert.
 
+## Prüfung aller Commander-Precons
+
+`node worker/game/scripts/audit-commander-decks.mjs [Cache-Ordner] [Deck-Filter]` lädt alle Commander-Decks von MTGJSON, lässt jeden Kartentext durch den Parser laufen und zeigt die Quote je Deck sowie die häufigsten Lücken (nach Anzahl der Decks gewichtet). Stand dieser Runde: von 6 580 verschiedenen Karten (ohne Standardländer) versteht die Engine rund **17 %** vollständig; bei den vier Final-Fantasy-Decks (FIC) sind es 37 % der 315 Karten. Die Texte sind sehr vielfältig (über 7 000 verschiedene Satzformen), deshalb bleibt ein großer Teil weiterhin manuell. Zuletzt neu: Besatzung (Crew) und „becomes a creature“, Foretell, Delve/Convoke, Kostenverringerung, Monarch, Proliferate, „Look at the top N“, Chaos Warp, Filterländer, Charge-Counter-Länder, „enters with X counters“, „can't be countered“, Angriffszwang, Kampf-/Marker-Auslöser (Wakka), Yuna's Whistle, Lifestream's Blessing und bedingte Ausrüstungsboni (Hero's Heirloom).
+
 ## Bedienung am Spieltisch
 - Der Spielraum füllt den ganzen Bildschirm (ohne Sammlung und App-Menü); oben links „Raum verlassen“. Es ist eine einzige Matte: Gegner oben
   (gespiegelt), Mitte mit Stapel und Kampf, du unten; die Phasen stehen unter der eigenen Hand. Chat und Verlauf liegen optional in einer

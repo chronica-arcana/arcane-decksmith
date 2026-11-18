@@ -16,6 +16,7 @@ export default function Hud({ player, own }: { player: GamePlayer; own: boolean 
   const active = game.turn.active === player.userId && game.phase === "playing";
   const targetable = isTarget(player.userId);
   const chips: string[] = [];
+  if (game.monarch === player.userId) chips.push("👑 Monarch");
   if (player.poison > 0) chips.push(`Gift ${player.poison}`);
   if (player.energy > 0) chips.push(`Energie ${player.energy}`);
   if (player.experience > 0) chips.push(`Erfahrung ${player.experience}`);

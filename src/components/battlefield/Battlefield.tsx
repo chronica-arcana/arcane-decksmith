@@ -203,8 +203,8 @@ export default function Battlefield({
   /** Ziele und zusätzliche Kosten (Karten opfern/abwerfen) werden nacheinander gewählt; die Kosten-Auswahl geht als `pay` zum Server. */
   const withPays = (specs: TargetOption[], pays: PayRequirement[] | undefined, build: (targets: string[], pay: string[]) => GameAction) => {
     const picks: TargetOption[] = (pays ?? [])
-      .filter(item => item.kind !== "life")
-      .flatMap(item => Array.from({ length: item.n }, () => ({ kind: item.kind === "discard" ? "payDiscard" : "paySacrifice", options: item.options })));
+      .filter(item => item.kind !== "life" && item.kind !== "removeCounter")
+      .flatMap(item => Array.from({ length: item.n }, () => ({ kind: item.kind === "discard" ? "payDiscard" : item.kind === "tap" ? "payTap" : "paySacrifice", options: item.options })));
     return { specs: [...specs, ...picks], run: (picked: string[]) => build(picked.slice(0, specs.length), picked.slice(specs.length)) };
   };
 
