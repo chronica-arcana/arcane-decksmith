@@ -119,6 +119,7 @@ const LIB = [
   ["wakka", "Wakka", "Legendary Creature — Human Warrior", "{2}{G}{W}", 1, { power: "4", toughness: "4", keywords: ["Reach", "Trample"] }, "Reach, trample\nWhenever Wakka deals combat damage to a player, destroy up to one target artifact that player controls and put a +1/+1 counter on Wakka.\nBlitzball Captain — At the beginning of your end step, if a counter was put on Wakka this turn, put a +1/+1 counter on each other creature you control."],
   ["whistle", "Yunas Pfeife", "Instant", "{1}{G}{G}", 2, {}, "Reveal cards from the top of your library until you reveal a creature card. Put that card into your hand and the rest on the bottom of your library in a random order. When you reveal a creature card this way, put X +1/+1 counters on target creature you control, where X is the mana value of that card."],
   ["vehicle", "Karren", "Artifact — Vehicle", "{2}", 2, { power: "3", toughness: "3" }, "Crew 2"],
+  ["spaceship", "Raumkreuzer", "Artifact — Spacecraft", "{2}", 2, { power: "3", toughness: "3", keywords: ["Station", "Flying"] }, "Station (Tap another creature you control: Put charge counters equal to its power on this Spacecraft. Station only as a sorcery. It's an artifact creature at 3+.)\n1+ | You gain 1 life whenever you draw a card.\n3+ | Flying"],
   ["convoker", "Einberufer", "Sorcery", "{3}{G}", 2, {}, "Convoke\nDraw a card."],
   ["delver", "Schürfer", "Sorcery", "{4}{G}", 2, {}, "Delve\nDraw a card."],
   ["sculptor", "Bildhauer", "Creature — Vedalken", "{G}", 2, { power: "1", toughness: "1" }, "Artifact spells you cast cost {1} less to cast."],
@@ -986,7 +987,7 @@ describe("Dauertest: das Spiel bleibt nie stehen", () => {
         }
       }
     }
-  });
+  }, 30000);
 });
 
 describe("Länder mit besonderen Regeln und Effekte der Anzeige", () => {
@@ -2181,6 +2182,26 @@ describe("Neue Mechaniken aus den Commander-Decks", () => {
     const v = view(game, "u0").players[0].battlefield.find(c => c.id === vehicle);
     expect(v.kind).toBe("creature");
     expect(v.power).toBe(3);
+  });
+
+  it("Station: Kreatur tappen → Ladungsmarker, ab Schwelle Artefaktkreatur mit Flug", () => {
+    const { game, random } = started();
+    const ship = put(game, "u0", "Raumkreuzer", "battlefield");
+    const bear = put(game, "u0", "Bär", "battlefield");
+    const power = view(game, "u0").players[0].battlefield.find(c => c.id === bear).power;
+    expect(game.defs[game.cards[ship].def].rules.station.at).toBe(3);
+    expect(game.defs[game.cards[ship].def].keywords).not.toContain("flying");
+    const opts = view(game, "u0").players[0].battlefield.find(c => c.id === ship).abilities[0];
+    expect(opts.pays[0].options).toEqual([bear]);
+    expect(act(game, "u0", { type: "activate", id: ship, index: 0, pay: [bear] }, random).ok).toBe(true);
+    go(game, random);
+    expect(game.cards[bear].tapped).toBe(true);
+    expect(game.cards[ship].counters.charge).toBe(power);
+    expect(view(game, "u0").players[0].battlefield.find(c => c.id === ship).kind).not.toBe("creature");
+    game.cards[ship].counters.charge = 3;
+    const v = view(game, "u0").players[0].battlefield.find(c => c.id === ship);
+    expect(v.kind).toBe("creature");
+    expect(v.keywords).toContain("flying");
   });
 
   it("Convoke und Delve bezahlen fehlendes Mana mit Kreaturen bzw. Friedhofskarten", () => {

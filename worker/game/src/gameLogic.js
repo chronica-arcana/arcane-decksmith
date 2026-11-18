@@ -80,7 +80,23 @@ function newId(game, prefix = "c") {
   return `${prefix}${game.nextId}`;
 }
 
-const defOf = (game, card) => game.xdefs[card.def] ?? game.defs[card.def];
+const stationDefs = new WeakMap();
+/** Raumschiff mit genug Ladungsmarkern: Artefaktkreatur (gleiche Definition, nur mit Kreaturentyp). */
+function stationCreature(base) {
+  let creature = stationDefs.get(base);
+  if (!creature) {
+    creature = { ...base, typeLine: /Creature/.test(base.typeLine ?? "") ? base.typeLine : `${base.typeLine}${base.typeLine ? " " : ""}Creature`, types: { ...base.types, creature: true } };
+    stationDefs.set(base, creature);
+  }
+  return creature;
+}
+const defOf = (game, card) => {
+  const base = game.xdefs[card.def] ?? game.defs[card.def];
+  const station = base?.rules?.station;
+  return station?.at && (card.counters?.charge ?? 0) >= station.at ? stationCreature(base) : base;
+};
+/** Auslöser/Dauereffekte/Fähigkeiten einer Raumschiff-Stufe („N+ | …“) wirken erst ab N Ladungsmarkern. */
+const tierOn = (card, item) => !item.minCharge || (card.counters?.charge ?? 0) >= item.minCharge;
 const nameOf = (game, id) => defOf(game, game.cards[id])?.name ?? "Karte";
 /** Untertypen aus der Typzeile („Legendary Creature — Vampire Knight“ → ["vampire", "knight"]). */
 const subtypesOf = def => String(def.typeLine ?? "").split("—")[1]?.toLowerCase().split(/\s+/).filter(Boolean) ?? [];
@@ -100,6 +116,7 @@ function staticEffects(game, card) {
     for (const id of game.players[userId].battlefield) {
       const source = game.cards[id];
       for (const effect of defOf(game, source).rules?.statics ?? []) {
+        if (!tierOn(source, { minCharge: effect.minCharge })) continue;
         const applies =
           effect.scope === "you" ? source.owner === card.owner
           : effect.scope === "youOther" ? source.owner === card.owner && source.id !== card.id
@@ -142,7 +159,7 @@ function staticEffects(game, card) {
 }
 const keywordsOfCard = (game, card) => {
   const def = defOf(game, card);
-  const base = [...(def.keywords ?? []), ...(def.rules?.selfGrants ?? [])];
+  const base = [...(def.keywords ?? []), ...(def.rules?.selfGrants ?? []), ...(def.rules?.tiers ?? []).filter(tier => tierOn(card, { minCharge: tier.n })).flatMap(tier => tier.kws)];
   const effects = staticEffects(game, card);
   const grants = [...effects.grants, ...(card.tk ?? [])];
   const all = grants.length > 0 ? [...base, ...grants] : base;
@@ -915,7 +932,7 @@ function resolveTop(game) {
   if (!item) return;
   const controller = game.players[item.controller];
   if (item.kind === "ability") {
-    const ctx = { controller: item.controller, source: item.source, sourceName: item.sourceName, targets: item.targets ?? [], unparsed: item.unparsed ?? [], subject: item.subject, subjectCard: item.subjectCard, snap: snapshotTargets(game, item.targets) };
+    const ctx = { controller: item.controller, source: item.source, sourceName: item.sourceName, targets: item.targets ?? [], unparsed: item.unparsed ?? [], subject: item.subject, subjectCard: item.subjectCard, paidPower: item.paidPower, snap: snapshotTargets(game, item.targets) };
     if ((item.specs?.length ?? 0) > 0 && !targetsLegal(game, item.specs, ctx.targets, item.controller, item.source && game.cards[item.source] ? { ...srcOfCard(game, game.cards[item.source]), subject: item.subject } : undefined)) {
       addLog(game, `${item.sourceName}: Fähigkeit verpufft (Ziel nicht mehr gültig).`);
       return;
@@ -1545,7 +1562,7 @@ function fireGlobal(game, event, subject) {
       if (!source) continue;
       const def = defOf(game, source);
       for (const trigger of def.rules?.triggers ?? []) {
-        if (trigger.event !== event) continue;
+        if (trigger.event !== event || !tierOn(source, trigger)) continue;
         const scope = trigger.scope ?? { owner: "you", another: false };
         const subjectOwner = typeof subject === "string" ? subject : subject.owner;
         if (scope.owner === "you" && subjectOwner !== source.owner) continue;
@@ -1564,7 +1581,7 @@ function fireGlobal(game, event, subject) {
 function fireTriggers(game, card, event, subject) {
   const def = defOf(game, card);
   for (const trigger of def.rules?.triggers ?? []) {
-    if (trigger.event === event) game.triggerQueue.push({ controller: card.owner, source: card.id, sourceName: def.name, trigger, subject });
+    if (trigger.event === event && tierOn(card, trigger)) game.triggerQueue.push({ controller: card.owner, source: card.id, sourceName: def.name, trigger, subject });
   }
 }
 
@@ -2697,6 +2714,13 @@ function runEffect(game, rawEffect, ctx, rest) {
       }
       return false;
     }
+    case "station": {
+      if (!sourceCard || !onBattlefield(game, sourceCard.id)) return false;
+      const amount = ctx.paidPower ?? 0;
+      sourceCard.counters.charge = (sourceCard.counters.charge ?? 0) + amount;
+      addLog(game, `${nameOf(game, sourceCard.id)} erhält ${amount} Ladungsmarker (${name}).`);
+      return false;
+    }
     case "animate": {
       const card = sourceCard;
       if (!card || !onBattlefield(game, card.id)) return false;
@@ -3001,7 +3025,7 @@ export function abilityOptions(game, userId, card) {
   const playing = game.phase === "playing" && !player.eliminated && !game.pendingDiscard && !game.choice && !game.manual;
   const mainPhase = game.turn.active === userId && (game.turn.phase === "main1" || game.turn.phase === "main2") && game.stack.length === 0;
   return list.map(ability => {
-    let okNow = playing && hasWindow(game, userId) && (!ability.sorcery || mainPhase) && ability.effects.length + ability.unparsed.length > 0;
+    let okNow = playing && tierOn(card, ability) && hasWindow(game, userId) && (!ability.sorcery || mainPhase) && ability.effects.length + ability.unparsed.length > 0;
     if (okNow && ability.cost.tap && (card.tapped || isSick(game, card))) okNow = false;
     if (okNow && ability.cost.loyalty !== undefined) {
       okNow = card.loyaltyTurn !== game.turn.number && (card.counters.loyalty ?? 0) + ability.cost.loyalty >= 0;
@@ -3788,6 +3812,7 @@ function activateAction(game, userId, action) {
   const def = defOf(game, card);
   const ability = def.rules?.activated?.[action.index];
   if (!ability) return fail("Diese Fähigkeit gibt es nicht.");
+  if (!tierOn(card, ability)) return fail("Dafür sind noch nicht genug Ladungsmarker auf der Karte.");
   const mainPhase = game.turn.active === userId && (game.turn.phase === "main1" || game.turn.phase === "main2") && game.stack.length === 0;
   if (ability.sorcery && !mainPhase) return fail("Diese Fähigkeit geht nur in deiner Hauptphase bei leerem Stapel.");
   if (game.stack.length >= MAX_STACK) return fail("Der Stapel ist voll.");
@@ -3839,7 +3864,8 @@ function activateAction(game, userId, action) {
     effects: ability.effects,
     specs: ability.specs,
     targets: ability.specs.length > 0 ? action.targets : [],
-    unparsed: ability.unparsed
+    unparsed: ability.unparsed,
+    paidPower: extraPay.picks.filter(pick => pick.item.kind === "tap").flatMap(pick => pick.ids).reduce((sum, id) => sum + Math.max(0, powerOf(game, game.cards[id])), 0)
   });
   game.priority = userId;
   game.passed = [];

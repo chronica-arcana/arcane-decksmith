@@ -923,7 +923,24 @@ const stripPrefix = line => line.replace(/^[•*]\s*/, "").replace(/^[A-Z][^—.
  */
 export function parseCardText({ name, typeLine, oracleText }) {
   const types = typesOf(typeLine);
-  const rawLines = normalizeText(oracleText, name);
+  let rawLines = normalizeText(oracleText, name);
+  // Raumschiffe: Zeilen „N+ | …“ gehören zu Ladungsstufen; sie werden getrennt ausgewertet und mit Schwelle versehen.
+  const tiers = [];
+  let stationAt = null;
+  if (rawLines.some(line => /^station$/i.test(line))) {
+    const keep = [];
+    let current = null;
+    for (const line of rawLines) {
+      const tier = line.match(/^(\d+)\+ \| (.*)$/);
+      if (tier) {
+        current = { n: Number(tier[1]), lines: [tier[2]] };
+        tiers.push(current);
+      } else if (current) current.lines.push(line);
+      else keep.push(line);
+    }
+    rawLines = keep;
+    stationAt = Number(/artifact creature at (\d+)\+/i.exec(String(oracleText))?.[1]) || (tiers.length > 0 ? tiers[tiers.length - 1].n : null);
+  }
   const result = { spell: null, triggers: [], activated: [], notes: [], statics: [], flashback: null, cycling: null, entersTapped: false, entersTappedUnless: null, shock: null, reveal: null };
 
   // Cycling (Abwerfen aus der Hand gegen Mana: eine Karte ziehen oder nach Land suchen)
@@ -1127,6 +1144,11 @@ export function parseCardText({ name, typeLine, oracleText }) {
       result.evoke = evoke[1];
       continue;
     }
+    if (/^station$/i.test(line)) {
+      result.station = { at: stationAt };
+      result.activated.push({ index: result.activated.length, text: line, cost: { tap: false, sacrifice: false, mana: "", extra: [{ kind: "tap", what: "creature", n: 1, other: true }] }, sorcery: true, effects: [{ type: "station" }], specs: [], unparsed: [], summary: `Station: tappe eine andere Kreatur, lege Ladungsmarker in Höhe ihrer Stärke auf diese Karte${stationAt ? ` (ab ${stationAt} Markern eine Artefaktkreatur)` : ""}.` });
+      continue;
+    }
     const crew = line.match(/^crew (\d+)$/i);
     if (crew) {
       result.activated.push({ index: result.activated.length, text: line, cost: { tap: false, sacrifice: false, mana: "", crew: Number(crew[1]) }, sorcery: false, effects: [{ type: "animate", p: null, th: null, kws: [] }], specs: [], unparsed: [], summary: `Besatzung ${crew[1]}: wird bis zum Zugende zur Kreatur.` });
@@ -1309,6 +1331,20 @@ export function parseCardText({ name, typeLine, oracleText }) {
       }
     }
     result.notes.push(line);
+  }
+  for (const tier of tiers) {
+    for (const line of tier.lines) {
+      const words = line.split(/[,;]/).map(part => part.trim().toLowerCase());
+      if (words.length > 0 && words.every(word => KEYWORDS.includes(word))) {
+        result.tiers = [...(result.tiers ?? []), { n: tier.n, kws: words }];
+        continue;
+      }
+      const sub = parseCardText({ name, typeLine, oracleText: line });
+      for (const item of sub.triggers) result.triggers.push({ ...item, minCharge: tier.n });
+      for (const item of sub.statics) result.statics.push({ ...item, minCharge: tier.n });
+      for (const item of sub.activated) result.activated.push({ ...item, index: result.activated.length, minCharge: tier.n });
+      for (const note of sub.notes) result.notes.push(`${tier.n}+ | ${note}`);
+    }
   }
   if (result.returnExiled) {
     for (const trigger of result.triggers) for (const effect of trigger.effects) if (effect.type === "exile") effect.until = true;
