@@ -292,3 +292,31 @@ describe("cardText: Sagas, Marker-Arten und Einzeltexte", () => {
     expect(parse("Sorcery", "You and target opponent each draw three cards.").spell.effects).toHaveLength(2);
   });
 });
+
+describe("cardText: Marker-Paket, Hideaway, Storm, Support, Madness, modale Auslöser", () => {
+  const parse = (typeLine, oracleText) => parseCardText({ name: "Karte", typeLine, oracleText });
+
+  it("Marker: verschieben, „put counters on a creature“, Bonus beim Eintritt, Filter nach Markern", () => {
+    expect(parse("Sorcery", "Move a counter from target creature you control onto a second target creature you control.").spell.effects[0]).toMatchObject({ type: "moveCounter", from: 0, to: 1 });
+    expect(parse("Creature — X", "Whenever you put one or more counters on a creature, draw a card.").triggers[0].event).toBe("countersPut");
+    expect(parse("Creature — X", "Whenever a creature you control with a +1/+1 counter on it deals combat damage to a player, draw a card.").triggers[0]).toMatchObject({ event: "creatureDealsCombatDamage", scope: { counter: "+1/+1" } });
+    expect(parse("Creature — X", "Each other nontoken creature you control enters with an additional +1/+1 counter on it.").etbBonus).toEqual({ kind: "+1/+1", nontoken: true });
+  });
+
+  it("Hideaway, Storm, Support, Madness, Job select", () => {
+    const land = parse("Land", "Hideaway 4\n{G}, {T}: You may play the exiled card without paying its mana cost if creatures you control have total power 10 or greater.");
+    expect(land.triggers[0].effects[0]).toMatchObject({ type: "hideaway", n: 4 });
+    expect(land.activated[0].effects[0]).toMatchObject({ type: "playHidden", cond: { kind: "totalPower", n: 10 } });
+    expect(parse("Sorcery", "Draw a card.\nStorm").storm).toBe(true);
+    expect(parse("Creature — X", "Support 2").triggers[0].effects).toHaveLength(2);
+    expect(parse("Creature — X", "Madness {1}{R}").madness).toEqual({ cost: "{1}{R}", life: 0 });
+    expect(parse("Artifact — Equipment", "Job select").triggers[0].effects[0].type).toBe("jobSelect");
+  });
+
+  it("Modaler Auslöser: „When ~ enters, choose one —“ mit Aufzählung", () => {
+    const parsed = parse("Creature — X", "When ~ enters, choose one —\n• Draw a card.\n• You gain 3 life.");
+    expect(parsed.triggers[0]).toMatchObject({ event: "etb" });
+    expect(parsed.triggers[0].modes).toHaveLength(2);
+    expect(parsed.notes).toEqual([]);
+  });
+});
