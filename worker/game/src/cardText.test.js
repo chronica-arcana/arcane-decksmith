@@ -274,3 +274,21 @@ describe("cardText: Auslöser der Gegner und Sammelmarker", () => {
     expect(parse("Instant", "This spell can't be countered.\nDraw a card.").uncounterable).toBe(true);
   });
 });
+
+describe("cardText: Sagas, Marker-Arten und Einzeltexte", () => {
+  const parse = (typeLine, oracleText) => parseCardText({ name: "Karte", typeLine, oracleText });
+
+  it("Saga: Kapitel werden zu Auslösern mit Nummer, höchstes Kapitel = Opferpunkt", () => {
+    const parsed = parse("Enchantment — Saga", "(As this Saga enters and after your draw step, add a lore counter. Sacrifice after III.)\nI — Aerospark — Draw a card.\nII, III — You gain 2 life.");
+    expect(parsed.saga).toEqual({ max: 3 });
+    expect(parsed.triggers.map(trigger => [trigger.event, trigger.chapter])).toEqual([["chapter", 1], ["chapter", 2], ["chapter", 3]]);
+    expect(parsed.notes).toEqual([]);
+  });
+
+  it("Schildmarker, Betäubungsmarker, alle Friedhöfe exilieren, „you and target opponent each draw“", () => {
+    expect(parse("Sorcery", "Put a stun counter on target creature.").spell.effects[0]).toMatchObject({ type: "counters", kind: "stun" });
+    expect(parse("Sorcery", "Put a shield counter on target creature.").spell.effects[0]).toMatchObject({ kind: "shield" });
+    expect(parse("Sorcery", "Exile all graveyards.").spell.effects).toEqual([{ type: "exileAllGraveyards" }]);
+    expect(parse("Sorcery", "You and target opponent each draw three cards.").spell.effects).toHaveLength(2);
+  });
+});

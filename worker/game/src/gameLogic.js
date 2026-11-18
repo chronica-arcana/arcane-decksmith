@@ -420,6 +420,7 @@ function enterBattlefield(game, card) {
   if (def.rules?.chooseType) game.triggerQueue.push({ kind: "entry", entry: "chooseType", cardId: card.id, controller: card.owner });
   if (def.rules?.chooseColor) game.triggerQueue.push({ kind: "entry", entry: "chooseColor", cardId: card.id, controller: card.owner, except: def.rules.chooseColor.except });
   fireTriggers(game, card, "etb");
+  if (def.rules?.saga) addLore(game, card);
   if (def.types.land) fireGlobal(game, "landEnters", card);
   if (def.types.creature) fireGlobal(game, "creatureEnters", card);
 }
@@ -725,6 +726,7 @@ function startTurn(game, userId, { skipDraw = false } = {}) {
   if (skipDraw) {
     game.turn.phase = "main1";
     addLog(game, `${player.name} zieht im ersten Zug keine Karte.`);
+    beginMain1(game);
   } else if (player.autoStart === false) {
     // Karte ziehen: durch Anklicken der Bibliothek (danach geht es automatisch weiter).
     game.turn.phase = "draw";
@@ -733,6 +735,7 @@ function startTurn(game, userId, { skipDraw = false } = {}) {
     const drawn = drawCards(game, userId, 1);
     game.turn.drew = drawn > 0;
     addLog(game, drawn ? `${player.name} zieht eine Karte.` : `${player.name} kann keine Karte ziehen (Bibliothek leer).`);
+    beginMain1(game);
   }
 }
 
@@ -916,6 +919,12 @@ function untapAll(game, userId) {
       card.frozen = false; // „doesn't untap during its controller's next untap step“
       continue;
     }
+    if (card.counters.stun > 0 && card.tapped) {
+      // Betäubungsmarker: statt zu enttappen wird ein Marker entfernt
+      card.counters.stun -= 1;
+      if (card.counters.stun <= 0) delete card.counters.stun;
+      continue;
+    }
     if (card.tapped) count += 1;
     card.tapped = false;
   }
@@ -961,11 +970,36 @@ function hasPotentialAttackers(game, userId) {
   });
 }
 
+/** Sagas: ein Wissensmarker, dann löst das passende Kapitel aus; nach dem letzten Kapitel wird die Saga geopfert. */
+function addLore(game, card) {
+  const def = defOf(game, card);
+  if (!def.rules?.saga || !onBattlefield(game, card.id)) return;
+  card.counters.lore = (card.counters.lore ?? 0) + 1;
+  const chapter = card.counters.lore;
+  const max = def.rules.saga.max;
+  if (chapter >= max) {
+    // Zuerst auf den Stapel, damit es nach dem letzten Kapitel aufgelöst wird
+    game.triggerQueue.push({ controller: card.owner, source: card.id, sourceName: def.name, trigger: { event: "chapter", text: "Saga: Opfern nach dem letzten Kapitel", effects: [{ type: "sacrificeSelf" }], specs: [], unparsed: [], summary: "Die Saga wird geopfert." } });
+  }
+  for (const trigger of def.rules.triggers ?? []) {
+    if (trigger.event === "chapter" && trigger.chapter === chapter) game.triggerQueue.push({ controller: card.owner, source: card.id, sourceName: def.name, trigger });
+  }
+  addLog(game, `${def.name}: Kapitel ${chapter} (Wissensmarker).`);
+}
+
 function enterPhase(game, phase) {
   game.turn.phase = phase;
   game.priority = game.turn.active;
   game.passed = [];
   clearPools(game);
+  if (phase === "main1") beginMain1(game);
+}
+
+/** Beginn der ersten Hauptphase (nach dem Ziehen): Sagas erhalten einen Wissensmarker. */
+function beginMain1(game) {
+  if (game.phase !== "playing") return;
+  for (const id of [...game.players[game.turn.active].battlefield]) if (game.cards[id]) addLore(game, game.cards[id]);
+  flushTriggers(game);
 }
 
 /** Alle haben nacheinander gepasst und der Stapel ist leer: nächster Schritt. */
@@ -1645,6 +1679,12 @@ function inflictDamage(game, source, targetId, amount, { combat = false } = {}) 
       return 0;
     }
     const def = defOf(game, card);
+    if (card.counters.shield > 0 && (def.types.creature || def.types.planeswalker)) {
+      card.counters.shield -= 1;
+      if (card.counters.shield <= 0) delete card.counters.shield;
+      addLog(game, `${def.name}: Ein Schildmarker verhindert den Schaden von ${sourceName} und wird entfernt.`);
+      return 0;
+    }
     if (def.types.creature) {
       if (infect || wither) card.counters["-1/-1"] = (card.counters["-1/-1"] ?? 0) + amount;
       else card.damage += amount;
@@ -1683,6 +1723,12 @@ function destroyCard(game, card) {
   const def = defOf(game, card);
   if (hasKeyword(game, card, "indestructible")) {
     addLog(game, `${def.name} ist unzerstörbar.`);
+    return;
+  }
+  if (card.counters.shield > 0) {
+    card.counters.shield -= 1;
+    if (card.counters.shield <= 0) delete card.counters.shield;
+    addLog(game, `${def.name}: Ein Schildmarker verhindert die Zerstörung und wird entfernt.`);
     return;
   }
   if (card.regen && def.types.creature) {
@@ -2230,6 +2276,15 @@ function runEffect(game, rawEffect, ctx, rest) {
         }
       }
       return false;
+    case "exileAllGraveyards": {
+      for (const id of game.seats) {
+        const holder = game.players[id];
+        holder.exile.push(...holder.graveyard);
+        holder.graveyard = [];
+      }
+      addLog(game, `Alle Friedhöfe werden ins Exil geschickt (${name}).`);
+      return false;
+    }
     case "exileGraveyard": {
       const id = ctx.targets[effect.t];
       const player = game.players[id];
