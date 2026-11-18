@@ -500,6 +500,60 @@ function releaseExiled(game, card) {
   }
 }
 
+/** Zusammengesetzte Definition einer mutierten Kreatur: Eigenschaften der obersten Karte, Fähigkeiten aller Karten. */
+function mergedDef(game, parts) {
+  const defs = parts.map(part => game.xdefs[part.def] ?? game.defs[part.def]);
+  const top = defs[0];
+  const rules = { ...top.rules, triggers: [], activated: [], statics: [], notes: [], selfGrants: [], tiers: [] };
+  for (const item of defs) {
+    rules.triggers.push(...(item.rules?.triggers ?? []));
+    rules.statics.push(...(item.rules?.statics ?? []));
+    rules.notes.push(...(item.rules?.notes ?? []));
+    rules.selfGrants.push(...(item.rules?.selfGrants ?? []));
+    rules.activated.push(...(item.rules?.activated ?? []));
+  }
+  rules.activated = rules.activated.map((ability, index) => ({ ...ability, index }));
+  return { ...top, rules, keywords: [...new Set(defs.flatMap(item => item.keywords ?? []))] };
+}
+
+/** Mutate: Die zaubernde Karte wird über oder unter die Kreatur gelegt, beide sind eine Kreatur. */
+function mutateInto(game, spellCard, host, over) {
+  const hostParts = host.mutStack ?? [{ id: host.id, def: host.def }];
+  const parts = over ? [{ id: spellCard.id, def: spellCard.def }, ...hostParts] : [...hostParts, { id: spellCard.id, def: spellCard.def }];
+  const key = `mut:${host.id}`;
+  host.mutStack = parts;
+  game.xdefs[key] = mergedDef(game, parts);
+  host.def = key;
+  addLog(game, `${nameOf(game, spellCard.id)} mutiert ${over ? "über" : "unter"} die Kreatur und bildet ${game.xdefs[key].name}.`);
+  fireTriggers(game, host, "mutates");
+}
+
+/** Verlässt eine mutierte Kreatur das Spielfeld, wird sie in ihre Einzelkarten zerlegt. Gibt die übrigen Karten zurück. */
+function splitMutated(game, card) {
+  if (!card.mutStack) return [];
+  const own = card.mutStack.find(part => part.id === card.id);
+  const others = card.mutStack.filter(part => part.id !== card.id).map(part => part.id);
+  delete game.xdefs[`mut:${card.id}`];
+  if (own) card.def = own.def;
+  card.mutStack = undefined;
+  return others;
+}
+
+function placeParts(game, ids, zone) {
+  for (const id of ids) {
+    const part = game.cards[id];
+    if (!part) continue;
+    resetCardState(part);
+    game.players[part.origOwner ?? part.owner][zone].push(id);
+  }
+}
+
+/** Eigene Kreaturen, auf die ein Mutate-Zauber zielen darf (keine Menschen). */
+const mutateTargets = (game, userId) => game.players[userId].battlefield.filter(id => {
+  const def = defOf(game, game.cards[id]);
+  return def.types.creature && !hasSubtype(def, "Human") && (game.cards[id].origOwner ?? game.cards[id].owner) === userId;
+});
+
 function toGraveyard(game, card, from = "battlefield") {
   const holder = game.players[card.owner]; // Kontrolleur (liegt dort auf dem Feld)
   const owner = game.players[card.origOwner ?? card.owner]; // Besitzer (dort landet die Karte)
@@ -514,14 +568,17 @@ function toGraveyard(game, card, from = "battlefield") {
     fireTriggers(game, card, "dies");
     if (defOf(game, card).types.creature) fireGlobal(game, "creatureDies", card);
   }
+  const parts = from === "battlefield" ? splitMutated(game, card) : [];
   for (const zone of ZONES) {
     const index = holder[zone].indexOf(card.id);
     if (index !== -1) holder[zone].splice(index, 1);
   }
   if (card.token) {
     delete game.cards[card.id];
+    placeParts(game, parts, "graveyard");
     return;
   }
+  placeParts(game, parts, "graveyard");
   card.lastCounters = { ...card.counters };
   resetCardState(card);
   owner.graveyard.push(card.id);
@@ -989,6 +1046,8 @@ function resolveTop(game) {
     enterBattlefield(game, card);
     card.attachedTo = item.targets?.[0] ?? null;
     addLog(game, `${def.name} löst sich auf → hängt an ${card.attachedTo ? nameOf(game, card.attachedTo) : "…"}.`);
+  } else if (item.mutate && game.cards[item.mutate] && mutateTargets(game, item.controller).includes(item.mutate)) {
+    mutateInto(game, card, game.cards[item.mutate], item.over !== false);
   } else {
     owner.battlefield.push(card.id);
     card.enterX = item.x;
@@ -1597,10 +1656,12 @@ function leaveTo(game, card, zone) {
   if (onBattlefield(game, card.id)) releaseExiled(game, card);
   const holder = game.players[card.owner];
   const owner = game.players[card.origOwner ?? card.owner];
+  const parts = onBattlefield(game, card.id) ? splitMutated(game, card) : [];
   for (const z of ZONES) {
     const index = holder[z].indexOf(card.id);
     if (index !== -1) holder[z].splice(index, 1);
   }
+  placeParts(game, parts, zone);
   if (card.token) {
     delete game.cards[card.id];
     return;
@@ -3202,6 +3263,8 @@ function cardView(game, id, viewerId, { hideFace = false } = {}) {
     cycle: card.owner === viewerId ? cycleOptions(game, viewerId, card) : null,
     foretell: card.owner === viewerId ? foretellOptions(game, viewerId, card) : null,
     evoke: card.owner === viewerId ? evokeOptions(game, viewerId, card) : null,
+    mutate: card.owner === viewerId ? mutateOptions(game, viewerId, card) : null,
+    mutated: card.mutStack ? card.mutStack.length : 0,
     rulesNotes: (def.rules?.notes ?? []).slice(0, 4).map(note => note.replace(/~/g, def.name)),
     mana: Boolean(def.mana),
     manaColors: def.mana ? [...new Set(effectiveMana(game, card).flat())] : [],
@@ -3752,7 +3815,9 @@ function castAction(game, userId, action) {
   if (extraPay.error) return fail(extraPay.error);
   const ward = specs.length > 0 ? wardExtra(game, userId, action.targets) : "";
   const evoked = action.evoke === true && Boolean(def.rules?.evoke) && found.zone === "hand";
-  const cost = (flashback ? def.rules.flashback : foretold ? def.rules.foretell : evoked ? def.rules.evoke : hasFreeCast(game, userId, def) ? "" : def.manaCost) + ward;
+  const mutating = typeof action.mutate === "string" && Boolean(def.rules?.mutate) && found.zone === "hand";
+  if (mutating && !mutateTargets(game, userId).includes(action.mutate)) return fail("Mutate: Wähle eine eigene Kreatur, die kein Mensch ist.");
+  const cost = (flashback ? def.rules.flashback : foretold ? def.rules.foretell : evoked ? def.rules.evoke : mutating ? def.rules.mutate : hasFreeCast(game, userId, def) ? "" : def.manaCost) + ward;
   const alt = planWithAlternatives(game, userId, def, { manaCost: cost, x, extraGeneric: tax - costReduction(game, def, userId), pool: player.pool, sources: chosenSources(manaSources(game, userId), action) });
   const plan = alt.plan;
   if (!plan.ok) {
@@ -3781,7 +3846,7 @@ function castAction(game, userId, action) {
   found.card.revealed = false;
   const greatestPower = player.battlefield.reduce((max, id) => (defOf(game, game.cards[id]).types.creature ? Math.max(max, powerOf(game, game.cards[id])) : max), 0);
   found.card.faceDown = false;
-  game.stack.push({ sid: newId(game, "s"), kind: "spell", controller: userId, cardId: found.card.id, x, flashback, mode, targets: specs.length > 0 ? action.targets : [], greatestPower, fromExile: found.zone === "exile", evoked });
+  game.stack.push({ sid: newId(game, "s"), kind: "spell", controller: userId, cardId: found.card.id, x, flashback, mode, targets: specs.length > 0 ? action.targets : [], greatestPower, fromExile: found.zone === "exile", evoked, ...(mutating ? { mutate: action.mutate, over: action.over !== false } : {}) });
   game.priority = userId;
   game.passed = [];
   addLog(game, `${player.name} wirkt ${def.name}${paid}.`);
@@ -3843,6 +3908,17 @@ function evokeOptions(game, userId, card) {
   const timing = playing && hasWindow(game, userId) && (def.keywords.includes("flash") || mainPhase);
   const ok = timing && planPayment({ manaCost: def.rules.evoke, pool: player.pool, sources: manaSources(game, userId) }).ok;
   return { ok, cost: def.rules.evoke };
+}
+
+function mutateOptions(game, userId, card) {
+  const def = defOf(game, card);
+  if (!def.rules?.mutate || !game.players[userId].hand.includes(card.id)) return null;
+  const player = game.players[userId];
+  const playing = game.phase === "playing" && !player.eliminated && !game.pendingDiscard && !game.choice && !game.manual;
+  const mainPhase = game.turn.active === userId && (game.turn.phase === "main1" || game.turn.phase === "main2") && game.stack.length === 0;
+  const targets = mutateTargets(game, userId).map(id => ({ id, name: nameOf(game, id) }));
+  const ok = playing && hasWindow(game, userId) && (def.keywords.includes("flash") || mainPhase) && targets.length > 0 && planPayment({ manaCost: def.rules.mutate, pool: player.pool, sources: manaSources(game, userId) }).ok;
+  return { ok, cost: def.rules.mutate, targets };
 }
 
 function cycleOptions(game, userId, card) {
@@ -4174,6 +4250,7 @@ function moveAction(game, userId, action) {
   const wasFaceDown = card.faceDown;
   player[from].splice(found.index, 1);
   if (player.looking) player.looking = player.looking.filter(id => id !== card.id);
+  if (from === "battlefield" && card.mutStack) placeParts(game, splitMutated(game, card), to === "battlefield" ? "graveyard" : to);
 
   // Spielsteine verschwinden, sobald sie das Schlachtfeld verlassen.
   if (card.token && to !== "battlefield") {

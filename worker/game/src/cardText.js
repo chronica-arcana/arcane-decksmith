@@ -885,6 +885,7 @@ function parseEntryCondition(text) {
 function triggerEvent(word, condition) {
   let m;
   if (/^~ enters( the battlefield)?$/.test(condition)) return { event: "etb" };
+  if (/^~ mutates$/.test(condition)) return { event: "mutates" };
   if (/^~ dies$/.test(condition) || /^~ is put into a graveyard from the battlefield$/.test(condition)) return { event: "dies" };
   if (/^~ or another creature dies$/.test(condition)) return { event: "creatureDies", scope: { owner: "any", another: false } };
   if (/^equipped creature dies$/.test(condition)) return { event: "equippedDies" };
@@ -1165,6 +1166,11 @@ export function parseCardText({ name, typeLine, oracleText }) {
     }
     if (/^melee$/i.test(line)) {
       result.triggers.push({ event: "attacks", text: "Melee", effects: [{ type: "melee" }], specs: [], unparsed: [], summary: "Melee: +1/+1 für jeden angegriffenen Gegner." });
+      continue;
+    }
+    const mutate = line.match(/^mutate (\{[^}]+\}(?:\{[^}]+\})*)$/i);
+    if (mutate) {
+      result.mutate = mutate[1];
       continue;
     }
     const evoke = line.match(/^evoke (\{[^}]+\}(?:\{[^}]+\})*)$/i);
