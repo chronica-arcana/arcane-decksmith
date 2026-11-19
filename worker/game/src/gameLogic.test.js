@@ -188,6 +188,9 @@ const LIB = [
   ["chargemace", "Ladungskeule", "Artifact — Equipment", "{1}", 2, {}, "Equipped creature gets +1/+1 for each charge counter on this Equipment.\nWhenever equipped creature attacks, you gain 1 life.\nEquip {1}"],
   ["battlecry", "Schlachtruf-Rüstung", "Artifact — Equipment", "{1}", 2, {}, "Equipped creature has \"Whenever this creature attacks, you gain 2 life.\"\nEquip {1}"],
   ["cryptcall", "Gruftruf", "Sorcery", "{G}", 2, {}, "You may cast target instant or sorcery card with mana value 3 or less from your graveyard without paying its mana cost. If that spell would be put into your graveyard, exile it instead."],
+  ["tracker", "Spurenleser", "Creature — Scout", "{1}", 2, { power: "1", toughness: "1" }, "Whenever you sacrifice a Clue, put a +1/+1 counter on ~."],
+  ["investigator", "Nachforschung", "Sorcery", "{G}", 2, {}, "Investigate."],
+  ["drain", "Lebensentzug", "Sorcery", "{G}", 2, {}, "Each opponent loses 2 life. You gain life equal to the life lost this way."],
   ["convoker", "Einberufer", "Sorcery", "{3}{G}", 2, {}, "Convoke\nDraw a card."],
   ["delver", "Schürfer", "Sorcery", "{4}{G}", 2, {}, "Delve\nDraw a card."],
   ["sculptor", "Bildhauer", "Creature — Vedalken", "{G}", 2, { power: "1", toughness: "1" }, "Artifact spells you cast cost {1} less to cast."],
@@ -2967,6 +2970,20 @@ describe("Neue Mechaniken aus den Commander-Decks", () => {
     expect(game.players.u0.life).toBe(life + 4);
     expect(game.players.u0.exile).toContain(heal);
     expect(game.cards[heal].freeCast).toBeUndefined();
+  });
+
+  it("„Whenever you sacrifice a Clue“ und „You gain life equal to the life lost this way“", () => {
+    const { game, random } = started();
+    forest(game, "u0", 4);
+    const tracker = put(game, "u0", "Spurenleser", "battlefield");
+    castAndResolve(game, "u0", "Nachforschung", random);
+    const clue = game.players.u0.battlefield.find(id => game.cards[id].token);
+    expect(act(game, "u0", { type: "activate", id: clue, index: 0 }, random).ok).toBe(true);
+    go(game, random);
+    expect(game.cards[tracker].counters["+1/+1"]).toBe(1);
+    const life = game.players.u0.life;
+    castAndResolve(game, "u0", "Lebensentzug", random);
+    expect(game.players.u0.life).toBe(life + 2);
   });
 
   it("Convoke und Delve bezahlen fehlendes Mana mit Kreaturen bzw. Friedhofskarten", () => {

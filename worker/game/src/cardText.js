@@ -645,6 +645,17 @@ function parseSentence(raw, specs) {
     specs[t] = { ...specs[t], onlyInstant: true };
     return [{ type: "freeCast", t }];
   }
+  if ((m = lower.match(/^return target ([a-z]+) or ([a-z]+) card from your graveyard to your hand$/)) && !["creature", "artifact", "enchantment", "land", "instant", "sorcery", "permanent"].includes(m[1])) {
+    const t = addTarget(specs, "target permanent card from your graveyard");
+    if (t === null) return null;
+    specs[t] = { ...specs[t], subtypes: [m[1], m[2]] };
+    return [{ type: "reanimate", t, to: "hand", counters: 0 }];
+  }
+  if ((m = lower.match(/^you may have (target attacking creature) gain ([a-z ]+) until end of turn$/))) {
+    const t = addTarget(specs, m[1]);
+    const kws = [m[2].trim()].filter(word => KEYWORDS.includes(word));
+    return t === null || kws.length === 0 ? null : [{ type: "may", effects: [{ type: "grantKw", kws, t }] }];
+  }
   if (/^you may choose new targets for (the|that|target) (cop(y|ies)|spell or ability)$/.test(lower)) return [{ type: "noop" }];
   if ((m = lower.match(new RegExp(`^you may have (?:it|~) deal ${N} damage to each creature$`)))) {
     const n = num(m[1]);
@@ -1354,6 +1365,12 @@ function triggerEvent(word, condition) {
   if (/^an opponent casts a creature spell$/.test(condition)) return { event: "castCreature", scope: { owner: "opp", another: false } };
   if (/^~ deals combat damage to a player or planeswalker$/.test(condition)) return { event: "dealsCombatDamage" };
   if (/^a legendary creature you control enters( the battlefield)?$/.test(condition)) return { event: "creatureEnters", scope: { owner: "you", another: false, legendary: true } };
+  if ((m = condition.match(/^you sacrifice an? (nontoken )?([a-z]+)$/))) return { event: "youSacrifice", sacrificeWhat: m[2], ...(m[1] ? { sacrificeNontoken: true } : {}), scope: { owner: "you", another: false } };
+  if (/^you sacrifice (?:a|another) permanent$/.test(condition)) return { event: "youSacrifice", scope: { owner: "you", another: false } };
+  if (/^one or more creatures attack$/.test(condition)) return { event: "anyAttack", scope: { owner: "any", another: false } };
+  if ((m = condition.match(/^~ or another (nontoken )?(legendary )?(permanent|creature|artifact) you control enters( the battlefield)?$/))) {
+    return { event: m[3] === "creature" ? "creatureEnters" : "permanentEnters", scope: { owner: "you", another: false, ...(m[1] ? { nontoken: true } : {}), ...(m[2] ? { legendary: true } : {}), ...(m[3] === "artifact" ? { permType: "artifact" } : {}) } };
+  }
   if (/^~ becomes tapped$/.test(condition)) return { event: "becomesTapped" };
   if (/^~ mutates$/.test(condition)) return { event: "mutates" };
   if (/^~ dies$/.test(condition) || /^~ is put into a graveyard from the battlefield$/.test(condition)) return { event: "dies" };
@@ -1766,6 +1783,10 @@ export function parseCardText({ name, typeLine, oracleText }) {
         continue;
       }
     }
+    if (/^untap all artifacts you control during each other player's untap step\.?$/i.test(line)) {
+      result.untapArtifactsOthers = true;
+      continue;
+    }
     if (/^you may play lands from your graveyard\.?$/i.test(line)) {
       result.landsFromGraveyard = true;
       continue;
@@ -2095,7 +2116,7 @@ export function parseCardText({ name, typeLine, oracleText }) {
       const condition = trigger[2].toLowerCase();
       const events = /^~ enters( the battlefield)? or attacks$/.test(condition)
         ? [triggerEvent(trigger[1], "~ enters"), triggerEvent(trigger[1], "~ attacks")]
-        : /^your commander enters or attacks$/.test(condition)
+        : /^(?:your commander|a commander you control) enters or attacks$/.test(condition)
           ? [{ event: "creatureEnters", scope: { owner: "you", another: false, commander: true } }, { event: "creatureAttacks", scope: { owner: "you", another: false, commander: true } }]
           : /^~ enters( the battlefield)? or dies$/.test(condition)
           ? [triggerEvent(trigger[1], "~ enters"), triggerEvent(trigger[1], "~ dies")]

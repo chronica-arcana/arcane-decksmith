@@ -623,6 +623,11 @@ const mutateTargets = (game, userId) => game.players[userId].battlefield.filter(
   return def.types.creature && !hasSubtype(def, "Human") && (game.cards[id].origOwner ?? game.cards[id].owner) === userId;
 });
 
+/** „Whenever you sacrifice a <Typ>“: vor dem Opfern melden (die Karte ist dann noch bekannt). */
+function noteSacrifice(game, card) {
+  if (game.phase === "playing" && card) fireGlobal(game, "youSacrifice", card);
+}
+
 /** „Whenever you discard (or cycle) a card“: ein Auslöser je abgeworfener Karte. */
 function fireDiscards(game, ids) {
   if (game.phase !== "playing") return;
@@ -911,6 +916,7 @@ function applyPay(game, userId, picks, name, selfId) {
       for (const id of ids) {
         if (game.cards[id] && onBattlefield(game, id)) {
           addLog(game, `${player.name} opfert ${nameOf(game, id)} (${name}).`);
+          noteSacrifice(game, game.cards[id]);
           toGraveyard(game, game.cards[id]);
         }
       }
@@ -1011,6 +1017,11 @@ function returnStolen(game) {
 
 function untapAll(game, userId) {
   let count = 0;
+  // „Untap all artifacts you control during each other player's untap step.“
+  for (const other of game.seats) {
+    if (other === userId || !game.players[other].battlefield.some(id => defOf(game, game.cards[id]).rules?.untapArtifactsOthers)) continue;
+    for (const id of game.players[other].battlefield) if (defOf(game, game.cards[id]).types.artifact) game.cards[id].tapped = false;
+  }
   for (const id of game.players[userId].battlefield) {
     const card = game.cards[id];
     if (card.frozen) {
@@ -1623,6 +1634,7 @@ function validTargets(game, spec, controller, src = { colors: [], id: null }) {
         const def = defOf(game, game.cards[id]);
         if (spec.mvMax !== undefined && (def.manaValue ?? 0) > spec.mvMax) return false;
         if (spec.powerMax !== undefined && (def.power ?? 0) > spec.powerMax) return false;
+        if (spec.subtypes && !spec.subtypes.some(word => hasSubtype(def, word))) return false;
         return what === "permanent" ? !def.types.instant && !def.types.sorcery : typeMatches(def, what);
       });
     }
@@ -1736,6 +1748,7 @@ function spendSacrificial(game, ids) {
     const card = game.cards[id];
     if (card?.token && defOf(game, card).rules?.sacMana && onBattlefield(game, id)) {
       addLog(game, `${nameOf(game, id)} wird geopfert.`);
+      noteSacrifice(game, card);
       toGraveyard(game, card);
     }
   }
@@ -1908,6 +1921,7 @@ function fireGlobal(game, event, subject) {
         if (trigger.counterKind && (typeof subject === "string" || subject.lastCounterKind !== trigger.counterKind)) continue;
         if (scope.counter && (typeof subject === "string" || !(scope.counter === "any" ? Object.values(subject.counters).some(value => value > 0) : subject.counters[scope.counter] > 0))) continue;
         if (scope.creatureType && (typeof subject === "string" || !(defOf(game, subject).types[scope.creatureType] ?? hasSubtype(defOf(game, subject), scope.creatureType)))) continue;
+        if (trigger.sacrificeWhat && (typeof subject === "string" || !(trigger.sacrificeWhat in defOf(game, subject).types ? defOf(game, subject).types[trigger.sacrificeWhat] : hasSubtype(defOf(game, subject), trigger.sacrificeWhat)) || (trigger.sacrificeNontoken && subject.token))) continue;
         if (trigger.attackerSubtype && !(game.combat?.attackers ?? []).some(attacker => game.cards[attacker.id] && hasSubtype(defOf(game, game.cards[attacker.id]), trigger.attackerSubtype))) continue;
         if (trigger.minAttackers && (game.combat?.attackers?.length ?? 0) < trigger.minAttackers) continue;
         if (scope.nontoken && typeof subject !== "string" && subject.token) continue;
@@ -2204,6 +2218,7 @@ function evalQuantity(game, ctx, q) {
       break;
     }
     case "opponents": value = alive(game).filter(id => id !== ctx.controller).length; break;
+    case "lifeLost": value = ctx.lifeLost ?? 0; break;
     case "oppAttacked": value = game.turn.attackedOpponents?.[ctx.controller]?.length ?? 0; break;
     case "zone": value = (q.zone === "hand" ? me.hand : me.graveyard).filter(id => !q.type || (q.type === "instant and sorcery" ? defOf(game, game.cards[id]).types.instant || defOf(game, game.cards[id]).types.sorcery : typeMatches(defOf(game, game.cards[id]), q.type))).length; break;
     case "counters": {
@@ -2296,6 +2311,7 @@ function runEffect(game, rawEffect, ctx, rest) {
       if (effect.onlyFromExile && !ctx.castInfo?.fromExile) return false;
       for (const id of playersOf(game, effect.who, ctx)) {
         game.players[id].life += effect.n;
+        if (effect.n < 0) ctx.lifeLost = (ctx.lifeLost ?? 0) - effect.n;
         if (effect.n > 0) {
           noteLifeGain(game, id, effect.n);
           fireGlobal(game, "youGainLife", id);
@@ -3176,6 +3192,7 @@ function runEffect(game, rawEffect, ctx, rest) {
         ctx.sacrificed = options[0];
         ctx.snap = { ...(ctx.snap ?? {}), ...snapshotTargets(game, options) };
         addLog(game, `${controller.name} opfert ${nameOf(game, options[0])} (${name}).`);
+        noteSacrifice(game, game.cards[options[0]]);
         toGraveyard(game, game.cards[options[0]]);
         return false;
       }
@@ -3428,6 +3445,7 @@ function runEffect(game, rawEffect, ctx, rest) {
     case "sacrificeSelf":
       if (sourceCard && onBattlefield(game, sourceCard.id)) {
         addLog(game, `${controller.name} opfert ${nameOf(game, sourceCard.id)}.`);
+        noteSacrifice(game, sourceCard);
         toGraveyard(game, sourceCard);
       }
       return false;
@@ -3866,6 +3884,7 @@ function chooseAction(game, userId, action, random, now) {
       }
       if (card && onBattlefield(game, card.id)) {
         addLog(game, `${game.players[userId].name} opfert ${nameOf(game, card.id)}.`);
+        noteSacrifice(game, card);
         toGraveyard(game, card);
       }
       break;
@@ -4959,6 +4978,7 @@ function activateAction(game, userId, action) {
   applyPay(game, userId, extraPay.picks, def.name, card.id);
   if (ability.cost.sacrifice) {
     addLog(game, `${player.name} opfert ${def.name}.`);
+    noteSacrifice(game, card);
     toGraveyard(game, card);
   }
   if (ability.cost.discardSelf && player.hand.includes(card.id)) {
@@ -5081,6 +5101,7 @@ function declareAttackersAction(game, userId, action, random, now) {
   game.turn.attackedWith = attackers.length;
   game.turn.attackedOpponents = { ...(game.turn.attackedOpponents ?? {}), [userId]: [...new Set(attackers.map(attacker => attackTargetOwner(game, attacker.target)).filter(Boolean))] };
   fireGlobal(game, "youAttack", userId); // „Whenever you attack“ (einmal je Angriff)
+  fireGlobal(game, "anyAttack", userId); // „Whenever one or more creatures attack“
   game.turn.phase = "blockers";
   game.priority = null;
   game.passed = [];

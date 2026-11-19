@@ -17,7 +17,7 @@ describe("quantity: Mengenangaben", () => {
 
   it("lehnt Unbekanntes ab (kein Raten)", () => {
     expect(parseQuantity("the number of colors of mana spent to cast ~", spec)).toBeNull();
-    expect(parseQuantity("the life lost this way", spec)).toBeNull();
+    expect(parseQuantity("the amount of mana spent to cast it", spec)).toBeNull();
   });
 
   it("formt „equal to“ in die X-Form um und hängt die Menge an X-Effekte", () => {

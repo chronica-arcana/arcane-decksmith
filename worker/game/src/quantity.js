@@ -37,6 +37,7 @@ export function parseQuantity(text, parseSpec) {
     return done({ kind: "stat", ref: /sacrificed/.test(t) ? "sacrificed" : "it", stat: m[1] === "mana value" ? "mv" : m[1] });
   }
   if ((m = t.match(/^the sacrificed (?:permanent|creature|artifact)'s (power|toughness|mana value)$/))) return done({ kind: "stat", ref: "sacrificed", stat: m[1] === "mana value" ? "mv" : m[1] });
+  if (/^the life lost this way$/.test(t)) return done({ kind: "lifeLost" });
   if (/^the number of opponents?(?: you have)?$/.test(t)) return done({ kind: "opponents" });
   if (/^the number of opponents? you attacked this turn$/.test(t)) return done({ kind: "oppAttacked" });
   if (/^the number of cards? in your hand$/.test(t)) return done({ kind: "zone", zone: "hand" });
