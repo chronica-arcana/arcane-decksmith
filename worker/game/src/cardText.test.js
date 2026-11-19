@@ -267,6 +267,21 @@ describe("cardText: weitere Lücken (Kopieren, Skulk, Stufen, Einzelzeilen)", ()
     expect(parse("Creature — Elf", "~ gets +1/+0 for each artifact you control.").statics[0]).toMatchObject({ scope: "self", perQ: { p: 1, th: 0 } });
   });
 
+  it("Allgemeine Dauereffekte mit Filter, „up to N target …“ und „tap all …“", () => {
+    expect(parse("Enchantment", "Creatures you control with +1/+1 counters on them have reach and trample.").statics[0]).toMatchObject({ scope: "you", spec: { counter: "+1/+1" }, grants: ["reach", "trample"] });
+    expect(parse("Enchantment", "Other green creatures you control get +1/+1.").statics[0]).toMatchObject({ scope: "youOther", spec: { colors: ["G"] }, p: 1, th: 1 });
+    expect(parse("Enchantment", "Tapped creatures you control have hexproof.").statics[0]).toMatchObject({ spec: { tapped: true }, grants: ["hexproof"] });
+    expect(parse("Enchantment", "Creatures your opponents control with flying get -1/-0.").statics[0]).toMatchObject({ scope: "opp", spec: { keyword: "flying" }, p: -1 });
+    expect(parse("Enchantment", "Elves you control get +1/+1.").statics[0]).toMatchObject({ subtype: "elves" }); // Kreaturtypen bleiben beim alten Weg
+    const seven = parse("Instant", "Up to seven target attacking creatures gain flying until end of turn.").spell;
+    expect(seven.effects).toHaveLength(7);
+    expect(seven.specs.every(spec => spec.optional && spec.attacking)).toBe(true);
+    expect(parse("Instant", "Destroy up to two target artifacts.").spell.effects).toEqual([{ type: "destroy", t: 0 }, { type: "destroy", t: 1 }]);
+    expect(parse("Instant", "Tap all creatures your opponents control.").spell.effects[0]).toMatchObject({ type: "tapEach", spec: { kind: "creature", ctrl: "opp" } });
+    expect(parse("Instant", "Untap all lands you control.").spell.effects[0]).toMatchObject({ type: "tapEach", untap: true, spec: { kind: "land", ctrl: "you" } });
+    expect(parse("Instant", "Tap all creatures target player controls.").spell).toMatchObject({ effects: [{ type: "tapEach", ofTarget: 0 }], specs: [{ kind: "player" }] });
+  });
+
   it("Goad-Sätze", () => {
     expect(parse("Instant", "Goad target creature.").spell.effects).toEqual([{ type: "goad", t: 0 }]);
     expect(parse("Sorcery", "Goad all creatures you don't control.").spell.effects).toEqual([{ type: "goad", all: true }]);

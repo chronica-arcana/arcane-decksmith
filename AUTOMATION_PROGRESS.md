@@ -31,6 +31,7 @@ Startpunkt der autonomen Phase (PR #69): Star Trek/FF 278/545 (51,0 %), alle Dec
 | 12 | Mehrfach-Modi: „Choose two / three / one or more“, „you may choose both instead“ mit Kommandant; modale Auslöser mit zwei Modi; Ziele der gewählten Modi werden verkettet; Client-Mehrfachauswahl | 317 (58,2 %) | 841 (41,9 %) |
 | 13 | Filter wie Zielangaben (Marker „with a +1/+1 counter on it“, „without flying“, „that entered this turn“); allgemeine Auslöser „Whenever a <Filter> enters/dies/attacks/deals combat damage“; „~ gets +1/+1 for each …“ als Dauereffekt; Marker auf „each <Filter>“ | 317 (58,2 %) | 861 (42,9 %) |
 | 14 | Goad (Aufstacheln): Ziel, „up to N“, „all creatures you don't control“, „each creature target player controls“; Angriffspflicht auch beim Passen, Mehrspieler-Zielregel, endet mit dem nächsten Zug des Aufstachlers; Angriffskosten heben die Pflicht auf (508.1d); Client-Badge und Zielwahl | 318 (58,3 %) | 862 (43,0 %) |
+| 15 | Allgemeine Dauereffekte „<Filter> you control get/have …“ (Farbe, Marker, Schlüsselwort, getappt; auch gegnerische); „up to N target …“ für beliebige Ein-Ziel-Sätze; „tap/untap all <Filter>“; „target attacking creature gains …“; Korrektur: Farben/„tapped“ wurden als Kreaturtyp gelesen | 320 (58,7 %) | 871 (43,4 %) |
 
 ## Implementierte Bausteine (Auswahl)
 

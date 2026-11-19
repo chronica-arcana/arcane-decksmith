@@ -134,6 +134,19 @@ function staticEffects(game, card) {
           if (!defOf(game, card).types[effect.subtype.replace(/s$/, "")]) continue;
         } else if (effect.subtype && !hasSubtype(defOf(game, card), effect.subtype)) continue;
         if (effect.chosen && !(source.chosenType && hasSubtype(defOf(game, card), source.chosenType))) continue;
+        if (effect.spec) {
+          // Filter mit Schlüsselwort („creatures with flying get +1/+1“) fragt Dauereffekte ab: Rekursion sperren
+          const needsKeywords = Boolean(effect.spec.keyword || effect.spec.noKeyword);
+          if (needsKeywords && staticDepth > 0) continue;
+          if (needsKeywords) staticDepth += 1;
+          let fits;
+          try {
+            fits = passesSpecFilter(game, card.id, effect.spec, source.owner, source);
+          } finally {
+            if (needsKeywords) staticDepth -= 1;
+          }
+          if (!fits) continue;
+        }
         result.p += effect.p;
         result.th += effect.th;
         if (effect.perQ && staticDepth === 0) {
@@ -2802,6 +2815,17 @@ function runEffect(game, rawEffect, ctx, rest) {
         card.goadedBy = [...new Set([...(card.goadedBy ?? []), ctx.controller])];
       }
       addLog(game, `${name}: ${ids.length} Kreatur(en) aufgestachelt.`);
+      return false;
+    }
+    case "tapEach": {
+      const pool = effect.ofTarget !== undefined ? game.players[ctx.targets[effect.ofTarget]]?.battlefield ?? [] : game.seats.flatMap(id => game.players[id].battlefield);
+      const hits = pool.filter(id => {
+        const c = game.cards[id];
+        if (effect.spec.kind === "myCreature" && c.owner !== ctx.controller) return false;
+        return subjectMatches(game, c, effect.spec, sourceCard ?? { owner: ctx.controller, id: ctx.source });
+      });
+      for (const id of hits) game.cards[id].tapped = !effect.untap;
+      addLog(game, `${name}: ${hits.length} Permanent(s) ${effect.untap ? "enttappt" : "getappt"}.`);
       return false;
     }
     case "countersEach": {

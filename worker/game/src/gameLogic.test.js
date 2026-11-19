@@ -236,6 +236,8 @@ const LIB = [
   ["overseer", "Metallaufseher", "Creature — Construct", "{G}", 2, { power: "1", toughness: "1" }, "When Metallaufseher enters, put a +1/+1 counter on each other creature you control that entered this turn."],
   ["goader", "Hetzruf", "Instant", "{G}", 2, {}, "Goad target creature."],
   ["goadall", "Aufruhr", "Sorcery", "{G}", 2, {}, "Goad all creatures you don't control."],
+  ["skyanthem", "Flugbanner", "Enchantment", "{G}", 2, {}, "Creatures you control with flying get +1/+1."],
+  ["freeze", "Frostwelle", "Instant", "{G}", 2, {}, "Tap all creatures your opponents control."],
 ];
 const facts = new Map();
 
@@ -1041,7 +1043,7 @@ describe("Dauertest: das Spiel bleibt nie stehen", () => {
     }
     const forced = mine.battlefield.filter(c => c.kind === "creature" && !c.tapped && !c.sick && c.keywords?.includes("must-attack") && !c.keywords?.includes("defender") && !c.keywords?.includes("cant-attack"));
     if (game.turn.phase === "attackers" && game.turn.active === uid && !game.combat && (forced.length > 0 || random() < 0.6)) {
-      const ready = mine.battlefield.filter(c => c.kind === "creature" && !c.tapped && !c.sick && !c.keywords?.includes("defender"));
+      const ready = mine.battlefield.filter(c => c.kind === "creature" && !c.tapped && !c.sick && !c.keywords?.includes("defender") && !c.keywords?.includes("cant-attack"));
       const foes = v.players.filter(p => p.userId !== uid && !p.eliminated).map(p => p.userId);
       const list = [...new Set([...forced, ...ready.slice(0, 1)])];
       const pick = c => foes.find(foe => !(c.goadedBy ?? []).includes(foe)) ?? foes[0];
@@ -1348,6 +1350,22 @@ describe("Bedingungen, Modi, X und Cycling", () => {
     expect(game.cards[fresh].counters["+1/+1"]).toBe(1);
     expect(game.cards[old].counters["+1/+1"] ?? 0).toBe(0);
     expect(game.cards[overseer].counters["+1/+1"] ?? 0).toBe(0);
+  });
+
+  it("Dauereffekt mit Schlüsselwort-Filter („creatures you control with flying get +1/+1“) und „tap all creatures your opponents control“", () => {
+    const { game, random } = started();
+    forest(game, "u0", 2);
+    put(game, "u0", "Flugbanner", "battlefield");
+    const hawk = put(game, "u0", "Falke", "battlefield");
+    const bear = put(game, "u0", "Bär", "battlefield");
+    const foe = put(game, "u1", "Bär", "battlefield");
+    const stats = id => view(game, "u0").players.flatMap(p => p.battlefield).find(c => c.id === id);
+    expect(stats(hawk).power).toBe(2);
+    expect(stats(bear).power).toBe(2);
+    castAndResolve(game, "u0", "Frostwelle", random);
+    for (let i = 0; i < 6 && game.stack.length > 0; i += 1) act(game, game.priority, { type: "pass" }, random);
+    expect(game.cards[foe].tapped).toBe(true);
+    expect(game.cards[bear].tapped).toBe(false);
   });
 
   it("Goad: aufgestachelte Kreatur muss angreifen, nicht den Aufstachler; endet mit dessen nächstem Zug", () => {

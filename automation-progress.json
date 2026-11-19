@@ -1,9 +1,9 @@
 {
-  "measuredAt": "2026-11-19T11:18:41.166Z",
+  "measuredAt": "2026-11-19T11:23:48.051Z",
   "focus": {
     "cards": 545,
-    "automated": 318,
-    "rate": 58.3,
+    "automated": 320,
+    "rate": 58.7,
     "decks": [
       {
         "name": "FIC Counter Blitz (FINAL FANTASY X)",
@@ -23,7 +23,7 @@
       },
       {
         "name": "TRC Federation Fleet",
-        "rate": 74
+        "rate": 75
       },
       {
         "name": "TRC Klingon Fury",
@@ -31,7 +31,7 @@
       },
       {
         "name": "TRC Landing Party",
-        "rate": 73
+        "rate": 74
       },
       {
         "name": "TRC We Are the Borg",
@@ -41,7 +41,7 @@
   },
   "all": {
     "cards": 2006,
-    "automated": 862,
-    "rate": 43
+    "automated": 871,
+    "rate": 43.4
   }
 }

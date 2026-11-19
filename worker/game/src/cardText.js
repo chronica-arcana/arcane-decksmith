@@ -120,7 +120,7 @@ function parseTargetSpec(phrase) {
     rest = c[1];
     spec.enteredThisTurn = true;
   }
-  if ((c = rest.match(/^(.+) (an opponent controls|you don't control|you control)$/))) {
+  if ((c = rest.match(/^(.+) (an opponent controls|your opponents control|you don't control|you control)$/))) {
     rest = c[1];
     spec.ctrl = c[2] === "you control" ? "you" : "opp";
   }
@@ -182,6 +182,13 @@ function parseTargetSpec(phrase) {
   return { kind: BASE_NOUNS[words.join(" ")], ...spec };
 }
 
+/** Zielangabe aus einer Mehrzahl-Gruppe („lands you control“, „creatures your opponents control“, „nonland permanents“). */
+function groupSpec(phrase) {
+  const m = phrase.trim().match(/^(.+?)((?: that entered this turn| with .+| without .+)?(?: (?:you control|your opponents control|an opponent controls|you don't control))?(?: that entered this turn)?)$/);
+  const head = m ? m[1] : phrase;
+  return parseTargetSpec(`target ${singular(head)}${m ? m[2] : ""}`);
+}
+
 /** Nimmt ein Ziel in die Liste auf und gibt dessen Index zurück. */
 function addTarget(specs, phrase) {
   const upTo = String(phrase).match(/^up to one (other |another )?(target .+)$/i);
@@ -224,6 +231,29 @@ function parseSentence(raw, specs) {
   if (/^then /i.test(s) && !/^then (if|shuffle)\b/i.test(s)) {
     const inner = parseSentence(s.slice(5), specs);
     if (inner) return inner;
+  }
+  // „up to N target creatures …“: Satz für ein Ziel lesen und die Effekte für jedes (optionale) Ziel wiederholen
+  if ((m = s.match(/^(.*?)\bup to (two|three|four|five|six|seven|eight|nine|ten) (other )?target (.+)$/i)) && !/\bup to (?:two|three|four|five|six|seven|eight|nine|ten) /i.test(m[1])) {
+    const count = COUNT_WORDS[m[2].toLowerCase()];
+    const words = m[4].split(" ");
+    const nounAt = words.findIndex(word => /[a-z]s$/i.test(word) && !/^(?:its|this|gains?|gets?|has)$/i.test(word));
+    if (count && nounAt !== -1) {
+      words[nounAt] = singular(words[nounAt]);
+      const tail = words.join(" ").replace(/\b(gain|get|have|deal|become)\b/i, verb => `${verb}s`).replace(/\beach (gains|gets)\b/i, "$1");
+      const mark = specs.length;
+      const inner = parseSentence(`${m[1]}${m[3] ? "another " : ""}target ${tail}`, specs);
+      const onlyT = effect => Object.keys(effect).every(key => !["from", "to", "source", "forTargetController", "effects"].includes(key));
+      if (inner && specs.length === mark + 1 && inner.every(onlyT)) {
+        specs[mark] = { ...specs[mark], optional: true };
+        const out = [...inner];
+        for (let i = 1; i < count; i += 1) {
+          specs.push({ ...specs[mark] });
+          out.push(...inner.map(effect => (effect.t === mark ? { ...effect, t: specs.length - 1 } : effect)));
+        }
+        if (out.every(effect => effect.t === undefined || effect.t >= mark)) return out;
+      }
+      specs.length = mark;
+    }
   }
   // Mengenangaben: „…, where X is …“ und „… equal to …“ werden in die X-Form gebracht und berechenbar gemacht.
   if ((m = s.match(/^(.+?),? where x is (.+)$/i)) && !/where x is .*where x is/i.test(s)) {
@@ -438,7 +468,7 @@ function parseSentence(raw, specs) {
   // Allgemein: „put a +1/+1 counter on each <Filter>“ (Filter wie eine Zielangabe, z. B. „artifact creature you control“, „creature you control that entered this turn“)
   if ((m = lower.match(new RegExp(`^put ${N} ([+-]1/[+-]1|[a-z]+) counters? on each (other )?(.+)$`))) && !/\b(target|of)\b/.test(m[4])) {
     const n = num(m[1]);
-    const spec = parseTargetSpec(`target ${singular(m[4])}`);
+    const spec = groupSpec(m[4]);
     if (n !== null && spec && ["creature", "myCreature", "permanent", "artifact", "enchantment", "land", "planeswalker"].includes(spec.kind)) {
       return [{ type: "countersEach", n, kind: m[2], spec: m[3] ? { ...spec, another: true } : spec }];
     }
@@ -592,6 +622,16 @@ function parseSentence(raw, specs) {
     return [{ type: "reanimate", t, to: "battlefield", counters: 0, ...(m[4] ? { tapped: true } : {}) }];
   }
   if (lower === "untap all creatures you control") return [{ type: "untapAllMine", what: "creature" }];
+  // Allgemein: „tap/untap all <Filter>“ und „tap all creatures target player controls“
+  if ((m = lower.match(/^(tap|untap) all (.+?) (target (?:player|opponent)) controls$/))) {
+    const spec = groupSpec(m[2]);
+    const t = spec && !spec.ctrl ? addTarget(specs, m[3]) : null;
+    if (t !== null) return [{ type: "tapEach", untap: m[1] === "untap", spec, ofTarget: t }];
+  }
+  if ((m = lower.match(/^(tap|untap) all (.+)$/))) {
+    const spec = groupSpec(m[2]);
+    if (spec && ["creature", "myCreature", "permanent", "artifact", "enchantment", "land"].includes(spec.kind)) return [{ type: "tapEach", untap: m[1] === "untap", spec }];
+  }
   if (lower === "each player reveals the top card of their library, then draws a card") return [{ type: "draw", who: { k: "each" }, n: 1 }];
   if (lower === "look at the top card of your library") return [{ type: "noop" }];
   if ((m = lower.match(/^if it's a land card, you may put it onto the battlefield( tapped)?$/))) return [{ type: "topLandMay", tapped: Boolean(m[1]) }];
@@ -751,9 +791,10 @@ function parseSentence(raw, specs) {
   if (/^(?:it|that creature) gains haste until end of turn$/.test(lower)) return [{ type: "hasteLast" }];
   if (lower === "prevent all combat damage that would be dealt this turn") return [{ type: "fog" }];
   if (lower === "take an extra turn after this one") return [{ type: "extraTurn" }];
-  if ((m = lower.match(/^(target creature(?: you control)?|~) gains? ([a-z ,]+?) until end of turn$/))) {
+  if ((m = lower.match(/^((?:another )?target [a-z' -]+?|~) gains? ([a-z ,]+?) until end of turn$/))) {
     const kws = m[2].split(/,| and /).map(word => word.trim()).filter(Boolean);
     if (kws.length === 0 || !kws.every(word => KEYWORDS.includes(word))) return null;
+    if (m[1] !== "~" && !["creature", "myCreature"].includes((targetKind(m[1]) ? { kind: targetKind(m[1]) } : parseTargetSpec(m[1]))?.kind)) return null;
     if (m[1] === "~") return [{ type: "grantKw", kws, self: true }];
     const t = addTarget(specs, m[1]);
     return t === null ? null : [{ type: "grantKw", kws, t }];
@@ -1149,6 +1190,7 @@ function describeBase(effect) {
     case "damage": return `${effect.n} Schaden an ${{ target: "das Ziel", eachOpp: "jeden Gegner", each: "jeden Spieler", eachCreature: "jede Kreatur", eachOppCreature: "jede gegnerische Kreatur" }[effect.to.k]}.`;
     case "destroy": return "Zerstört das Ziel.";
     case "tuckSelf": return "Kommt unter die Bibliothek ihres Besitzers.";
+    case "tapEach": return effect.untap ? "Enttappt alle passenden Permanents." : "Tappt alle passenden Permanents.";
     case "untapAllMine": return "Enttappt alle deine Kreaturen.";
     case "topLandMay": return "Ist die oberste Karte ein Land, darf es aufs Schlachtfeld.";
     case "attachToSelf": return "Hängt die Ziel-Ausrüstung an diese Kreatur.";
@@ -1500,6 +1542,23 @@ function triggerEvent(word, condition) {
 }
 
 /**
+ * Allgemeiner Dauereffekt „(Other) <Filter> you control get +N/+N and have <Schlüsselwörter>“:
+ * der Filter wird wie eine Zielangabe gelesen (Typ, Farbe, Marker, Schlüsselwort …).
+ */
+function genericStatic(line) {
+  const m = line.toLowerCase().replace(/\.$/, "").match(/^(other )?(.+?) (you control|your opponents control)((?: with| without| that) .+?)? (?:(?:get|gets) ([+-]\d+)\/([+-]\d+)(?:,? and (?:have|has) (.+))?|(?:have|has) (.+))$/);
+  if (!m) return null;
+  const extra = (m[4] ?? "").replace(/ with (\+1\/\+1 )?counters on them$/, (whole, kind) => ` with ${kind ? "a +1/+1 counter" : "a counter"} on it`);
+  const spec = parseTargetSpec(`target ${singular(m[2])}${extra}`);
+  if (!spec || !["creature", "myCreature"].includes(spec.kind) || spec.ctrl) return null;
+  const words = (m[7] ?? m[8] ?? "").split(/,\s*(?:and )?|\s+and\s+/).map(word => word.trim()).filter(Boolean);
+  if (!words.every(word => KEYWORDS.includes(word))) return null;
+  const filter = { ...spec };
+  delete filter.kind;
+  return { scope: m[3] === "your opponents control" ? "opp" : m[1] ? "youOther" : "you", spec: filter, p: m[5] ? Number(m[5]) : 0, th: m[6] ? Number(m[6]) : 0, grants: words };
+}
+
+/**
  * Allgemeine Form „Whenever a/another <Filter> enters|dies|attacks|deals combat damage to a player“:
  * Der Filter wird wie eine Zielangabe gelesen (Farbe, Typ, Schlüsselwort, Marker, Kontrolleur …).
  */
@@ -1718,7 +1777,7 @@ export function parseCardText({ name, typeLine, oracleText }) {
       result.attach = { p: result.attach?.p ?? 0, th: result.attach?.th ?? 0, grants: [...(result.attach?.grants ?? []), ...grants] };
       continue;
     }
-    const typedKw = line.match(/^(other )?(artifact|historic|legendary|[a-z]+s and [a-z]+s|[a-z]+) creatures you control have ([a-z, ]+?)(?:,? and ward \{\d+\})?\.?$/i) ?? line.match(/^(other )?([A-Za-z]+s and [A-Za-z]+s|[A-Z][a-z]+s) you control have ([a-z, ]+?)\.?$/);
+    const typedKw = line.match(/^(other )?(?!(?:tapped|untapped|attacking|blocking|white|blue|black|red|green|nontoken|token|multicolored|colorless)\b)(artifact|historic|legendary|[a-z]+s and [a-z]+s|[a-z]+) creatures you control have ([a-z, ]+?)(?:,? and ward \{\d+\})?\.?$/i) ?? line.match(/^(other )?([A-Za-z]+s and [A-Za-z]+s|[A-Z][a-z]+s) you control have ([a-z, ]+?)\.?$/);
     if (typedKw && !/^creatures?$/i.test(typedKw[2])) {
       const grants = typedKw[3].split(/,| and /).map(word => word.trim().toLowerCase()).filter(Boolean);
       if (grants.length > 0 && grants.every(word => KEYWORDS.includes(word))) {
@@ -2207,7 +2266,7 @@ export function parseCardText({ name, typeLine, oracleText }) {
       continue;
     }
     const anthem = line.match(/^(other )?creatures you control get ([+-]\d+)\/([+-]\d+)(?: and have ([a-z, ]+))?\.?$/i);
-    const tribal = line.match(/^(other )?(?!creatures\b|other\b)([a-z]+)(?: creatures)? you control get ([+-]\d+)\/([+-]\d+)(?: and have ([a-z, ]+))?\.?$/i);
+    const tribal = line.match(/^(other )?(?!creatures\b|other\b|white\b|blue\b|black\b|red\b|green\b|multicolored\b|colorless\b|nonartifact\b|nontoken\b|tapped\b|untapped\b|attacking\b|legendary\b)([a-z]+)(?: creatures)? you control get ([+-]\d+)\/([+-]\d+)(?: and have ([a-z, ]+))?\.?$/i);
     const chosen = line.match(/^(other )?creatures you control of the chosen type get ([+-]\d+)\/([+-]\d+)(?: and have ([a-z, ]+))?\.?$/i);
     if (chosen) {
       const grants = (chosen[4] ?? "").split(/,| and /).map(word => word.trim().toLowerCase()).filter(word => KEYWORDS.includes(word));
@@ -2266,6 +2325,11 @@ export function parseCardText({ name, typeLine, oracleText }) {
           continue;
         }
       }
+    }
+    const generic = genericStatic(line);
+    if (generic) {
+      result.statics.push(generic);
+      continue;
     }
     result.notes.push(line);
   }
