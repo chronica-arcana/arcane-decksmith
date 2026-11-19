@@ -53,7 +53,7 @@ export type PlayerCounterKind = "poison" | "energy" | "experience";
 /** Gültige Ziele für eine Zielangabe eines Zaubers oder einer Fähigkeit (Karten-, Spieler- oder Stapel-IDs). */
 export type TargetOption = { kind: string; options: string[] };
 
-export type PayRequirement = { kind: "sacrifice" | "discard" | "life" | "tap" | "removeCounter" | "energy" | "removeAnyCounter"; what?: string; n: number; options: string[] };
+export type PayRequirement = { kind: "sacrifice" | "discard" | "life" | "tap" | "removeCounter" | "energy" | "removeAnyCounter"; what?: string; n: number | "X"; options: string[] };
 export type CardAbility = { index: number; text: string; costLabel?: string; ok: boolean; pays?: PayRequirement[]; targets: TargetOption[]; manual: boolean };
 
 export type GameCard = {

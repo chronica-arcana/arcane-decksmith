@@ -245,6 +245,8 @@ const LIB = [
   ["meleebanner", "Ruhmesbanner", "Enchantment", "{G}", 2, {}, "Creatures you control have melee."],
   ["splash", "Streuschiff", "Creature — Ship", "{G}", 2, { power: "3", toughness: "3" }, "Whenever Streuschiff deals combat damage to an opponent, it deals that much damage to each other opponent."],
   ["foreach", "Volksheer", "Sorcery", "{G}", 2, {}, "For each opponent, create a 1/1 white Soldier creature token."],
+  ["deluge", "Giftflut", "Sorcery", "{G}", 2, {}, "As an additional cost to cast this spell, pay X life.\nAll creatures get -X/-X until end of turn."],
+  ["relic", "Ahnenrelikt", "Artifact", "{G}", 2, {}, "Tap an untapped Bear you control: You gain 1 life."],
 ];
 const facts = new Map();
 
@@ -1431,6 +1433,26 @@ describe("Bedingungen, Modi, X und Cycling", () => {
     // Streuschiff (3 + 2 Melee = 5) trifft u2, dann 5 an jeden anderen Gegner (u1); u1 bekommt außerdem Kriegsruf 4 + Token 2
     expect(game.players.u2.life).toBe(life2 - 5);
     expect(game.players.u1.life).toBe(life1 - 4 - 2 - 5);
+  });
+
+  it("„pay X life“ als Zusatzkosten mit gewähltem X; Tap-Kosten mit Kreaturtyp-Filter", () => {
+    const { game, random } = started();
+    forest(game, "u0", 2);
+    const bear = put(game, "u0", "Bär", "battlefield");
+    const id = put(game, "u0", "Giftflut", "hand", { only: "library" });
+    const life = game.players.u0.life;
+    expect(view(game, "u0").players[0].hand.find(c => c.id === id).play.pays).toEqual([{ kind: "life", n: "X", options: [] }]);
+    expect(act(game, "u0", { type: "cast", id, x: 2 }, random).ok).toBe(true);
+    expect(game.players.u0.life).toBe(life - 2);
+    for (let i = 0; i < 6 && game.stack.length > 0; i += 1) act(game, game.priority, { type: "pass" }, random);
+    expect(game.players.u0.graveyard).toContain(bear);
+    const relic = put(game, "u0", "Ahnenrelikt", "battlefield");
+    const bear2 = put(game, "u0", "Bär", "battlefield", { sick: true });
+    put(game, "u0", "Falke", "battlefield");
+    const abilities = view(game, "u0").players[0].battlefield.find(c => c.id === relic).abilities;
+    expect(abilities[0].pays[0].options).toEqual([bear2]); // nur Bären, auch beschwörungsmüde
+    expect(act(game, "u0", { type: "activate", id: relic, index: 0, pay: [bear2] }, random).ok).toBe(true);
+    expect(game.cards[bear2].tapped).toBe(true);
   });
 
   it("„For each opponent, create …“", () => {

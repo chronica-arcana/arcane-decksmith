@@ -303,6 +303,16 @@ describe("cardText: weitere Lücken (Kopieren, Skulk, Stufen, Einzelzeilen)", ()
     expect(parse("Instant", "Destroy target legendary Dragon.").spell.specs[0]).toMatchObject({ kind: "creature", subtypes: ["dragon"], legendary: true });
   });
 
+  it("Zusatzkosten „pay N/X life“, Tap-Kosten mit Filter, Karte mit Manawert-Grenze aus der Hand ins Spiel, angreifende Spielsteine", () => {
+    expect(parse("Sorcery", "As an additional cost to cast this spell, pay 3 life.\nDraw two cards.").additionalCost).toEqual([{ kind: "life", n: 3 }]);
+    expect(parse("Sorcery", "As an additional cost to cast this spell, pay X life.\nAll creatures get -X/-X until end of turn.").additionalCost).toEqual([{ kind: "life", n: "X" }]);
+    expect(parse("Artifact", "Tap an untapped legendary creature you control: Add one mana of any color.").activated[0].cost.extra[0]).toMatchObject({ kind: "tap", spec: { kind: "creature", legendary: true } });
+    expect(parse("Creature — X", "When ~ enters, you may put a creature card with mana value 3 or less from your hand onto the battlefield.").triggers[0].effects[0].effects[0]).toEqual({ type: "handToField", what: "creature", tapped: false, mvMax: 3 });
+    expect(parse("Sorcery", "Create a tapped and attacking 2/1 red Klingon Warrior creature token with haste.").spell.effects[0]).toMatchObject({ type: "token", tapped: true, attacking: true, keywords: ["haste"] });
+    expect(parse("Sorcery", "For each opponent, create a 1/1 white Soldier creature token.").spell.effects[0]).toMatchObject({ perQ: { kind: "opponents" } });
+    expect(parse("Creature — X", "Whenever ~ deals combat damage to an opponent, it deals that much damage to each other opponent.").triggers[0].effects[0]).toMatchObject({ nFromDamage: true, to: { k: "eachOtherOpp" } });
+  });
+
   it("Goad-Sätze", () => {
     expect(parse("Instant", "Goad target creature.").spell.effects).toEqual([{ type: "goad", t: 0 }]);
     expect(parse("Sorcery", "Goad all creatures you don't control.").spell.effects).toEqual([{ type: "goad", all: true }]);

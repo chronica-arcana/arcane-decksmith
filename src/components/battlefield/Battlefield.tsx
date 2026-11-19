@@ -205,7 +205,7 @@ export default function Battlefield({
   const withPays = (specs: TargetOption[], pays: PayRequirement[] | undefined, build: (targets: string[], pay: string[]) => GameAction) => {
     const picks: TargetOption[] = (pays ?? [])
       .filter(item => item.kind !== "life" && item.kind !== "removeCounter" && item.kind !== "energy")
-      .flatMap(item => Array.from({ length: item.n }, () => ({ kind: item.kind === "discard" ? "payDiscard" : item.kind === "tap" ? "payTap" : item.kind === "removeAnyCounter" ? "payCounter" : "paySacrifice", options: item.options })));
+      .flatMap(item => Array.from({ length: typeof item.n === "number" ? item.n : 0 }, () => ({ kind: item.kind === "discard" ? "payDiscard" : item.kind === "tap" ? "payTap" : item.kind === "removeAnyCounter" ? "payCounter" : "paySacrifice", options: item.options })));
     return { specs: [...specs, ...picks], run: (picked: string[]) => build(picked.slice(0, specs.length), picked.slice(specs.length)) };
   };
 
@@ -226,7 +226,7 @@ export default function Battlefield({
 
   const startCast = (card: GameCard, x?: number, mode?: number | number[]) => {
     if (card.play?.kind === "land") return act({ type: "playLand", id: card.id });
-    if (x === undefined && /\{X\}/i.test(card.manaCost ?? "")) return setCastX({ id: card.id, name: card.name ?? "", value: 0 });
+    if (x === undefined && (/\{X\}/i.test(card.manaCost ?? "") || card.play?.pays?.some(pay => pay.n === "X"))) return setCastX({ id: card.id, name: card.name ?? "", value: 0 });
     if (mode === undefined && card.play?.modes?.length) return setModePick({ card, x });
     const list = Array.isArray(mode) ? [...mode].sort((a, b) => a - b) : null;
     const chosen = typeof mode === "number" ? card.play?.modes?.[mode] : undefined;

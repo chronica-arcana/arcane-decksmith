@@ -874,6 +874,7 @@ function payRequirements(game, userId, extras, selfId) {
       const def = defOf(game, card);
       if (extra.artifactCreature) return def.types.artifact && def.types.creature;
       if (extra.nontoken && card.token) return false;
+      if (extra.spec) return (extra.spec.kind === "permanent" || def.types[extra.spec.kind === "myCreature" ? "creature" : extra.spec.kind]) && passesSpecFilter(game, id, extra.spec, userId, { id: selfId });
       const types = def.types;
       return extra.what === "permanent" ? true : extra.what === "nonland" ? !types.land : types[extra.what] ?? hasSubtype(def, extra.what);
     });
@@ -883,7 +884,7 @@ function payRequirements(game, userId, extras, selfId) {
 
 const canPayExtras = (game, userId, extras, selfId) =>
   payRequirements(game, userId, extras, selfId).every(item => {
-    if (item.kind === "life") return game.players[userId].life > item.n;
+    if (item.kind === "life") return game.players[userId].life >= (item.n === "X" ? 0 : item.n); // Leben bis auf 0 zahlen ist erlaubt
     if (item.kind === "energy") return game.players[userId].energy >= item.n;
     if (item.kind === "removeCounter") return item.counter === "any" ? Object.values(game.cards[selfId]?.counters ?? {}).reduce((a, b) => a + b, 0) >= item.n : (game.cards[selfId]?.counters[item.counter] ?? 0) >= item.n;
     return item.options.length >= item.n;
@@ -896,7 +897,7 @@ function resolvePay(game, userId, extras, pay, selfId) {
   let cursor = 0;
   for (const item of payRequirements(game, userId, extras, selfId)) {
     if (item.kind === "life") {
-      if (game.players[userId].life <= item.n) return { error: `Du hast nicht genug Leben (${item.n} zu zahlen).` };
+      if (game.players[userId].life < item.n) return { error: `Du hast nicht genug Leben (${item.n} zu zahlen).` };
       picks.push({ item, ids: [] });
       continue;
     }
@@ -1618,13 +1619,13 @@ function typeMatches(def, what) {
     case "planeswalker": return def.types.planeswalker;
     case "instant": return def.types.instant;
     case "sorcery": return def.types.sorcery;
+    case "permanent": return !def.types.instant && !def.types.sorcery;
     default:
       // „forest“, „plains|island|swamp|mountain“: Grundland-Typen in der Typzeile
       return /^[a-z|]+$/.test(String(what)) && what !== "card" ? new RegExp(`\\b(${what})\\b`, "i").test(def.typeLine ?? "") : true;
   }
 }
 
-/** Zusätzliche Bedingungen einer Zielangabe („nonblack“, „tapped“, „an opponent controls“, „with power 4 or greater“ …). */
 /** Passt ein gewirkter Zauber zum Filter von „Whenever you cast a <Filter> spell“? */
 function castFilterOk(def, filter) {
   if (filter.anyTypes && !filter.anyTypes.some(type => def.types[type])) return false;
@@ -1648,6 +1649,7 @@ function subjectMatches(game, card, spec, source) {
   return passesSpecFilter(game, card.id, spec, source.owner, source);
 }
 
+/** Zusätzliche Bedingungen einer Zielangabe („nonblack“, „tapped“, „an opponent controls“, „with power 4 or greater“ …). */
 function passesSpecFilter(game, id, spec, controller, src) {
   const card = game.cards[id];
   const def = defOf(game, card);
@@ -3657,12 +3659,12 @@ function runEffect(game, rawEffect, ctx, rest) {
       return false;
     }
     case "handToField": {
-      const options = controller.hand.filter(id => typeMatches(defOf(game, game.cards[id]), effect.what));
+      const options = controller.hand.filter(id => typeMatches(defOf(game, game.cards[id]), effect.what) && !(effect.mvMax !== undefined && (defOf(game, game.cards[id]).manaValue ?? 0) > effect.mvMax));
       if (options.length === 0) return false;
       return openChoice(game, {
         userId: ctx.controller,
         kind: "cards",
-        prompt: `Wähle ein ${effect.what === "land" ? "Land" : "Karte"} aus deiner Hand, das aufs Schlachtfeld kommt (${name}).`,
+        prompt: `Wähle ${effect.what === "land" ? "ein Land" : "eine Karte"} aus deiner Hand, die aufs Schlachtfeld kommt (${name}).`,
         options,
         min: 1,
         max: 1,
@@ -5024,7 +5026,8 @@ function castAction(game, userId, action) {
 
   const x = isInt(action.x) ? clampInt(action.x, 0, 99) : 0;
   const tax = found.zone === "command" ? 2 * (player.cmdCasts[found.card.id] ?? 0) : 0;
-  const extraPay = resolvePay(game, userId, def.rules?.additionalCost, action.pay, found.card.id);
+  const extraCost = def.rules?.additionalCost?.map(item => (item.n === "X" ? { ...item, n: x } : item)); // „pay X life“
+  const extraPay = resolvePay(game, userId, extraCost, action.pay, found.card.id);
   if (extraPay.error) return fail(extraPay.error);
   const ward = specs.length > 0 ? wardExtra(game, userId, action.targets) : "";
   const evoked = action.evoke === true && Boolean(def.rules?.evoke) && found.zone === "hand";

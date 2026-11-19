@@ -785,7 +785,9 @@ function parseSentence(raw, specs) {
     const n = num(m[1]);
     return n === null ? null : [{ type: "may", effects: [{ type: "damage", n, to: { k: "eachCreature" } }] }];
   }
-  if ((m = lower.match(/^you may put an? (land) card from your hand onto the battlefield( tapped)?$/))) return [{ type: "may", effects: [{ type: "handToField", what: m[1], tapped: Boolean(m[2]) }] }];
+  if ((m = lower.match(/^you may put an? ((?:creature|land|artifact|enchantment|planeswalker|permanent)(?: or (?:creature|land|artifact|enchantment|planeswalker))?) card(?: with mana value (\d+) or less)? from your hand onto the battlefield( tapped)?$/))) {
+    return [{ type: "may", effects: [{ type: "handToField", what: m[1].replace(/ or /g, "|"), tapped: Boolean(m[3]), ...(m[2] ? { mvMax: Number(m[2]) } : {}) }] }];
+  }
   // „You may …“: der Spieler entscheidet (Ja/Nein); „If you do, …“ folgt nur nach „Ja“.
   if ((m = lower.match(/^you may (.+)$/))) {
     const inner = parseSentence(s.slice(8), specs);
@@ -1183,6 +1185,9 @@ function parseAbilityCost(text) {
       cost.extra = [...(cost.extra ?? []), { kind: "removeCounter", counter: m[1].toLowerCase(), n: 1 }];
     } else if ((m = part.match(/^Tap (an|one|two|three) untapped (creature|artifact|land|permanent)s? you control$/i))) {
       cost.extra = [...(cost.extra ?? []), { kind: "tap", what: m[2].toLowerCase(), n: COUNT_WORD[m[1].toLowerCase()] ?? 1 }];
+    } else if ((m = part.match(/^Tap (an|one|two|three) untapped (.+?) you control$/i)) && groupSpec(m[2].toLowerCase())) {
+      const spec = groupSpec(m[2].toLowerCase());
+      cost.extra = [...(cost.extra ?? []), { kind: "tap", what: "permanent", spec, n: COUNT_WORD[m[1].toLowerCase()] ?? 1 }];
     } else if ((m = part.match(/^Sacrifice (a|an|another|one|two|three) (creature|artifact|land|enchantment|permanent|nonland permanent|[A-Za-z]+)s?$/i))) {
       cost.extra = [...(cost.extra ?? []), { kind: "sacrifice", what: m[2].toLowerCase() === "nonland permanent" ? "nonland" : m[2].toLowerCase(), n: COUNT_WORD[m[1].toLowerCase()] ?? 1, other: m[1].toLowerCase() === "another" }];
     } else if ((m = part.match(/^Discard (a|one|two|three) cards?$/i))) {
@@ -1794,6 +1799,11 @@ export function parseCardText({ name, typeLine, oracleText }) {
         const kind = additional[1].toLowerCase();
         const what = additional[3].toLowerCase() === "nonland permanent" ? "nonland" : additional[3].toLowerCase();
         result.additionalCost = [{ kind, n: COUNT_WORD[additional[2].toLowerCase()] ?? 1, ...(kind === "sacrifice" ? { what } : {}) }];
+        continue;
+      }
+      const lifeCost = line.match(/^as an additional cost to cast ~, pay (\d+|x) life\.?$/i);
+      if (lifeCost) {
+        result.additionalCost = [{ kind: "life", n: /x/i.test(lifeCost[1]) ? "X" : Number(lifeCost[1]) }];
         continue;
       }
       const flash = line.match(/^flashback (\{[^}]+\}(?:\{[^}]+\})*)$/i);
