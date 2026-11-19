@@ -33,4 +33,10 @@ describe("quantity: Mengenangaben", () => {
     expect(parse("Creature — X", "When ~ enters, you gain life equal to the number of creatures you control.").triggers[0].effects[0]).toMatchObject({ type: "life", xRef: { kind: "count", who: "you" } });
     expect(parse("Sorcery", "Draw cards equal to the greatest power among creatures you control.").spell.unparsed).toEqual([]);
   });
+
+  it("„for each <Filter>“ mit dem Mengen-Baustein", () => {
+    const parse = (typeLine, oracleText) => parseCardText({ name: "Karte", typeLine, oracleText });
+    expect(parse("Creature — X", "When ~ enters, put a +1/+1 counter on ~ for each Vampire you control.").triggers[0].effects[0]).toMatchObject({ type: "counters", perQ: { kind: "count", who: "you" } });
+    expect(parse("Sorcery", "Draw a card for each opponent you attacked this turn.").spell.effects[0]).toMatchObject({ perQ: { kind: "oppAttacked" } });
+  });
 });

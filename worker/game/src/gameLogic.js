@@ -2230,6 +2230,7 @@ function runEffect(game, rawEffect, ctx, rest) {
   }
   let effect = rawEffect.n === "X" ? { ...rawEffect, n: Math.max(0, ctx.x ?? 0) * (rawEffect.negate ? -1 : 1) } : rawEffect;
   if (effect.per) effect = { ...effect, n: effect.n * perCount(game, ctx, effect.per) };
+  if (effect.perQ) effect = { ...effect, n: effect.n * evalQuantity(game, ctx, effect.perQ), perQ: undefined };
   const ref = effect.xFrom ?? effect.nFrom;
   if (ref) {
     const targetId = ctx.targets[ref.t];

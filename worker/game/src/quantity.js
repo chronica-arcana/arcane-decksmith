@@ -33,11 +33,11 @@ export function parseQuantity(text, parseSpec) {
   if ((m = t.match(/^(its|~'s|that creature's|that permanent's|that card's|that spell's|that artifact's|the sacrificed creature's|the exiled creature's|the exiled card's|enchanted creature's|equipped creature's) (power|toughness|mana value)$/))) {
     return done({ kind: "stat", ref: REF[m[1]], stat: m[2] === "mana value" ? "mv" : m[2] });
   }
-  if (/^the number of opponents you have$/.test(t)) return done({ kind: "opponents" });
-  if (/^the number of opponents you attacked this turn$/.test(t)) return done({ kind: "oppAttacked" });
-  if (/^the number of cards in your hand$/.test(t)) return done({ kind: "zone", zone: "hand" });
-  if ((m = t.match(/^the number of (?:(creature|land|artifact|enchantment|instant and sorcery|instant|sorcery|permanent) )?cards in your graveyard$/))) return done({ kind: "zone", zone: "graveyard", type: m[1] ?? null });
-  if ((m = t.match(/^the number of (?:([+-]1\/[+-]1|[a-z]+) )?counters on (~|it|that creature)$/))) return done({ kind: "counters", counter: m[1] ?? "any", ref: m[2] === "~" ? "self" : "it" });
+  if (/^the number of opponents?(?: you have)?$/.test(t)) return done({ kind: "opponents" });
+  if (/^the number of opponents? you attacked this turn$/.test(t)) return done({ kind: "oppAttacked" });
+  if (/^the number of cards? in your hand$/.test(t)) return done({ kind: "zone", zone: "hand" });
+  if ((m = t.match(/^the number of (?:(creature|land|artifact|enchantment|instant and sorcery|instant|sorcery|permanent) )?cards? in your graveyard$/))) return done({ kind: "zone", zone: "graveyard", type: m[1] ?? null });
+  if ((m = t.match(/^the number of (?:([+-]1\/[+-]1|[a-z]+) )?counters? on (~|it|that creature)$/))) return done({ kind: "counters", counter: m[1] ?? "any", ref: m[2] === "~" ? "self" : "it" });
   if ((m = t.match(/^the greatest (power|toughness|mana value) among (creatures|artifacts|permanents|other creatures) you control$/))) {
     return done({ kind: "greatest", stat: m[1] === "mana value" ? "mv" : m[1], what: m[2].replace(/^other /, "").replace(/s$/, ""), other: m[2].startsWith("other") });
   }
@@ -49,6 +49,11 @@ export function parseQuantity(text, parseSpec) {
     return done({ kind: "count", spec, who: { "you control": "you", "your opponents control": "opp", "on the battlefield": "all", "that player controls": "subject", "target player controls": "subject" }[m[2]] });
   }
   return null;
+}
+
+/** „… for each <Filter>“: Menge, mit der die Zahl der Effekte multipliziert wird. */
+export function parseForEach(tail, parseSpec) {
+  return parseQuantity(`the number of ${tail}`, parseSpec);
 }
 
 /** Setzt die Mengenangabe auf alle Effekte, deren Zahl „X“ ist (auch verschachtelt, z. B. in „may“). */

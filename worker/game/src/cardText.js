@@ -8,7 +8,7 @@
  * bzw. `notes`. Der Spielkern öffnet dafür ein manuelles Fenster, statt etwas Falsches zu automatisieren.
  */
 import { KEYWORDS, parseManaCost, typesOf } from "./cardFacts.js";
-import { attachQuantity, parseQuantity, rewriteEqualTo, usesX } from "./quantity.js";
+import { attachQuantity, parseForEach, parseQuantity, rewriteEqualTo, usesX } from "./quantity.js";
 
 const WORDS = { a: 1, an: 1, one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10, eleven: 11, twelve: 12, thirteen: 13, fourteen: 14, fifteen: 15, sixteen: 16, seventeen: 17, eighteen: 18, nineteen: 19, twenty: 20 };
 const N = "(a|an|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|\\d+|x)";
@@ -383,6 +383,16 @@ function parseSentence(raw, specs) {
   if ((m = lower.match(new RegExp(`^put ${N} ([a-z]+) counters? on ~$`))) && !/[+-]1/.test(m[2])) {
     const n = num(m[1]);
     return n === null || n === "X" ? null : [{ type: "counters", n, kind: m[2], self: true }];
+  }
+  // Generisches „… for each <Filter>“ (alles, was der Mengen-Baustein zählen kann)
+  if ((m = s.match(/^(.+?) for each (.+)$/i)) && !/^(creature you control|land you control|artifact you control|creature your opponents control|attacking creature|creature|land|artifact|card in your hand|opponent)$/i.test(m[2])) {
+    const quantity = parseForEach(m[2], phrase => parseTargetSpec(phrase));
+    if (quantity) {
+      const mark = specs.length;
+      const inner = parseSentence(m[1], specs);
+      if (inner && inner.length > 0 && inner.every(effect => typeof effect.n === "number" && effect.n > 0)) return inner.map(effect => ({ ...effect, perQ: quantity }));
+      specs.length = mark;
+    }
   }
   // „… for each …“: der Effekt wird mit der Anzahl multipliziert.
   if ((m = lower.match(/^(.+?) for each (creature you control|land you control|artifact you control|creature your opponents control|attacking creature|creature|land|artifact|card in your hand|opponent)$/))) {
