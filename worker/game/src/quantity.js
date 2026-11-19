@@ -65,14 +65,14 @@ export function parseForEach(tail, parseSpec) {
 export function attachQuantity(effects, quantity, field = "xRef") {
   return effects.map(effect => {
     const next = { ...effect };
-    if (["X", "-X"].includes(next.n) || ["X", "-X"].includes(next.p) || ["X", "-X"].includes(next.th)) next[field] = quantity;
+    if (["X", "-X"].includes(next.n) || ["X", "-X"].includes(next.p) || ["X", "-X"].includes(next.th) || next.count === "X") next[field] = quantity;
     if (Array.isArray(next.effects)) next.effects = attachQuantity(next.effects, quantity, field);
     return next;
   });
 }
 
 /** Hat ein Effekt (oder ein verschachtelter) eine X-Zahl? */
-export const usesX = effects => effects.some(effect => ["X", "-X"].includes(effect.n) || ["X", "-X"].includes(effect.p) || ["X", "-X"].includes(effect.th) || (Array.isArray(effect.effects) && usesX(effect.effects)));
+export const usesX = effects => effects.some(effect => ["X", "-X"].includes(effect.n) || effect.count === "X" || ["X", "-X"].includes(effect.p) || ["X", "-X"].includes(effect.th) || (Array.isArray(effect.effects) && usesX(effect.effects)));
 
 /**
  * Formt „… equal to <Menge>“ in die X-Form um, damit die normalen Satzregeln greifen.
@@ -131,6 +131,8 @@ export function parseCondition(text, parseSpec) {
   if (/^you have no cards in hand$/.test(t)) return { kind: "emptyHand" };
   if ((m = t.match(/^there are (\w+) or more cards in your graveyard$/))) return countOf(m[1]) ? { kind: "graveyard", n: countOf(m[1]) } : null;
   if ((m = t.match(/^(?:~|it|this spell) was cast from exile$/))) return { kind: "castFromExile" };
+  if ((m = t.match(/^you've cast (two|three|four|\d+) or more (noncreature )?spells this turn$/))) return { kind: "castCount", n: countOf(m[1]), noncreature: Boolean(m[2]) };
+  if ((m = t.match(/^an opponent has (\w+) or more cards in their graveyard$/))) return countOf(m[1]) ? { kind: "oppGraveyard", n: countOf(m[1]) } : null;
   if (/^it's your turn$/.test(t)) return { kind: "yourTurn" };
   if (/^it's not your turn$/.test(t)) return { kind: "notYourTurn" };
   return null;

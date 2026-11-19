@@ -310,7 +310,7 @@ function parseSentence(raw, specs) {
   if (lower === "untap ~") return [{ type: "untapSelf" }];
   if (lower === "sacrifice ~") return [{ type: "sacrificeSelf" }];
   if ((m = lower.match(/^you get ((?:\{e\})+)$/))) return [{ type: "energy", n: m[1].length / 3 }];
-  if ((m = lower.match(/^monstrosity (\d+)$/))) return [{ type: "monstrosity", n: Number(m[1]) }];
+  if ((m = lower.match(/^monstrosity (\d+|x)$/))) return [{ type: "monstrosity", n: m[1] === "x" ? "X" : Number(m[1]) }];
   if (lower === "proliferate") return [{ type: "proliferate" }];
   if (lower === "you become the monarch") return [{ type: "monarch" }];
   if ((m = lower.match(/^look at the top (one|two|three|four|five|six|seven|\d+) cards? of your library$/))) {
@@ -656,6 +656,10 @@ function parseSentence(raw, specs) {
     const kws = [m[2].trim()].filter(word => KEYWORDS.includes(word));
     return t === null || kws.length === 0 ? null : [{ type: "may", effects: [{ type: "grantKw", kws, t }] }];
   }
+  if ((m = lower.match(/^all (non[a-z]+ )?creatures get ([+-]x|[+-]\d+)\/([+-]x|[+-]\d+) until end of turn$/))) {
+    const value = v => (/x$/.test(v) ? (v.startsWith("-") ? "-X" : "X") : Number(v));
+    return [{ type: "pumpAll", scope: "all", p: value(m[2]), th: value(m[3]), kws: [], ...(m[1] ? { nonType: m[1].trim().slice(3) } : {}) }];
+  }
   if (/^you may choose new targets for (the|that|target) (cop(y|ies)|spell or ability)$/.test(lower)) return [{ type: "noop" }];
   if ((m = lower.match(new RegExp(`^you may have (?:it|~) deal ${N} damage to each creature$`)))) {
     const n = num(m[1]);
@@ -958,8 +962,8 @@ function parseSentence(raw, specs) {
     return [{ type: "search", what: (m[1] ?? "card").trim(), to: /on top/.test(lower) ? "top" : "hand", tapped: false, count: 1, upTo: false }];
   }
   // Suchen: eine oder mehrere Karten (Typ, Grundland-Typen), auf die Hand oder aufs Schlachtfeld
-  if ((m = lower.match(/^search your library for (a|an|up to one|up to two|up to three|two|three) ((?:basic land|land|creature|artifact|enchantment|planeswalker|instant|sorcery|(?:basic )?(?:plains|island|swamp|mountain|forest))(?:, (?:basic )?(?:plains|island|swamp|mountain|forest))*(?:,? or (?:basic )?(?:plains|island|swamp|mountain|forest))?) cards?(?:, reveal (?:it|that card|those cards))?(?:,| and)? ?(?:then )?put (?:it|that card|them|those cards) (into your hand|onto the battlefield( tapped)?)(?:,)? ?(?:then shuffle)?$/))) {
-    const count = { a: 1, an: 1, "up to one": 1, "up to two": 2, "up to three": 3, two: 2, three: 3 }[m[1]];
+  if ((m = lower.match(/^search your library for (a|an|up to one|up to two|up to three|up to x|two|three) ((?:basic land|land|creature|artifact|enchantment|planeswalker|instant|sorcery|(?:basic )?(?:plains|island|swamp|mountain|forest))(?:, (?:basic )?(?:plains|island|swamp|mountain|forest))*(?:,? or (?:basic )?(?:plains|island|swamp|mountain|forest))?) cards?(?:, reveal (?:it|that card|those cards))?(?:,| and)? ?(?:then )?put (?:it|that card|them|those cards) (into your hand|onto the battlefield( tapped)?)(?:,)? ?(?:then shuffle)?$/))) {
+    const count = { a: 1, an: 1, "up to one": 1, "up to two": 2, "up to three": 3, "up to x": "X", two: 2, three: 3 }[m[1]];
     const what = m[2].replace(/basic (?=plains|island|swamp|mountain|forest)/g, "").replace(/,? or /g, "|").replace(/, /g, "|");
     return [{ type: "search", what: what.trim(), to: m[3].startsWith("onto") ? "battlefield" : "hand", tapped: Boolean(m[4]), count, upTo: m[1].startsWith("up to") }];
   }
@@ -1511,6 +1515,14 @@ export function parseCardText({ name, typeLine, oracleText }) {
     const body = [];
     for (const line of lines) {
       if (isKeywordLine(line)) continue;
+      const condCostSpell = line.match(/^~ costs \{(\d+)\} less to cast if (.+?)\.?$/i);
+      if (condCostSpell) {
+        const cond = parseCondition(condCostSpell[2], phrase => parseTargetSpec(phrase));
+        if (cond) {
+          result.condCost = { amount: Number(condCostSpell[1]), cond };
+          continue;
+        }
+      }
       const reduce = line.match(/^~ costs \{(\d+)\} less to cast for each (creature|land|artifact) on the battlefield\.?$/i);
       if (reduce) {
         result.costReduction = { amount: Number(reduce[1]), per: reduce[2].toLowerCase() };
@@ -1780,6 +1792,26 @@ export function parseCardText({ name, typeLine, oracleText }) {
       if (grants.every(word => KEYWORDS.includes(word))) {
         result.statics.push({ scope: "you", p: 0, th: 0, grants, duringYourTurn: true });
         if (duringTurn[1]) result.selfGrantsYourTurn = grants;
+        continue;
+      }
+    }
+    // Bedingte Eigenschaften: „~ can't be blocked if …“, „As long as …, ~ has …“, „~ costs {N} less to cast if …“
+    let condLine;
+    if ((condLine = line.match(/^~ can't be blocked if (.+?)\.?$/i)) || (condLine = line.match(/^~ has ([a-z, ]+?) as long as (.+?)\.?$/i)) || (condLine = line.match(/^as long as (.+?), ~ has ([a-z, ]+?)\.?$/i))) {
+      const isBlock = /can't be blocked/i.test(line);
+      const condText = isBlock ? condLine[1] : /^as long as/i.test(line) ? condLine[1] : condLine[2];
+      const kwText = isBlock ? "unblockable" : /^as long as/i.test(line) ? condLine[2] : condLine[1];
+      const kws = kwText.split(/,| and /).map(word => word.trim().toLowerCase()).filter(Boolean);
+      const cond = parseCondition(condText.replace(/\bthis spell\b/i, "~"), phrase => parseTargetSpec(phrase));
+      if (cond && kws.every(word => KEYWORDS.includes(word) || word === "unblockable")) {
+        result.condGrants = [...(result.condGrants ?? []), { cond, kws }];
+        continue;
+      }
+    }
+    if ((condLine = line.match(/^~ costs \{(\d+)\} less to cast if (.+?)\.?$/i))) {
+      const cond = parseCondition(condLine[2], phrase => parseTargetSpec(phrase));
+      if (cond) {
+        result.condCost = { amount: Number(condLine[1]), cond };
         continue;
       }
     }

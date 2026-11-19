@@ -175,7 +175,8 @@ function staticEffects(game, card) {
 const KEYWORD_COUNTERS = new Set(["flying", "first strike", "double strike", "deathtouch", "haste", "hexproof", "indestructible", "lifelink", "menace", "reach", "trample", "vigilance"]);
 const keywordsOfCard = (game, card) => {
   const def = defOf(game, card);
-  const base = [...(def.keywords ?? []), ...(def.rules?.selfGrants ?? []), ...(def.rules?.selfGrantsYourTurn && game.turn?.active === card.owner ? def.rules.selfGrantsYourTurn : []), ...(def.rules?.tiers ?? []).filter(tier => tierOn(card, { minCharge: tier.n })).flatMap(tier => tier.kws)];
+  const condGrants = (def.rules?.condGrants ?? []).filter(item => onBattlefield(game, card.id) && evalCondition(game, { controller: card.owner, source: card.id, targets: [] }, item.cond)).flatMap(item => item.kws);
+  const base = [...(def.keywords ?? []), ...condGrants, ...(def.rules?.selfGrants ?? []), ...(def.rules?.selfGrantsYourTurn && game.turn?.active === card.owner ? def.rules.selfGrantsYourTurn : []), ...(def.rules?.tiers ?? []).filter(tier => tierOn(card, { minCharge: tier.n })).flatMap(tier => tier.kws)];
   const effects = staticEffects(game, card);
   const counterKeywords = Object.keys(card.counters ?? {}).filter(kind => card.counters[kind] > 0 && KEYWORD_COUNTERS.has(kind));
   const grants = [...effects.grants, ...(card.tk ?? []), ...counterKeywords];
@@ -949,6 +950,7 @@ function costReduction(game, def, userId) {
     const count = owners.reduce((sum, id) => sum + game.players[id].battlefield.filter(matches).length, 0);
     total += rule.amount * count;
   }
+  if (def.rules?.condCost && userId && evalCondition(game, { controller: userId, source: null, targets: [] }, def.rules.condCost.cond)) total += def.rules.condCost.amount;
   // Dauerhafte Kostenverringerung anderer Permanents („Artifact spells you cast cost {1} less“)
   if (userId) {
     for (const id of game.players[userId].battlefield) {
@@ -2197,6 +2199,34 @@ function noteLifeGain(game, userId, amount) {
   player.lifeGained += amount;
 }
 
+/** Prüft eine Bedingung (siehe parseCondition in quantity.js) für den Kontrolleur aus `ctx`. */
+function evalCondition(game, ctx, cond) {
+  const controller = game.players[ctx.controller];
+  const sourceCard = ctx.source ? game.cards[ctx.source] : null;
+  const mine = controller.battlefield.map(id => game.cards[id]);
+  return Boolean(
+    (cond.kind === "creaturePower" && mine.some(card => defOf(game, card).types.creature && powerOf(game, card) >= cond.n)) ||
+    (cond.kind === "commander" && mine.some(card => card.cmd)) ||
+    (cond.kind === "controls" && (validTargets(game, { ...cond.spec, ctrl: "you" }, ctx.controller, { colors: [], id: ctx.source }).filter(id => !(cond.other && id === ctx.source)).length >= cond.n) !== Boolean(cond.negate)) ||
+    (cond.kind === "attacked" && (game.turn.attackedOpponents?.[ctx.controller]?.length ?? 0) > 0) ||
+    (cond.kind === "gainedLife" && controller.lifeGainTurn === game.turn.number && (controller.lifeGained ?? 0) >= cond.n) ||
+    (cond.kind === "monarch" && game.monarch === ctx.controller) ||
+    (cond.kind === "selfTapped" && sourceCard?.tapped) ||
+    (cond.kind === "oppMoreLands" && game.seats.some(id => id !== ctx.controller && game.players[id].battlefield.filter(c => defOf(game, game.cards[c]).types.land).length > controller.battlefield.filter(c => defOf(game, game.cards[c]).types.land).length)) ||
+    (cond.kind === "life" && (cond.op === "gte" ? controller.life >= cond.n : controller.life <= cond.n)) ||
+    (cond.kind === "emptyHand" && controller.hand.length === 0) ||
+    (cond.kind === "graveyard" && controller.graveyard.length >= cond.n) ||
+    (cond.kind === "castFromExile" && Boolean(ctx.castInfo?.fromExile)) ||
+    (cond.kind === "yourTurn" && game.turn.active === ctx.controller) ||
+    (cond.kind === "notYourTurn" && game.turn.active !== ctx.controller) ||
+    (cond.kind === "selfUntapped" && sourceCard && !sourceCard.tapped) ||
+    (cond.kind === "counterPutThisTurn" && game.turn.counterPut?.[ctx.controller] === game.turn.number) ||
+    (cond.kind === "controlsCount" && mine.filter(card => typeMatches(defOf(game, card), cond.what) || hasSubtype(defOf(game, card), cond.what)).length >= cond.n) ||
+    (cond.kind === "castCount" && controller.castTurn === game.turn.number && (cond.noncreature ? controller.noncreatureCasts ?? 0 : controller.castsThisTurn ?? 0) >= cond.n) ||
+    (cond.kind === "oppGraveyard" && game.seats.some(id => id !== ctx.controller && game.players[id].graveyard.length >= cond.n))
+  );
+}
+
 /** Wertet eine Mengenangabe aus (siehe quantity.js). */
 function evalQuantity(game, ctx, q) {
   const me = game.players[ctx.controller];
@@ -2276,7 +2306,7 @@ function runEffect(game, rawEffect, ctx, rest) {
   if (rawEffect.xRef) {
     const value = evalQuantity(game, ctx, rawEffect.xRef);
     const fill = v => (v === "X" ? value : v === "-X" ? -value : v);
-    rawEffect = { ...rawEffect, n: rawEffect.n === "X" ? value * (rawEffect.negate ? -1 : 1) : fill(rawEffect.n), p: fill(rawEffect.p), th: fill(rawEffect.th), xRef: undefined };
+    rawEffect = { ...rawEffect, n: rawEffect.n === "X" ? value * (rawEffect.negate ? -1 : 1) : fill(rawEffect.n), p: fill(rawEffect.p), th: fill(rawEffect.th), ...(rawEffect.count !== undefined ? { count: fill(rawEffect.count) } : {}), xRef: undefined };
   } else if (rawEffect.p === "X" || rawEffect.th === "X" || rawEffect.p === "-X" || rawEffect.th === "-X") {
     const value = Math.max(0, ctx.x ?? 0);
     const fill = v => (v === "X" ? value : v === "-X" ? -value : v);
@@ -3030,6 +3060,7 @@ function runEffect(game, rawEffect, ctx, rest) {
           const c = game.cards[id];
           if (effect.anyOf && !effect.anyOf.some(word => hasSubtype(defOf(game, c), word))) continue;
           if (effect.attackingOnly && !game.combat?.attackers?.some(attacker => attacker.id === c.id)) continue;
+          if (effect.nonType && defOf(game, c).types[effect.nonType]) continue;
           if (defOf(game, c).types.creature) {
             c.tp = (c.tp ?? 0) + effect.p;
             c.tt = (c.tt ?? 0) + effect.th;
@@ -3252,26 +3283,7 @@ function runEffect(game, rawEffect, ctx, rest) {
       return false;
     }
     case "ifCond": {
-      const cond = effect.cond;
-      const mine = controller.battlefield.map(id => game.cards[id]);
-      const met =
-        (cond.kind === "creaturePower" && mine.some(card => defOf(game, card).types.creature && powerOf(game, card) >= cond.n)) ||
-        (cond.kind === "commander" && mine.some(card => card.cmd)) ||
-        (cond.kind === "controls" && (validTargets(game, { ...cond.spec, ctrl: "you" }, ctx.controller, { colors: [], id: ctx.source }).filter(id => !(cond.other && id === ctx.source)).length >= cond.n) !== Boolean(cond.negate)) ||
-        (cond.kind === "attacked" && (game.turn.attackedOpponents?.[ctx.controller]?.length ?? 0) > 0) ||
-        (cond.kind === "gainedLife" && controller.lifeGainTurn === game.turn.number && (controller.lifeGained ?? 0) >= cond.n) ||
-        (cond.kind === "monarch" && game.monarch === ctx.controller) ||
-        (cond.kind === "selfTapped" && sourceCard?.tapped) ||
-        (cond.kind === "oppMoreLands" && game.seats.some(id => id !== ctx.controller && game.players[id].battlefield.filter(c => defOf(game, game.cards[c]).types.land).length > controller.battlefield.filter(c => defOf(game, game.cards[c]).types.land).length)) ||
-        (cond.kind === "life" && (cond.op === "gte" ? controller.life >= cond.n : controller.life <= cond.n)) ||
-        (cond.kind === "emptyHand" && controller.hand.length === 0) ||
-        (cond.kind === "graveyard" && controller.graveyard.length >= cond.n) ||
-        (cond.kind === "castFromExile" && Boolean(ctx.castInfo?.fromExile)) ||
-        (cond.kind === "yourTurn" && game.turn.active === ctx.controller) ||
-        (cond.kind === "notYourTurn" && game.turn.active !== ctx.controller) ||
-        (cond.kind === "selfUntapped" && sourceCard && !sourceCard.tapped) ||
-        (cond.kind === "counterPutThisTurn" && game.turn.counterPut?.[ctx.controller] === game.turn.number) ||
-        (cond.kind === "controlsCount" && mine.filter(card => typeMatches(defOf(game, card), cond.what) || hasSubtype(defOf(game, card), cond.what)).length >= cond.n);
+      const met = evalCondition(game, ctx, effect.cond);
       if (!met) return false;
       for (let i = 0; i < effect.effects.length; i += 1) if (runEffect(game, effect.effects[i], ctx, [...effect.effects.slice(i + 1), ...rest])) return true;
       return false;
@@ -4785,6 +4797,11 @@ function castAction(game, userId, action) {
     player.castsThisTurn = 0;
   }
   player.castsThisTurn += 1;
+  if (player.noncreatureTurn !== game.turn.number) {
+    player.noncreatureTurn = game.turn.number;
+    player.noncreatureCasts = 0;
+  }
+  if (!def.types.creature) player.noncreatureCasts += 1;
   if (player.castsThisTurn === 2) fireGlobal(game, "castSecond", found.card);
   if (def.rules?.storm && (def.types.instant || def.types.sorcery)) {
     const original = game.stack.find(item => item.cardId === found.card.id && item.kind === "spell" && !item.copy);

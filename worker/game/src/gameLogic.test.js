@@ -191,6 +191,9 @@ const LIB = [
   ["tracker", "Spurenleser", "Creature — Scout", "{1}", 2, { power: "1", toughness: "1" }, "Whenever you sacrifice a Clue, put a +1/+1 counter on ~."],
   ["investigator", "Nachforschung", "Sorcery", "{G}", 2, {}, "Investigate."],
   ["drain", "Lebensentzug", "Sorcery", "{G}", 2, {}, "Each opponent loses 2 life. You gain life equal to the life lost this way."],
+  ["shipsneak", "Schiffsschleicher", "Creature — Human", "{1}", 2, { power: "2", toughness: "2" }, "~ can't be blocked if you control an artifact."],
+  ["spellstriker", "Spruchkämpferin", "Creature — Monk", "{1}", 2, { power: "2", toughness: "2" }, "As long as you've cast two or more noncreature spells this turn, ~ has double strike."],
+  ["story", "Geschichtenbuch", "Instant", "{5}{G}", 2, {}, "~ costs {3} less to cast if an opponent has seven or more cards in their graveyard.\nDraw a card."],
   ["convoker", "Einberufer", "Sorcery", "{3}{G}", 2, {}, "Convoke\nDraw a card."],
   ["delver", "Schürfer", "Sorcery", "{4}{G}", 2, {}, "Delve\nDraw a card."],
   ["sculptor", "Bildhauer", "Creature — Vedalken", "{G}", 2, { power: "1", toughness: "1" }, "Artifact spells you cast cost {1} less to cast."],
@@ -2984,6 +2987,27 @@ describe("Neue Mechaniken aus den Commander-Decks", () => {
     const life = game.players.u0.life;
     castAndResolve(game, "u0", "Lebensentzug", random);
     expect(game.players.u0.life).toBe(life + 2);
+  });
+
+  it("Bedingte Eigenschaften und Kosten: „can't be blocked if …“, „as long as you've cast …“, „costs {3} less if …“", () => {
+    const { game, random } = started();
+    forest(game, "u0", 6);
+    const kws = id => view(game, "u0").players[0].battlefield.find(c => c.id === id).keywords;
+    const sneak = put(game, "u0", "Schiffsschleicher", "battlefield");
+    expect(kws(sneak)).not.toContain("unblockable");
+    put(game, "u0", "Sense", "battlefield");
+    expect(kws(sneak)).toContain("unblockable");
+    const monk = put(game, "u0", "Spruchkämpferin", "battlefield");
+    expect(kws(monk)).not.toContain("double strike");
+    castAndResolve(game, "u0", "Heilung", random);
+    castAndResolve(game, "u0", "Heilung", random);
+    expect(kws(monk)).toContain("double strike");
+    const { game: g2 } = started();
+    forest(g2, "u0", 3);
+    const book = put(g2, "u0", "Geschichtenbuch", "hand");
+    expect(view(g2, "u0").players[0].hand.find(c => c.id === book).play.ok).toBe(false);
+    for (let i = 0; i < 7; i += 1) g2.players.u1.graveyard.push(g2.players.u1.library.pop());
+    expect(view(g2, "u0").players[0].hand.find(c => c.id === book).play.ok).toBe(true);
   });
 
   it("Convoke und Delve bezahlen fehlendes Mana mit Kreaturen bzw. Friedhofskarten", () => {

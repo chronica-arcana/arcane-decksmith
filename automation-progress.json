@@ -1,9 +1,9 @@
 {
-  "measuredAt": "2026-11-19T10:51:38.852Z",
+  "measuredAt": "2026-11-19T10:53:56.564Z",
   "focus": {
     "cards": 545,
-    "automated": 309,
-    "rate": 56.7,
+    "automated": 313,
+    "rate": 57.4,
     "decks": [
       {
         "name": "FIC Counter Blitz (FINAL FANTASY X)",
@@ -19,11 +19,11 @@
       },
       {
         "name": "FIC Scions & Spellcraft (FINAL FANTASY XIV)",
-        "rate": 62
+        "rate": 64
       },
       {
         "name": "TRC Federation Fleet",
-        "rate": 71
+        "rate": 72
       },
       {
         "name": "TRC Klingon Fury",
@@ -35,13 +35,13 @@
       },
       {
         "name": "TRC We Are the Borg",
-        "rate": 64
+        "rate": 65
       }
     ]
   },
   "all": {
     "cards": 2006,
-    "automated": 825,
-    "rate": 41.1
+    "automated": 831,
+    "rate": 41.4
   }
 }
