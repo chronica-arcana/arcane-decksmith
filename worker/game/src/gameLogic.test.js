@@ -187,6 +187,7 @@ const LIB = [
   ["lightsword", "Lichtschwert", "Artifact — Equipment", "{1}", 2, {}, "Equipped creature gets +2/+2 and has protection from red.\nEquip {1}"],
   ["chargemace", "Ladungskeule", "Artifact — Equipment", "{1}", 2, {}, "Equipped creature gets +1/+1 for each charge counter on this Equipment.\nWhenever equipped creature attacks, you gain 1 life.\nEquip {1}"],
   ["battlecry", "Schlachtruf-Rüstung", "Artifact — Equipment", "{1}", 2, {}, "Equipped creature has \"Whenever this creature attacks, you gain 2 life.\"\nEquip {1}"],
+  ["cryptcall", "Gruftruf", "Sorcery", "{G}", 2, {}, "You may cast target instant or sorcery card with mana value 3 or less from your graveyard without paying its mana cost. If that spell would be put into your graveyard, exile it instead."],
   ["convoker", "Einberufer", "Sorcery", "{3}{G}", 2, {}, "Convoke\nDraw a card."],
   ["delver", "Schürfer", "Sorcery", "{4}{G}", 2, {}, "Delve\nDraw a card."],
   ["sculptor", "Bildhauer", "Creature — Vedalken", "{G}", 2, { power: "1", toughness: "1" }, "Artifact spells you cast cost {1} less to cast."],
@@ -2951,6 +2952,21 @@ describe("Neue Mechaniken aus den Commander-Decks", () => {
     expect(act(game, "u0", { type: "declareAttackers", attackers: [{ id: bear, target: "u1" }] }, random).ok).toBe(true);
     go(game, random);
     expect(game.players.u0.life).toBe(life + 3); // 1 (Keule) + 2 (verliehen)
+  });
+
+  it("„You may cast target … card from your graveyard without paying its mana cost“ + danach Exil", () => {
+    const { game, random } = started();
+    forest(game, "u0", 1);
+    const heal = put(game, "u0", "Heilung", "graveyard");
+    castAndResolve(game, "u0", "Gruftruf", random, [heal]);
+    const option = view(game, "u0").players[0].graveyard.find(c => c.id === heal).play;
+    expect(option?.ok).toBe(true); // kostenlos, obwohl kein Mana mehr frei ist
+    const life = game.players.u0.life;
+    expect(act(game, "u0", { type: "cast", id: heal }, random).ok).toBe(true);
+    go(game, random);
+    expect(game.players.u0.life).toBe(life + 4);
+    expect(game.players.u0.exile).toContain(heal);
+    expect(game.cards[heal].freeCast).toBeUndefined();
   });
 
   it("Convoke und Delve bezahlen fehlendes Mana mit Kreaturen bzw. Friedhofskarten", () => {

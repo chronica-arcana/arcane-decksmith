@@ -440,6 +440,7 @@ function resetCardState(card) {
   card.foretoldTurn = undefined;
   card.playUntil = undefined;
   card.playBy = undefined;
+  delete card.freeCast;
 }
 
 function enterBattlefield(game, card) {
@@ -917,6 +918,8 @@ function applyPay(game, userId, picks, name, selfId) {
 }
 
 /** Darf die Karte aus dem Exil gespielt werden („you may play that card this turn“)? */
+/** „You may cast … without paying its mana cost“: Erlaubnis für diesen Zug (Friedhof, Exil oder Hand). */
+const freeCastOk = (game, userId, card, zone) => Boolean(card.freeCast && card.freeCast.by === userId && card.freeCast.turn === game.turn.number && ["graveyard", "exile", "hand"].includes(zone));
 const impulseOk = (game, userId, card, zone) => zone === "exile" && card.playBy === userId && (card.playUntil ?? -1) >= game.turn.number;
 /** „You may play lands from your graveyard.“ */
 const landsFromGraveyard = (game, userId) => game.players[userId].battlefield.some(id => defOf(game, game.cards[id]).rules?.landsFromGraveyard);
@@ -1215,7 +1218,7 @@ function resolveTop(game) {
       addLog(game, `${def.name} löst sich auf.`);
       runEffects(game, spell.effects, { controller: item.controller, source: card.id, sourceName: def.name, targets: item.targets ?? [], unparsed: spell.unparsed, x: item.x, flashback: Boolean(item.flashback), snap: snapshotTargets(game, item.targets), castInfo: { greatestPower: item.greatestPower ?? 0, fromExile: Boolean(item.fromExile) } });
     }
-    if (!item.copy) (item.flashback ? owner.exile : owner.graveyard).push(card.id);
+    if (!item.copy) (item.flashback || item.exileAfter ? owner.exile : owner.graveyard).push(card.id);
   } else if (def.rules?.aura) {
     const specs = def.rules.spell?.specs ?? [];
     if (specs.length > 0 && !targetsLegal(game, specs, item.targets ?? [], item.controller, srcOfDef(def, card.id))) {
@@ -1604,6 +1607,11 @@ function validTargets(game, spec, controller, src = { colors: [], id: null }) {
     case "gyLandAny": return game.seats.flatMap(id => game.players[id].graveyard).filter(id => defOf(game, game.cards[id]).types.land);
     case "gyInstSorcAny": return game.seats.flatMap(id => game.players[id].graveyard).filter(id => defOf(game, game.cards[id]).types.instant || defOf(game, game.cards[id]).types.sorcery);
     case "gyCreatureAny": return game.seats.flatMap(id => game.players[id].graveyard).filter(id => defOf(game, game.cards[id]).types.creature);
+    case "gyInstSorc":
+      return game.players[controller].graveyard.filter(id => {
+        const def = defOf(game, game.cards[id]);
+        return (def.types.instant || def.types.sorcery) && !(spec.mvMax !== undefined && (def.manaValue ?? 0) > spec.mvMax);
+      });
     case "gyCreature":
     case "gyArtifact":
     case "gyEnchantment":
@@ -1899,6 +1907,7 @@ function fireGlobal(game, event, subject) {
         if (trigger.counterKind && (typeof subject === "string" || subject.lastCounterKind !== trigger.counterKind)) continue;
         if (scope.counter && (typeof subject === "string" || !(scope.counter === "any" ? Object.values(subject.counters).some(value => value > 0) : subject.counters[scope.counter] > 0))) continue;
         if (scope.creatureType && (typeof subject === "string" || !(defOf(game, subject).types[scope.creatureType] ?? hasSubtype(defOf(game, subject), scope.creatureType)))) continue;
+        if (trigger.attackerSubtype && !(game.combat?.attackers ?? []).some(attacker => game.cards[attacker.id] && hasSubtype(defOf(game, game.cards[attacker.id]), trigger.attackerSubtype))) continue;
         if (trigger.minAttackers && (game.combat?.attackers?.length ?? 0) < trigger.minAttackers) continue;
         if (scope.nontoken && typeof subject !== "string" && subject.token) continue;
         if (scope.permType && (typeof subject === "string" || !(scope.permType in defOf(game, subject).types ? defOf(game, subject).types[scope.permType] : hasSubtype(defOf(game, subject), scope.permType)))) continue;
@@ -3112,6 +3121,27 @@ function runEffect(game, rawEffect, ctx, rest) {
       addLog(game, `${nameOf(game, gear.id)} wird an ${nameOf(game, sourceCard.id)} angehängt (${name}).`);
       return false;
     }
+    case "freeCast":
+    case "freeCastFromHand":
+    case "freeCastLast": {
+      const ids =
+        effect.type === "freeCast" ? [ctx.targets[effect.t]].filter(Boolean)
+        : effect.type === "freeCastLast" ? (ctx.lastExiled ?? [])
+        : controller.hand.filter(id => {
+          const def = defOf(game, game.cards[id]);
+          if (def.types.land || (def.manaValue ?? 0) > effect.mvMax) return false;
+          return !effect.what || typeMatches(def, effect.what) || (effect.what === "instant or sorcery" && (def.types.instant || def.types.sorcery));
+        });
+      const group = newId(game, "f");
+      for (const id of ids) if (game.cards[id]) game.cards[id].freeCast = { by: ctx.controller, turn: game.turn.number, group };
+      ctx.freeGroup = group;
+      if (ids.length > 0) addLog(game, `${controller.name} darf ${ids.length === 1 ? nameOf(game, ids[0]) : "einen passenden Zauber"} in diesem Zug ohne Manakosten wirken (${name}).`);
+      return false;
+    }
+    case "freeCastExile": {
+      for (const card of Object.values(game.cards)) if (card.freeCast?.group === ctx.freeGroup) card.freeCast.exileAfter = true;
+      return false;
+    }
     case "returnSelfFromGy": {
       const card = sourceCard;
       const owner = card ? game.players[card.origOwner ?? card.owner] : null;
@@ -3955,8 +3985,9 @@ export function playOptions(game, userId, id) {
   const flashbackOk = found && found.zone === "graveyard" && Boolean(defOf(game, found.card).rules?.flashback);
   const foretoldOk = Boolean(found && found.zone === "exile" && found.card.foretoldTurn !== undefined && found.card.foretoldTurn < game.turn.number && defOf(game, found.card).rules?.foretell);
   const impulse = Boolean(found && impulseOk(game, userId, found.card, found.zone));
+  const free = Boolean(found && freeCastOk(game, userId, found.card, found.zone));
   const gyLand = Boolean(found && found.zone === "graveyard" && defOf(game, found.card).types.land && landsFromGraveyard(game, userId));
-  if (!found || (found.zone !== "hand" && found.zone !== "command" && !flashbackOk && !foretoldOk && !impulse && !gyLand)) return null;
+  if (!found || (found.zone !== "hand" && found.zone !== "command" && !flashbackOk && !foretoldOk && !impulse && !gyLand && !free)) return null;
   const def = defOf(game, found.card);
   const player = game.players[userId];
   const playing = game.phase === "playing" && !player.eliminated && !game.pendingDiscard && !game.choice && !game.manual;
@@ -3967,11 +3998,11 @@ export function playOptions(game, userId, id) {
     return { kind: "land", ok: okNow };
   }
   const instantSpeed = def.types.instant || def.keywords.includes("flash");
-  const timingOk = playing && hasWindow(game, userId) && (instantSpeed || mainPhase) && !castLocked(game, userId);
+  const timingOk = playing && hasWindow(game, userId) && (instantSpeed || mainPhase || free) && !castLocked(game, userId);
   let affordable = false;
   if (timingOk) {
     const tax = found.zone === "command" ? 2 * (player.cmdCasts[id] ?? 0) : 0;
-    affordable = planWithAlternatives(game, userId, def, { manaCost: flashbackOk ? def.rules.flashback : foretoldOk ? def.rules.foretell : hasFreeCast(game, userId, def) ? "" : def.manaCost, extraGeneric: tax - costReduction(game, def, userId), pool: player.pool, sources: manaSources(game, userId) }).plan.ok;
+    affordable = planWithAlternatives(game, userId, def, { manaCost: free ? "" : flashbackOk ? def.rules.flashback : foretoldOk ? def.rules.foretell : hasFreeCast(game, userId, def) ? "" : def.manaCost, extraGeneric: tax - costReduction(game, def, userId), pool: player.pool, sources: manaSources(game, userId) }).plan.ok;
     if (affordable && def.rules?.additionalCost && !canPayExtras(game, userId, def.rules.additionalCost, id)) affordable = false;
   }
   const spell = def.rules?.spell;
@@ -4654,17 +4685,20 @@ function castAction(game, userId, action) {
   const foretold = Boolean(found && found.zone === "exile" && found.card.foretoldTurn !== undefined && def?.rules?.foretell);
   if (foretold && found.card.foretoldTurn >= game.turn.number) return fail("Vorhergesagte Karten kannst du erst in einem späteren Zug wirken.");
   const impulse = Boolean(found && impulseOk(game, userId, found.card, found.zone));
+  const free = Boolean(found && freeCastOk(game, userId, found.card, found.zone));
   if (castLocked(game, userId)) return fail("Während des Zuges dieses Gegners darfst du keine Zauber wirken.");
-  if (!found || !def || (found.zone !== "hand" && found.zone !== "command" && !flashback && !foretold && !impulse)) {
+  if (!found || !def || (found.zone !== "hand" && found.zone !== "command" && !flashback && !foretold && !impulse && !free)) {
     return fail("Zaubern kannst du nur aus der Hand, der Kommandozone, (mit Rückblende) aus dem Friedhof oder (vorhergesagt) aus dem Exil.");
   }
   if (def.types.land) return fail("Länder werden mit „Land spielen“ gelegt.");
   const instantSpeed = def.types.instant || def.keywords.includes("flash");
   const mainPhase = game.turn.active === userId && (game.turn.phase === "main1" || game.turn.phase === "main2") && game.stack.length === 0;
-  if (!instantSpeed && !mainPhase) {
+  if (!instantSpeed && !mainPhase && !free) {
     return fail("Dieser Zauber geht nur in deiner Hauptphase bei leerem Stapel (Sofortzauber und Blitz jederzeit).");
   }
   if (game.stack.length >= MAX_STACK) return fail("Der Stapel ist voll.");
+  const freeInfo = free ? found.card.freeCast : null;
+  if (freeInfo) for (const other of Object.values(game.cards)) if (other.freeCast?.group === freeInfo.group) delete other.freeCast; // nur eine Karte je Erlaubnis
   const spellRules = def.rules?.spell;
   let activeRules = spellRules;
   let mode = null;
@@ -4684,7 +4718,7 @@ function castAction(game, userId, action) {
   const evoked = action.evoke === true && Boolean(def.rules?.evoke) && found.zone === "hand";
   const mutating = typeof action.mutate === "string" && Boolean(def.rules?.mutate) && found.zone === "hand";
   if (mutating && !mutateTargets(game, userId).includes(action.mutate)) return fail("Mutate: Wähle eine eigene Kreatur, die kein Mensch ist.");
-  const cost = (flashback ? def.rules.flashback : foretold ? def.rules.foretell : evoked ? def.rules.evoke : mutating ? def.rules.mutate : hasFreeCast(game, userId, def) ? "" : def.manaCost) + ward;
+  const cost = (freeInfo ? "" : flashback ? def.rules.flashback : foretold ? def.rules.foretell : evoked ? def.rules.evoke : mutating ? def.rules.mutate : hasFreeCast(game, userId, def) ? "" : def.manaCost) + ward;
   const alt = planWithAlternatives(game, userId, def, { manaCost: cost, x, extraGeneric: tax - costReduction(game, def, userId), pool: player.pool, sources: chosenSources(manaSources(game, userId), action) });
   const plan = alt.plan;
   if (!plan.ok) {
@@ -4713,7 +4747,7 @@ function castAction(game, userId, action) {
   found.card.revealed = false;
   const greatestPower = player.battlefield.reduce((max, id) => (defOf(game, game.cards[id]).types.creature ? Math.max(max, powerOf(game, game.cards[id])) : max), 0);
   found.card.faceDown = false;
-  game.stack.push({ sid: newId(game, "s"), kind: "spell", controller: userId, cardId: found.card.id, x, flashback, mode, targets: specs.length > 0 ? action.targets : [], greatestPower, fromExile: found.zone === "exile", evoked, ...(mutating ? { mutate: action.mutate, over: action.over !== false } : {}) });
+  game.stack.push({ sid: newId(game, "s"), kind: "spell", controller: userId, cardId: found.card.id, x, flashback, mode, targets: specs.length > 0 ? action.targets : [], greatestPower, fromExile: found.zone === "exile", evoked, ...(freeInfo?.exileAfter ? { exileAfter: true } : {}), ...(mutating ? { mutate: action.mutate, over: action.over !== false } : {}) });
   game.priority = userId;
   game.passed = [];
   addLog(game, `${player.name} wirkt ${def.name}${paid}.`);

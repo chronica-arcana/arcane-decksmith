@@ -1,9 +1,9 @@
 {
-  "measuredAt": "2026-11-19T10:40:23.730Z",
+  "measuredAt": "2026-11-19T10:43:26.552Z",
   "focus": {
     "cards": 545,
-    "automated": 289,
-    "rate": 53,
+    "automated": 290,
+    "rate": 53.2,
     "decks": [
       {
         "name": "FIC Counter Blitz (FINAL FANTASY X)",
@@ -19,7 +19,7 @@
       },
       {
         "name": "FIC Scions & Spellcraft (FINAL FANTASY XIV)",
-        "rate": 58
+        "rate": 60
       },
       {
         "name": "TRC Federation Fleet",
@@ -41,7 +41,7 @@
   },
   "all": {
     "cards": 2006,
-    "automated": 782,
-    "rate": 39
+    "automated": 790,
+    "rate": 39.4
   }
 }

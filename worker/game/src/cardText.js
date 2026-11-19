@@ -50,6 +50,7 @@ const TARGET_KINDS = [
   [/^target land card (?:from|in) a graveyard$/, "gyLandAny"],
   [/^target instant or sorcery card (?:from|in) a graveyard$/, "gyInstSorcAny"],
   [/^target creature card (?:from|in) your graveyard$/, "gyCreature"],
+  [/^target instant or sorcery card (?:from|in) your graveyard$/, "gyInstSorc"],
   [/^target artifact card (?:from|in) your graveyard$/, "gyArtifact"],
   [/^target enchantment card (?:from|in) your graveyard$/, "gyEnchantment"],
   [/^target land card (?:from|in) your graveyard$/, "gyLand"],
@@ -586,6 +587,30 @@ function parseSentence(raw, specs) {
     const effect = { type: "sacrificeOwn", what, other: m[2] === "another" };
     return m[1] ? [{ type: "may", effects: [effect] }] : [effect];
   }
+  if ((m = lower.match(new RegExp(`^~ deals ${N} damage to each of up to (two|three) (?:other )?target (creatures|creatures and/or planeswalkers|creatures and/or players|permanents)$`)))) {
+    const n = num(m[1]);
+    if (n === null || n === "X") return null;
+    const effects = [];
+    for (let i = 0; i < { two: 2, three: 3 }[m[2]]; i += 1) {
+      const t = addTarget(specs, m[3] === "creatures and/or players" ? "any target" : m[3] === "creatures and/or planeswalkers" ? "target creature or planeswalker" : "target creature");
+      if (t === null) return null;
+      specs[t] = { ...specs[t], optional: true };
+      effects.push({ type: "damage", n, to: { k: "target", t } });
+    }
+    return effects;
+  }
+  if ((m = lower.match(/^you may cast (target (?:instant or sorcery|instant|sorcery|creature|artifact|enchantment|permanent) card)(?: with mana value (\d+) or less)? from your graveyard without paying its mana cost$/))) {
+    const t = addTarget(specs, `${m[1]} from your graveyard`);
+    if (t === null) return null;
+    if (m[2]) specs[t] = { ...specs[t], mvMax: Number(m[2]) };
+    return [{ type: "freeCast", t }];
+  }
+  if ((m = lower.match(/^you may cast an? (spell|creature spell|noncreature spell|instant or sorcery spell|artifact spell) with mana value (\d+) or less from your hand without paying its mana cost$/))) {
+    const what = { spell: null, "creature spell": "creature", "instant or sorcery spell": "instant or sorcery", "artifact spell": "artifact", "noncreature spell": null }[m[1]];
+    return [{ type: "freeCastFromHand", mvMax: Number(m[2]), what }];
+  }
+  if (/^you may cast (?:that card|it|the exiled card|that spell|those cards|one of those cards) without paying its mana cost$/.test(lower)) return [{ type: "freeCastLast" }];
+  if (/^if that spell would be put into (?:your|a|its owner's) graveyard, exile it instead$/.test(lower)) return [{ type: "freeCastExile" }];
   if (/^you may choose new targets for (the|that|target) (cop(y|ies)|spell or ability)$/.test(lower)) return [{ type: "noop" }];
   if ((m = lower.match(new RegExp(`^you may have (?:it|~) deal ${N} damage to each creature$`)))) {
     const n = num(m[1]);
@@ -844,7 +869,7 @@ function parseSentence(raw, specs) {
     return t === null || !/spell$/.test(m[1]) ? null : [{ type: "counterSpell", t }];
   }
 
-  if ((m = lower.match(new RegExp(`^put ${N} ([+-]1/[+-]1|first strike|double strike|[a-z]+) counters? on (~|target [a-z ,'-]+)$`)))) {
+  if ((m = lower.match(new RegExp(`^put ${N} ([+-]1/[+-]1|first strike|double strike|[a-z]+) counters? on (~|(?:another )?target [a-z ,'-]+)$`)))) {
     const n = num(m[1]);
     if (n === null) return null;
     if (m[3] === "~") return [{ type: "counters", n, kind: m[2], self: true }];
@@ -1001,6 +1026,10 @@ function describeBase(effect) {
     case "attachToSelf": return "Hängt die Ziel-Ausrüstung an diese Kreatur.";
     case "returnSelfFromGy": return effect.to === "hand" ? "Kommt aus dem Friedhof auf die Hand." : "Kommt aus dem Friedhof aufs Schlachtfeld.";
     case "sacrificeOwn": return "Opfert ein eigenes Permanent.";
+    case "freeCast":
+    case "freeCastFromHand":
+    case "freeCastLast": return "Du darfst den Zauber in diesem Zug ohne Manakosten wirken.";
+    case "freeCastExile": return "Danach kommt er ins Exil statt in den Friedhof.";
     case "wheel": return `Jeder mischt Hand und Friedhof in die Bibliothek und zieht ${effect.n}.`;
     case "commanderToHand": return "Nimmt deinen Kommandanten aus der Kommandozone auf die Hand.";
     case "untapLands": return `Enttappt bis zu ${effect.n} Länder.`;
@@ -1272,6 +1301,10 @@ function triggerEvent(word, condition) {
   if (/^~ mutates$/.test(condition)) return { event: "mutates" };
   if (/^~ dies$/.test(condition) || /^~ is put into a graveyard from the battlefield$/.test(condition)) return { event: "dies" };
   if ((m = condition.match(/^~ or another (nontoken )?creature you control dies$/))) return { event: "creatureDies", scope: { owner: "you", another: false, ...(m[1] ? { nontoken: true } : {}) } };
+  if ((m = condition.match(/^~ or another (nontoken )?([a-z]+) (?:creature )?you control dies$/)) && !["creature"].includes(m[2])) return { event: "creatureDies", scope: { owner: "you", another: false, subtype: m[2], ...(m[1] ? { nontoken: true } : {}) } };
+  if ((m = condition.match(/^one or more (?:other )?creatures you control attack$/))) return { event: "youAttack", scope: { owner: "you", another: false } };
+  if ((m = condition.match(/^one or more ([a-z]+) you control attack$/)) && m[1] !== "creatures") return { event: "youAttack", attackerSubtype: m[1].replace(/s$/, ""), scope: { owner: "you", another: false } };
+  if ((m = condition.match(/^you attack with one or more ([a-z]+)$/))) return { event: "youAttack", attackerSubtype: m[1].replace(/s$/, ""), scope: { owner: "you", another: false } };
   if (/^~ or another creature dies$/.test(condition)) return { event: "creatureDies", scope: { owner: "any", another: false } };
   if (/^equipped creature dies$/.test(condition)) return { event: "equippedDies" };
   if (/^~ deals combat damage to a player$/.test(condition)) return { event: "dealsCombatDamage" };
@@ -1560,9 +1593,9 @@ export function parseCardText({ name, typeLine, oracleText }) {
       result.manaCond = manaCond[1].startsWith("an artifact") ? { type: "artifact" } : { type: "bigCreature" };
       continue;
     }
-    const entersCounters = line.match(/^~ enters with (a|an|one|two|three|four|five|\d+) ([a-z]+|[+-]1\/[+-]1) counters? on it\.?$/i);
+    const entersCounters = line.match(/^~ enters with (a|an|one|two|three|four|five|\d+|x) ([a-z]+|[+-]1\/[+-]1) counters? on it\.?$/i);
     if (entersCounters) {
-      result.entersWithCounters = { n: /^\d+$/.test(entersCounters[1]) ? Number(entersCounters[1]) : (COUNT_WORD[entersCounters[1].toLowerCase()] ?? { four: 4, five: 5 }[entersCounters[1].toLowerCase()]), kind: entersCounters[2].toLowerCase() };
+      result.entersWithCounters = { n: /^x$/i.test(entersCounters[1]) ? "X" : /^\d+$/.test(entersCounters[1]) ? Number(entersCounters[1]) : (COUNT_WORD[entersCounters[1].toLowerCase()] ?? { four: 4, five: 5 }[entersCounters[1].toLowerCase()]), kind: entersCounters[2].toLowerCase() };
       continue;
     }
     const chargeEnters = line.match(/^~ enters tapped with (one|two|three|\d+) charge counters? on it\.?$/i);
