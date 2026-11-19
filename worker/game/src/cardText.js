@@ -8,6 +8,7 @@
  * bzw. `notes`. Der Spielkern öffnet dafür ein manuelles Fenster, statt etwas Falsches zu automatisieren.
  */
 import { KEYWORDS, parseManaCost, typesOf } from "./cardFacts.js";
+import { attachQuantity, parseCondition, parseCopyExceptions, parseForEach, parseQuantity, rewriteEqualTo, singular, usesX } from "./quantity.js";
 
 const WORDS = { a: 1, an: 1, one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10, eleven: 11, twelve: 12, thirteen: 13, fourteen: 14, fifteen: 15, sixteen: 16, seventeen: 17, eighteen: 18, nineteen: 19, twenty: 20 };
 const N = "(a|an|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|\\d+|x)";
@@ -16,10 +17,31 @@ const num = text => (/^\d+$/.test(text) ? Number(text) : String(text).toLowerCas
 const WHO = "(you|target player|target opponent|each opponent|each player|they|that player)";
 
 /** Entfernt Erinnerungstext und ersetzt den Kartennamen durch „~“. */
-export function normalizeText(oracleText, name) {
+const NAME_TITLES = new Set(["the", "lord", "lady", "captain", "lieutenant", "commander", "general", "chief", "sir", "king", "queen", "prince", "princess", "ensign", "doctor", "admiral", "master", "maester", "summon:", "ultimate"]);
+
+/** Kurzformen legendärer Namen, mit denen der Kartentext auf sich selbst verweist („Loran“ für „Loran of the Third Path“). */
+function shortNames(name) {
+  const base = String(name ?? "").split(",")[0].split(" of ")[0].trim();
+  const words = base.split(/\s+/).filter(Boolean);
+  const out = [];
+  if (base && base !== String(name ?? "").split(",")[0].trim() && base.length >= 4) out.push(base);
+  if (words.length >= 2) {
+    out.push(`${words[0]} ${words[words.length - 1]}`);
+    if (!NAME_TITLES.has(words[0].toLowerCase()) && words[0].length >= 4) out.push(words[0]);
+    if (words[words.length - 1].length >= 4 && !NAME_TITLES.has(words[words.length - 1].toLowerCase())) out.push(words[words.length - 1]);
+  }
+  return out;
+}
+
+export function normalizeText(oracleText, name, legendary = false) {
   let text = String(oracleText ?? "").split("//")[0].replace(/\([^)]*\)/g, "").replace(/[\u2018\u2019]/g, "'");
   const names = [...new Set([name, String(name ?? "").split(",")[0]])].filter(Boolean).sort((a, b) => b.length - a.length);
   for (const item of names) text = text.split(item).join("~");
+  if (legendary) {
+    for (const item of shortNames(name).sort((a, b) => b.length - a.length)) {
+      text = text.replace(new RegExp(`\\b${item.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b(?=('s|\\s+(?:enters|dies|attacks|blocks|deals|gets|gains|has|can't|becomes|is|was|explores|and|or)\\b|[.,]))`, "g"), "~");
+    }
+  }
   text = text.replace(/(choose a creature type\.)[ \t]+/gi, "$1\n");
   text = text.replace(/\bAs it enters\b/g, "As ~ enters").replace(/\. (?=As ~ enters)/g, ".\n");
   text = text.replace(/\bthis (creature|permanent|artifact|enchantment|land|planeswalker|spell|equipment|aura|vehicle|spacecraft|saga|planet|card)\b/gi, "~");
@@ -49,6 +71,7 @@ const TARGET_KINDS = [
   [/^target land card (?:from|in) a graveyard$/, "gyLandAny"],
   [/^target instant or sorcery card (?:from|in) a graveyard$/, "gyInstSorcAny"],
   [/^target creature card (?:from|in) your graveyard$/, "gyCreature"],
+  [/^target instant or sorcery card (?:from|in) your graveyard$/, "gyInstSorc"],
   [/^target artifact card (?:from|in) your graveyard$/, "gyArtifact"],
   [/^target enchantment card (?:from|in) your graveyard$/, "gyEnchantment"],
   [/^target land card (?:from|in) your graveyard$/, "gyLand"],
@@ -91,7 +114,13 @@ function parseTargetSpec(phrase) {
   const spec = {};
   if (m[1]) spec.another = true;
   let c;
-  if ((c = rest.match(/^(.+) (an opponent controls|you don't control|you control)$/))) {
+  // „creature you control with flying“ → „creature with flying you control“ (Kontrolleur steht dann hinten)
+  if ((c = rest.match(/^(.+?) (you control|an opponent controls|you don't control) ((?:with|without) .+)$/))) rest = `${c[1]} ${c[3]} ${c[2]}`;
+  if ((c = rest.match(/^(.+) that entered (?:the battlefield )?this turn$/))) {
+    rest = c[1];
+    spec.enteredThisTurn = true;
+  }
+  if ((c = rest.match(/^(.+) (an opponent controls|your opponents control|you don't control|you control)$/))) {
     rest = c[1];
     spec.ctrl = c[2] === "you control" ? "you" : "opp";
   }
@@ -99,9 +128,21 @@ function parseTargetSpec(phrase) {
     rest = c[1];
     spec.stat = { of: c[2], op: c[4] === "greater" ? "gte" : "lte", n: Number(c[3]) };
   }
+  if ((c = rest.match(/^(.+) with (?:a|an|one or more) ([+-]1\/[+-]1 )?counters? on (?:it|them)$/)) || (c = rest.match(/^(.+) with ()counters on (?:it|them)$/))) {
+    rest = c[1];
+    spec.counter = c[2] ? c[2].trim() : "any";
+  }
+  if ((c = rest.match(new RegExp(`^(.+) without (${FILTER_KEYWORDS})$`)))) {
+    rest = c[1];
+    spec.noKeyword = c[2];
+  }
   if ((c = rest.match(new RegExp(`^(.+) with (${FILTER_KEYWORDS})$`)))) {
     rest = c[1];
     spec.keyword = c[2];
+  }
+  if ((c = rest.match(/^(.+) tokens?$/)) && !/^(?:a|the)$/.test(c[1])) {
+    rest = c[1];
+    spec.token = true;
   }
   rest = rest.replace(/,\s+(?=non[a-z]+)/g, " ");
   const union = rest.match(/^(?:((?:non[a-z]+ )+))?((?:artifact|creature|enchantment|land|planeswalker)(?:, (?:artifact|creature|enchantment|land|planeswalker))*,? or (?:artifact|creature|enchantment|land|planeswalker))$/);
@@ -115,7 +156,15 @@ function parseTargetSpec(phrase) {
     }
     return out;
   }
-  const words = rest.split(" ");
+  let words = rest.split(" ");
+  // Eigenschaftswörter vor einem Untertyp („nontoken Vampire“, „legendary Dragon“, „white Soldier“)
+  const ADJ = { nontoken: ["token", false], token: ["token", true], legendary: ["legendary", true], nonlegendary: ["legendary", false], tapped: ["tapped", true], untapped: ["tapped", false], attacking: ["attacking", true] };
+  while (words.length > 1 && (ADJ[words[0]] || COLOR_LETTERS[words[0]]) && !BASE_NOUNS[words.join(" ")] && !BASE_NOUNS[words[words.length - 1]] && /^[a-z]+$/.test(words[words.length - 1]) && !["card", "spell", "player", "opponent", "token", "ability"].includes(words[words.length - 1])) {
+    const word = words.shift();
+    if (COLOR_LETTERS[word]) spec.colors = [...(spec.colors ?? []), COLOR_LETTERS[word]];
+    else spec[ADJ[word][0]] = ADJ[word][1];
+  }
+  rest = words.join(" ");
   // Untertypen als Ziel: „target Equipment you control“, „target Rebel you control“, „target Skeleton, Spirit, or Zombie“
   const last = words[words.length - 1];
   const subtypeList = rest.match(/^([a-z]+)(?:, ([a-z]+))*,? (?:or|and\/or) ([a-z]+)$/);
@@ -135,6 +184,7 @@ function parseTargetSpec(phrase) {
     else if (word === "attacking") spec.attacking = true;
     else if (word === "blocking") spec.blocking = true;
     else if (word === "legendary") spec.legendary = true;
+    else if (word === "nontoken") spec.token = false;
     else if (word === "nonlegendary") spec.legendary = false;
     else if (COLOR_LETTERS[word]) spec.colors = [...(spec.colors ?? []), COLOR_LETTERS[word]];
     else if ((c = word.match(/^non(white|blue|black|red|green)$/))) spec.nonColors = [...(spec.nonColors ?? []), COLOR_LETTERS[c[1]]];
@@ -143,6 +193,13 @@ function parseTargetSpec(phrase) {
     else return null;
   }
   return { kind: BASE_NOUNS[words.join(" ")], ...spec };
+}
+
+/** Zielangabe aus einer Mehrzahl-Gruppe („lands you control“, „creatures your opponents control“, „nonland permanents“). */
+function groupSpec(phrase) {
+  const m = phrase.trim().match(/^(.+?)((?: that entered this turn| with .+| without .+)?(?: (?:you control|your opponents control|an opponent controls|you don't control))?(?: that entered this turn)?)$/);
+  const head = m ? m[1] : phrase;
+  return parseTargetSpec(`target ${singular(head)}${m ? m[2] : ""}`);
 }
 
 /** Nimmt ein Ziel in die Liste auf und gibt dessen Index zurück. */
@@ -183,6 +240,52 @@ function parseSentence(raw, specs) {
   const s = raw.trim().replace(/\.$/, "");
   const lower = s.toLowerCase().replace(/^it deals/, "~ deals");
   let m;
+
+  if (/^then /i.test(s) && !/^then (if|shuffle)\b/i.test(s)) {
+    const inner = parseSentence(s.slice(5), specs);
+    if (inner) return inner;
+  }
+  // „up to N target creatures …“: Satz für ein Ziel lesen und die Effekte für jedes (optionale) Ziel wiederholen
+  if ((m = s.match(/^(.*?)\bup to (two|three|four|five|six|seven|eight|nine|ten) (other )?target (.+)$/i)) && !/\bup to (?:two|three|four|five|six|seven|eight|nine|ten) /i.test(m[1])) {
+    const count = COUNT_WORDS[m[2].toLowerCase()];
+    const words = m[4].split(" ");
+    const nounAt = words.findIndex(word => /[a-z]s$/i.test(word) && !/^(?:its|this|gains?|gets?|has)$/i.test(word));
+    if (count && nounAt !== -1) {
+      words[nounAt] = singular(words[nounAt]);
+      const tail = words.join(" ").replace(/\b(gain|get|have|deal|become)\b/i, verb => `${verb}s`).replace(/\beach (gains|gets)\b/i, "$1");
+      const mark = specs.length;
+      const inner = parseSentence(`${m[1]}${m[3] ? "another " : ""}target ${tail}`, specs);
+      const onlyT = effect => typeof effect.from !== "number" && typeof effect.to !== "number" && effect.to?.t === undefined && effect.source?.t === undefined && effect.forTargetController === undefined && !Array.isArray(effect.effects);
+      if (inner && specs.length === mark + 1 && inner.every(onlyT)) {
+        specs[mark] = { ...specs[mark], optional: true };
+        const out = [...inner];
+        for (let i = 1; i < count; i += 1) {
+          specs.push({ ...specs[mark] });
+          out.push(...inner.map(effect => (effect.t === mark ? { ...effect, t: specs.length - 1 } : effect)));
+        }
+        if (out.every(effect => effect.t === undefined || effect.t >= mark)) return out;
+      }
+      specs.length = mark;
+    }
+  }
+  // Mengenangaben: „…, where X is …“ und „… equal to …“ werden in die X-Form gebracht und berechenbar gemacht.
+  if ((m = s.match(/^(.+?),? where x is (.+)$/i)) && !/where x is .*where x is/i.test(s)) {
+    const quantity = parseQuantity(m[2], phrase => parseTargetSpec(phrase));
+    const mark = specs.length;
+    const inner = quantity ? parseSentence(m[1], specs) : null;
+    if (inner && usesX(inner)) return attachQuantity(inner, quantity);
+    specs.length = mark; // sonst: die bestehenden Satzregeln versuchen es weiter
+  }
+  if (/equal to /i.test(s) && !/\bx\b/i.test(s)) {
+    const rewritten = rewriteEqualTo(s);
+    const quantity = rewritten ? parseQuantity(rewritten.quantity, phrase => parseTargetSpec(phrase)) : null;
+    if (quantity) {
+      const mark = specs.length;
+      const inner = parseSentence(rewritten.text, specs);
+      if (inner && usesX(inner)) return attachQuantity(inner, quantity);
+      specs.length = mark;
+    }
+  }
 
   if ((m = lower.match(/^return an? (permanent|creature|artifact|enchantment) you control to its owner's hand$/))) return [{ type: "bounceOwn", what: m[1] }];
   if ((m = lower.match(/^(tap or untap) (target permanent|target creature|target artifact|target land)$/))) {
@@ -264,7 +367,7 @@ function parseSentence(raw, specs) {
   if (lower === "untap ~") return [{ type: "untapSelf" }];
   if (lower === "sacrifice ~") return [{ type: "sacrificeSelf" }];
   if ((m = lower.match(/^you get ((?:\{e\})+)$/))) return [{ type: "energy", n: m[1].length / 3 }];
-  if ((m = lower.match(/^monstrosity (\d+)$/))) return [{ type: "monstrosity", n: Number(m[1]) }];
+  if ((m = lower.match(/^monstrosity (\d+|x)$/))) return [{ type: "monstrosity", n: m[1] === "x" ? "X" : Number(m[1]) }];
   if (lower === "proliferate") return [{ type: "proliferate" }];
   if (lower === "you become the monarch") return [{ type: "monarch" }];
   if ((m = lower.match(/^look at the top (one|two|three|four|five|six|seven|\d+) cards? of your library$/))) {
@@ -356,6 +459,33 @@ function parseSentence(raw, specs) {
     if (n === null || n === "X") return null;
     return [{ type: "countersAll", n, kind: m[2], ...(m[3] === "creature" ? {} : { subtype: m[3] }), ...(m[4] === "your opponents control" ? { opp: true } : {}) }];
   }
+  // Goad: „goad target creature“, „goad up to N target creatures“, „goad all creatures you don't control“, „goad each creature target player controls“
+  if (/^goad (?:all|each) creatures? (?:you don't control|your opponents control)$/.test(lower)) return [{ type: "goad", all: true }];
+  if ((m = lower.match(/^goad each creature (target (?:player|opponent)) controls$/))) {
+    const t = addTarget(specs, m[1]);
+    return t === null ? null : [{ type: "goad", eachOfTarget: t }];
+  }
+  if (/^goad (?:it|that creature)$/.test(lower)) return [{ type: "goad", subjectCard: true }];
+  if ((m = lower.match(/^goad (?:up to (one|two|three|four|five|x) )?(target creatures?(?: an opponent controls| you don't control)?)$/))) {
+    const count = m[1] ? { one: 1, two: 2, three: 3, four: 4, five: 5, x: "X" }[m[1]] : 1;
+    if (count === "X") return null; // variable Zielanzahl wird (noch) nicht unterstützt
+    const effects = [];
+    for (let i = 0; i < count; i += 1) {
+      const t = addTarget(specs, m[2].replace(/creatures/, "creature"));
+      if (t === null) return null;
+      if (m[1]) specs[t] = { ...specs[t], optional: true };
+      effects.push({ type: "goad", t });
+    }
+    return effects;
+  }
+  // Allgemein: „put a +1/+1 counter on each <Filter>“ (Filter wie eine Zielangabe, z. B. „artifact creature you control“, „creature you control that entered this turn“)
+  if ((m = lower.match(new RegExp(`^put ${N} ([+-]1/[+-]1|[a-z]+) counters? on each (other )?(.+)$`))) && !/\b(target|of)\b/.test(m[4])) {
+    const n = num(m[1]);
+    const spec = groupSpec(m[4]);
+    if (n !== null && spec && ["creature", "myCreature", "permanent", "artifact", "enchantment", "land", "planeswalker"].includes(spec.kind)) {
+      return [{ type: "countersEach", n, kind: m[2], spec: m[3] ? { ...spec, another: true } : spec }];
+    }
+  }
   if ((m = lower.match(new RegExp(`^put ${N} ([+-]1/[+-]1) counters? on that creature$`)))) {
     const n = num(m[1]);
     return n === null || n === "X" ? null : [{ type: "counters", n, kind: m[2], subjectCard: true }];
@@ -364,8 +494,28 @@ function parseSentence(raw, specs) {
     const n = num(m[1]);
     return n === null || n === "X" ? null : [{ type: "counters", n, kind: m[2], self: true }];
   }
+  // Vorangestelltes „For each <Filter>, …“
+  if ((m = s.match(/^for each ([^,]+), (.+)$/i)) && !/^for each (?:of|player|opponent,? (?:you may|that player))\b/i.test(s)) {
+    const quantity = parseForEach(m[1], phrase => parseTargetSpec(phrase));
+    if (quantity) {
+      const mark = specs.length;
+      const inner = parseSentence(m[2], specs);
+      if (inner && inner.length > 0 && inner.every(effect => typeof effect.n === "number" && effect.n > 0)) return inner.map(effect => ({ ...effect, perQ: quantity }));
+      specs.length = mark;
+    }
+  }
+  // Generisches „… for each <Filter>“ (alles, was der Mengen-Baustein zählen kann)
+  if ((m = s.match(/^(.+?) for each (.+)$/i)) && !/^(creature you control|land you control|artifact you control|creature your opponents control|attacking creature|creature|land|artifact|card in your hand|opponent)$/i.test(m[2])) {
+    const quantity = parseForEach(m[2], phrase => parseTargetSpec(phrase));
+    if (quantity) {
+      const mark = specs.length;
+      const inner = parseSentence(m[1], specs);
+      if (inner && inner.length > 0 && inner.every(effect => typeof effect.n === "number" && effect.n > 0)) return inner.map(effect => ({ ...effect, perQ: quantity }));
+      specs.length = mark;
+    }
+  }
   // „… for each …“: der Effekt wird mit der Anzahl multipliziert.
-  if ((m = lower.match(/^(.+?) for each (creature you control|land you control|artifact you control|creature your opponents control|creature|land|artifact|card in your hand|opponent)$/))) {
+  if ((m = lower.match(/^(.+?) for each (creature you control|land you control|artifact you control|creature your opponents control|attacking creature|creature|land|artifact|card in your hand|opponent)$/))) {
     const head = parseSentence(s.slice(0, m[1].length), specs);
     if (head && head.length === 1 && typeof head[0].n === "number" && head[0].n === 1) return [{ ...head[0], per: m[2] }];
     return null;
@@ -387,7 +537,7 @@ function parseSentence(raw, specs) {
   // Impulse: „Exile the top card of your library. You may play that card this turn.“
   if ((m = lower.match(new RegExp(`^exile the top (card|${N} cards) of your library$`)))) {
     const n = m[1] === "card" ? 1 : num(m[2]);
-    return n === null || n === "X" ? null : [{ type: "exileTop", n }];
+    return n === null ? null : [{ type: "exileTop", n }];
   }
   if (/^(?:until end of turn, )?you may play (?:that card|it|those cards|them|the exiled cards?)(?: this turn)?$/.test(lower)) return [{ type: "playExiled", next: false }];
   if (/^until (?:the )?end of your next turn, you may play (?:that card|it|those cards|them)$/.test(lower)) return [{ type: "playExiled", next: true }];
@@ -422,6 +572,15 @@ function parseSentence(raw, specs) {
       effects.push({ type: "reanimate", t, to: "hand", counters: 0 });
     }
     return effects;
+  }
+  if ((m = s.match(/^(?:then )?if (.+?), (.+)$/i)) && !/^you do$/i.test(m[1])) {
+    const cond = parseCondition(m[1].replace(/\bthis spell\b/i, "~"), phrase => parseTargetSpec(phrase));
+    if (cond) {
+      const mark = specs.length;
+      const inner = parseSentence(m[2], specs);
+      if (inner) return [{ type: "ifCond", cond, effects: inner }];
+      specs.length = mark;
+    }
   }
   if ((m = lower.match(/^(?:then )?if you control (an? [a-z ]+?|a creature with power \d+ or greater|three or more [a-z]+s?), (.+)$/))) {
     let cond = null;
@@ -486,6 +645,16 @@ function parseSentence(raw, specs) {
     return [{ type: "reanimate", t, to: "battlefield", counters: 0, ...(m[4] ? { tapped: true } : {}) }];
   }
   if (lower === "untap all creatures you control") return [{ type: "untapAllMine", what: "creature" }];
+  // Allgemein: „tap/untap all <Filter>“ und „tap all creatures target player controls“
+  if ((m = lower.match(/^(tap|untap) all (.+?) (target (?:player|opponent)) controls$/))) {
+    const spec = groupSpec(m[2]);
+    const t = spec && !spec.ctrl ? addTarget(specs, m[3]) : null;
+    if (t !== null) return [{ type: "tapEach", untap: m[1] === "untap", spec, ofTarget: t }];
+  }
+  if ((m = lower.match(/^(tap|untap) all (.+)$/))) {
+    const spec = groupSpec(m[2]);
+    if (spec && ["creature", "myCreature", "permanent", "artifact", "enchantment", "land"].includes(spec.kind)) return [{ type: "tapEach", untap: m[1] === "untap", spec }];
+  }
   if (lower === "each player reveals the top card of their library, then draws a card") return [{ type: "draw", who: { k: "each" }, n: 1 }];
   if (lower === "look at the top card of your library") return [{ type: "noop" }];
   if ((m = lower.match(/^if it's a land card, you may put it onto the battlefield( tapped)?$/))) return [{ type: "topLandMay", tapped: Boolean(m[1]) }];
@@ -536,19 +705,96 @@ function parseSentence(raw, specs) {
     const t = n === null ? null : addTarget(specs, m[2]);
     return t === null ? null : [{ type: "damage", n, to: { k: "target", t } }];
   }
+  if ((m = lower.match(/^destroy all (non-)?([a-z]+) creatures$/)) && !["tapped", "attacking", "other"].includes(m[2])) return [{ type: "destroyAll", what: "creature", mode: "destroy", ...(m[1] ? { nonSubtype: m[2] } : { subtype: m[2] }) }];
+  if (lower === "each other player discards a card" || lower === "each opponent discards a card") return [{ type: "discard", who: { k: "eachOpp" }, n: 1 }];
+  if (lower === "you draw a card for each card discarded this way" || lower === "draw a card for each card discarded this way") return [{ type: "draw", who: { k: "you" }, n: 0, nFrom: { discarded: true } }];
+  if ((m = lower.match(/^reveal the top (two|three|four|five|six|seven|\d+) cards of your library$/))) return [{ type: "lookTop", n: num(m[1]) }];
+  if ((m = lower.match(/^you may put an? ([a-z]+) card from among them into your hand$/))) return [{ type: "lookTake", what: m[1], count: 1, optional: true }];
+  if ((m = lower.match(/^return ~ from your graveyard to (your hand|the battlefield)( tapped)?$/))) return [{ type: "returnSelfFromGy", to: m[1] === "your hand" ? "hand" : "battlefield", tapped: Boolean(m[2]) }];
+  if ((m = lower.match(/^(you may )?sacrifice (a|an|another) (creature|artifact|enchantment|land|permanent|nonland permanent|token|[a-z]+)$/)) && !["it", "them"].includes(m[3])) {
+    const what = m[3] === "nonland permanent" ? "nonland" : m[3];
+    const effect = { type: "sacrificeOwn", what, other: m[2] === "another" };
+    return m[1] ? [{ type: "may", effects: [effect] }] : [effect];
+  }
+  if ((m = lower.match(new RegExp(`^~ deals ${N} damage to each of up to (two|three) (?:other )?target (creatures|creatures and/or planeswalkers|creatures and/or players|permanents)$`)))) {
+    const n = num(m[1]);
+    if (n === null || n === "X") return null;
+    const effects = [];
+    for (let i = 0; i < { two: 2, three: 3 }[m[2]]; i += 1) {
+      const t = addTarget(specs, m[3] === "creatures and/or players" ? "any target" : m[3] === "creatures and/or planeswalkers" ? "target creature or planeswalker" : "target creature");
+      if (t === null) return null;
+      specs[t] = { ...specs[t], optional: true };
+      effects.push({ type: "damage", n, to: { k: "target", t } });
+    }
+    return effects;
+  }
+  if ((m = lower.match(/^you may cast (target (?:instant or sorcery|instant|sorcery|creature|artifact|enchantment|permanent) card)(?: with mana value (\d+) or less)? from your graveyard without paying its mana cost$/))) {
+    const t = addTarget(specs, `${m[1]} from your graveyard`);
+    if (t === null) return null;
+    if (m[2]) specs[t] = { ...specs[t], mvMax: Number(m[2]) };
+    return [{ type: "freeCast", t }];
+  }
+  if ((m = lower.match(/^you may cast an? (spell|creature spell|noncreature spell|instant or sorcery spell|artifact spell) with mana value (\d+) or less from your hand without paying its mana cost$/))) {
+    const what = { spell: null, "creature spell": "creature", "instant or sorcery spell": "instant or sorcery", "artifact spell": "artifact", "noncreature spell": null }[m[1]];
+    return [{ type: "freeCastFromHand", mvMax: Number(m[2]), what }];
+  }
+  if (/^you may cast (?:that card|it|the exiled card|that spell|those cards|one of those cards) without paying its mana cost$/.test(lower)) return [{ type: "freeCastLast" }];
+  if (/^if that spell would be put into (?:your|a|its owner's) graveyard, exile it instead$/.test(lower)) return [{ type: "freeCastExile" }];
+  if (lower === "you may sacrifice it" || lower === "you may sacrifice ~") return [{ type: "may", effects: [{ type: "sacrificeSelf" }] }];
+  if ((m = lower.match(/^you may put up to (two|three) ([a-z]+) cards from among them into your hand$/))) return [{ type: "lookTake", what: m[2], count: num(m[1]), optional: true }];
+  if ((m = lower.match(/^those creatures get ([+-]\d+)\/([+-]\d+) until end of turn$/))) return [{ type: "pumpAll", scope: "you", p: Number(m[1]), th: Number(m[2]), kws: [], attackingOnly: true }];
+  if ((m = lower.match(/^you may cast (target instant card) from your graveyard without paying its mana cost$/))) {
+    const t = addTarget(specs, "target instant or sorcery card from your graveyard");
+    if (t === null) return null;
+    specs[t] = { ...specs[t], onlyInstant: true };
+    return [{ type: "freeCast", t }];
+  }
+  if ((m = lower.match(/^return target ([a-z]+) or ([a-z]+) card from your graveyard to your hand$/)) && !["creature", "artifact", "enchantment", "land", "instant", "sorcery", "permanent"].includes(m[1])) {
+    const t = addTarget(specs, "target permanent card from your graveyard");
+    if (t === null) return null;
+    specs[t] = { ...specs[t], subtypes: [m[1], m[2]] };
+    return [{ type: "reanimate", t, to: "hand", counters: 0 }];
+  }
+  if ((m = lower.match(/^you may have (target attacking creature) gain ([a-z ]+) until end of turn$/))) {
+    const t = addTarget(specs, m[1]);
+    const kws = [m[2].trim()].filter(word => KEYWORDS.includes(word));
+    return t === null || kws.length === 0 ? null : [{ type: "may", effects: [{ type: "grantKw", kws, t }] }];
+  }
+  if ((m = lower.match(/^all (non[a-z]+ )?creatures get ([+-]x|[+-]\d+)\/([+-]x|[+-]\d+) until end of turn$/))) {
+    const value = v => (/x$/.test(v) ? (v.startsWith("-") ? "-X" : "X") : Number(v));
+    return [{ type: "pumpAll", scope: "all", p: value(m[2]), th: value(m[3]), kws: [], ...(m[1] ? { nonType: m[1].trim().slice(3) } : {}) }];
+  }
+  // Kopien: „create a token that's a copy of <Bezug>(, except …)“
+  if ((m = lower.match(/^create (?:a|two) (tapped )?tokens? that's a copy of (.+?)(?:, except (.+))?$/))) {
+    const count = /^create two/.test(lower) ? 2 : 1;
+    const mods = parseCopyExceptions(m[3]);
+    if (!mods) return null;
+    const ref = m[2];
+    let source;
+    if (["~", "it", "that creature", "that card", "that permanent", "that token"].includes(ref)) source = ref === "~" ? { k: "self" } : { k: "last" };
+    else if (/^(?:up to one |another )?target /.test(ref)) {
+      const t = addTarget(specs, ref.replace(/^up to one /, ""));
+      if (t === null) return null;
+      if (/^up to one/.test(ref)) specs[t] = { ...specs[t], optional: true };
+      source = { k: "target", t };
+    } else return null;
+    return [{ type: "copyOf", source, mods, n: count, tapped: Boolean(m[1]) }];
+  }
   if (/^you may choose new targets for (the|that|target) (cop(y|ies)|spell or ability)$/.test(lower)) return [{ type: "noop" }];
   if ((m = lower.match(new RegExp(`^you may have (?:it|~) deal ${N} damage to each creature$`)))) {
     const n = num(m[1]);
     return n === null ? null : [{ type: "may", effects: [{ type: "damage", n, to: { k: "eachCreature" } }] }];
   }
-  if ((m = lower.match(/^you may put an? (land) card from your hand onto the battlefield( tapped)?$/))) return [{ type: "may", effects: [{ type: "handToField", what: m[1], tapped: Boolean(m[2]) }] }];
+  if ((m = lower.match(/^you may put an? ((?:creature|land|artifact|enchantment|planeswalker|permanent)(?: or (?:creature|land|artifact|enchantment|planeswalker))?) card(?: with mana value (\d+) or less)? from your hand onto the battlefield( tapped)?$/))) {
+    return [{ type: "may", effects: [{ type: "handToField", what: m[1].replace(/ or /g, "|"), tapped: Boolean(m[3]), ...(m[2] ? { mvMax: Number(m[2]) } : {}) }] }];
+  }
   // „You may …“: der Spieler entscheidet (Ja/Nein); „If you do, …“ folgt nur nach „Ja“.
   if ((m = lower.match(/^you may (.+)$/))) {
     const inner = parseSentence(s.slice(8), specs);
     return inner ? [{ type: "may", effects: inner }] : null;
   }
-  if ((m = lower.match(/^if you do, (.+)$/)) && !/^that creature gains/.test(m[1])) {
-    const inner = parseSentence(s.slice(11), specs);
+  if ((m = lower.match(/^(?:if|when) you do, (.+)$/)) && !/^that creature gains/.test(m[1])) {
+    const inner = parseSentence(s.slice(s.indexOf(",") + 2), specs);
     return inner ? [{ type: "ifDid", effects: inner }] : null;
   }
 
@@ -564,15 +810,16 @@ function parseSentence(raw, specs) {
     const t = addTarget(specs, m[1]);
     return t === null ? null : [{ type: "explore", t }];
   }
-  if ((m = lower.match(/^(~|it|that creature) explores$/))) return [{ type: "explore", who: m[1] === "~" ? "self" : "subject" }];
+  if ((m = lower.match(/^(~|it|he|she|that creature) explores$/))) return [{ type: "explore", who: ["~", "he", "she"].includes(m[1]) ? "self" : "subject" }];
   if (/^(?:that creature|it|those creatures) doesn't untap during (?:its|their) controller's next untap step$/.test(lower)) return [{ type: "freeze", t: specs.length > 0 ? 0 : null }];
   if (lower === "untap that creature" || lower === "untap it") return [{ type: "untapLast" }];
   if (/^(?:it|that creature) gains haste until end of turn$/.test(lower)) return [{ type: "hasteLast" }];
   if (lower === "prevent all combat damage that would be dealt this turn") return [{ type: "fog" }];
   if (lower === "take an extra turn after this one") return [{ type: "extraTurn" }];
-  if ((m = lower.match(/^(target creature(?: you control)?|~) gains? ([a-z ,]+?) until end of turn$/))) {
+  if ((m = lower.match(/^((?:another )?target [a-z' -]+?|~) gains? ([a-z ,]+?) until end of turn$/))) {
     const kws = m[2].split(/,| and /).map(word => word.trim()).filter(Boolean);
     if (kws.length === 0 || !kws.every(word => KEYWORDS.includes(word))) return null;
+    if (m[1] !== "~" && !["creature", "myCreature"].includes((targetKind(m[1]) ? { kind: targetKind(m[1]) } : parseTargetSpec(m[1]))?.kind)) return null;
     if (m[1] === "~") return [{ type: "grantKw", kws, self: true }];
     const t = addTarget(specs, m[1]);
     return t === null ? null : [{ type: "grantKw", kws, t }];
@@ -606,6 +853,7 @@ function parseSentence(raw, specs) {
   if ((m = lower.match(new RegExp(`^(?:you )?scry ${N}$`)))) return num(m[1]) !== null ? [{ type: "scry", n: num(m[1]) }] : null;
   if ((m = lower.match(new RegExp(`^surveil ${N}$`)))) return num(m[1]) !== null ? [{ type: "surveil", n: num(m[1]) }] : null;
 
+  if (/^(?:it|~) deals that much damage to each other opponent$/.test(lower)) return [{ type: "damage", n: 0, nFromDamage: true, to: { k: "eachOtherOpp" } }];
   if ((m = lower.match(/^~ deals ([0-9]+) damage to each creature with flying and each player$/))) return [{ type: "damage", n: Number(m[1]), to: { k: "flyingAndPlayers" } }];
   if (lower === "~ deals x damage to each creature, where x is the number of creatures on the battlefield") return [{ type: "damage", n: 1, per: "creature", to: { k: "eachCreature" } }];
   if ((m = lower.match(/^~ deals ([0-9]+) damage to each creature and each player$/))) return [{ type: "damage", n: Number(m[1]), to: { k: "everything" } }];
@@ -735,6 +983,7 @@ function parseSentence(raw, specs) {
     }
     return out;
   }
+  if ((m = lower.match(/^(creatures you control|other creatures you control) get \+x\/\+x until end of turn$/))) return [{ type: "pumpAll", scope: "you", p: "X", th: "X", kws: [] }];
   if ((m = lower.match(/^([a-z]+s) and ([a-z]+s) you control get ([+-]\d+)\/([+-]\d+)(?: and gain ([a-z, ]+))? until end of turn$/))) {
     const kws = (m[5] ?? "").split(/,| and /).map(word => word.trim()).filter(word => KEYWORDS.includes(word));
     return [{ type: "pumpAll", scope: "you", p: Number(m[3]), th: Number(m[4]), kws, anyOf: [m[1].replace(/s$/, ""), m[2].replace(/s$/, "")] }];
@@ -794,24 +1043,33 @@ function parseSentence(raw, specs) {
     return t === null || !/spell$/.test(m[1]) ? null : [{ type: "counterSpell", t }];
   }
 
-  if ((m = lower.match(new RegExp(`^put ${N} ([+-]1/[+-]1|first strike|double strike|[a-z]+) counters? on (~|target [a-z ,'-]+)$`)))) {
+  if ((m = lower.match(new RegExp(`^put ${N} ([+-]1/[+-]1|first strike|double strike|[a-z]+) counters? on (~|(?:another )?target [a-z ,'-]+)$`)))) {
     const n = num(m[1]);
     if (n === null) return null;
     if (m[3] === "~") return [{ type: "counters", n, kind: m[2], self: true }];
     const t = addTarget(specs, m[3]);
     return t === null ? null : [{ type: "counters", n, kind: m[2], t }];
   }
-  if ((m = lower.match(/^(~|target creature(?: you control| an opponent controls)?|another target creature(?: you control)?) gets ([+-]\d+)\/([+-]\d+) until end of turn$/))) {
-    if (m[1] === "~") return [{ type: "pump", p: Number(m[2]), th: Number(m[3]), self: true }];
+  if ((m = lower.match(/^(~|target creature(?: you control| an opponent controls)?|another target creature(?: you control)?) gets ([+-]\d+|[+-]x)\/([+-]\d+|[+-]x) until end of turn$/))) {
+    const value = v => (/x$/.test(v) ? (v.startsWith("-") ? "-X" : "X") : Number(v));
+    if (m[1] === "~") return [{ type: "pump", p: value(m[2]), th: value(m[3]), self: true }];
     const t = addTarget(specs, m[1]);
-    return t === null ? null : [{ type: "pump", p: Number(m[2]), th: Number(m[3]), t }];
+    return t === null ? null : [{ type: "pump", p: value(m[2]), th: value(m[3]), t }];
   }
   if ((m = lower.match(/^(creatures you control|creatures your opponents control|all creatures) get ([+-]\d+)\/([+-]\d+) until end of turn$/))) {
     const scope = m[1] === "creatures you control" ? "you" : m[1] === "all creatures" ? "all" : "opp";
     return [{ type: "pumpAll", scope, p: Number(m[2]), th: Number(m[3]) }];
   }
 
-  if ((m = s.match(new RegExp(`^(?:Its controller |That player |You )?[Cc]reates? ${N} (\\d+)/(\\d+) ([A-Za-z ,]+?) creature tokens?(?: with ([a-z ,]+?))?$`)))) {
+  if ((m = s.match(new RegExp(`^(?:Its controller |That player |You )?[Cc]reates? ${N} (\\d+)/(\\d+) ([A-Za-z ,]+?) creature tokens? with "this (?:token|creature) can't block[.,]?"$`, "i")))) {
+    const n = num(m[1]);
+    if (n === null) return null;
+    const name = m[4].split(/[ ,]+/).filter(word => word && !["white", "blue", "black", "red", "green", "colorless", "and", "artifact"].includes(word.toLowerCase())).join(" ");
+    return [{ type: "token", n, p: Number(m[2]), th: Number(m[3]), name: name || "Token", keywords: ["cant-block"], ...(/artifact/i.test(m[4]) ? { artifact: true } : {}) }];
+  }
+  if ((m = s.match(new RegExp(`^(?:Its controller |That player |You )?[Cc]reates? ${N} (?:(tapped and attacking|tapped) )?(\\d+)/(\\d+) ([A-Za-z ,]+?) creature tokens?(?: with ([a-z ,]+?))?$`, "i")))) {
+    const entry = m[2] ? (/attacking/i.test(m[2]) ? { tapped: true, attacking: true } : { tapped: true }) : {};
+    m = [m[0], m[1], m[3], m[4], m[5], m[6]];
     const tokenKws = (m[5] ?? "").split(/,| and /).map(word => word.trim()).filter(word => KEYWORDS.includes(word));
     const forWho = /^Its controller /i.test(s) && specs.length > 0 ? { k: "controllerOf", t: 0 } : null;
     const n = num(m[1]);
@@ -822,7 +1080,7 @@ function parseSentence(raw, specs) {
       .split(/[ ,]+/)
       .filter(word => word && !colors.has(word.toLowerCase()))
       .join(" ");
-    return [{ type: "token", n, p: Number(m[2]), th: Number(m[3]), name: name || "Token", ...(artifact ? { artifact: true } : {}), ...(forWho ? { forWho } : {}), ...(tokenKws.length ? { keywords: tokenKws } : {}) }];
+    return [{ type: "token", n, p: Number(m[2]), th: Number(m[3]), name: name || "Token", ...(artifact ? { artifact: true } : {}), ...(forWho ? { forWho } : {}), ...(tokenKws.length ? { keywords: tokenKws } : {}), ...entry }];
   }
 
   // Tutor: beliebige Karte (oder Kartentyp) auf die Hand oder oben auf die Bibliothek
@@ -830,8 +1088,8 @@ function parseSentence(raw, specs) {
     return [{ type: "search", what: (m[1] ?? "card").trim(), to: /on top/.test(lower) ? "top" : "hand", tapped: false, count: 1, upTo: false }];
   }
   // Suchen: eine oder mehrere Karten (Typ, Grundland-Typen), auf die Hand oder aufs Schlachtfeld
-  if ((m = lower.match(/^search your library for (a|an|up to one|up to two|up to three|two|three) ((?:basic land|land|creature|artifact|enchantment|planeswalker|instant|sorcery|(?:basic )?(?:plains|island|swamp|mountain|forest))(?:, (?:basic )?(?:plains|island|swamp|mountain|forest))*(?:,? or (?:basic )?(?:plains|island|swamp|mountain|forest))?) cards?(?:, reveal (?:it|that card|those cards))?(?:,| and)? ?(?:then )?put (?:it|that card|them|those cards) (into your hand|onto the battlefield( tapped)?)(?:,)? ?(?:then shuffle)?$/))) {
-    const count = { a: 1, an: 1, "up to one": 1, "up to two": 2, "up to three": 3, two: 2, three: 3 }[m[1]];
+  if ((m = lower.match(/^search your library for (a|an|up to one|up to two|up to three|up to x|two|three) ((?:basic land|land|creature|artifact|enchantment|planeswalker|instant|sorcery|(?:basic )?(?:plains|island|swamp|mountain|forest))(?:, (?:basic )?(?:plains|island|swamp|mountain|forest))*(?:,? or (?:basic )?(?:plains|island|swamp|mountain|forest))?) cards?(?:, reveal (?:it|that card|those cards))?(?:,| and)? ?(?:then )?put (?:it|that card|them|those cards) (into your hand|onto the battlefield( tapped)?)(?:,)? ?(?:then shuffle)?$/))) {
+    const count = { a: 1, an: 1, "up to one": 1, "up to two": 2, "up to three": 3, "up to x": "X", two: 2, three: 3 }[m[1]];
     const what = m[2].replace(/basic (?=plains|island|swamp|mountain|forest)/g, "").replace(/,? or /g, "|").replace(/, /g, "|");
     return [{ type: "search", what: what.trim(), to: m[3].startsWith("onto") ? "battlefield" : "hand", tapped: Boolean(m[4]), count, upTo: m[1].startsWith("up to") }];
   }
@@ -843,6 +1101,32 @@ function parseSentence(raw, specs) {
   }
   if ((m = s.match(/^[Aa]dd ((?:\{[WUBRGC]\})+)$/))) {
     return [{ type: "mana", symbols: [...m[1].matchAll(/\{([WUBRGC])\}/g)].map(x => x[1]) }];
+  }
+  // Allgemein: „(Other) <Gruppe> you control get +N/+N and gain … until end of turn“
+  if ((m = lower.match(/^(other )?(.+?) (you control|your opponents control)((?: with| without| that) .+?)? (?:each )?(?:gets? ([+-]\d+)\/([+-]\d+)(?:,? and gains? (.+?))?|gains? (.+?)) until end of turn$/))) {
+    const extra = (m[4] ?? "").replace(/ with (\+1\/\+1 )?counters on them$/, (whole, kind) => ` with ${kind ? "a +1/+1 counter" : "a counter"} on it`);
+    const spec = parseTargetSpec(`target ${singular(m[2])}${extra}`);
+    const kws = (m[7] ?? m[8] ?? "").split(/,\s*(?:and )?|\s+and\s+/).map(word => word.trim()).filter(Boolean);
+    if (spec && ["creature", "myCreature"].includes(spec.kind) && !spec.ctrl && kws.every(word => KEYWORDS.includes(word))) {
+      const filter = { ...spec, ...(m[1] ? { another: true } : {}) };
+      delete filter.kind;
+      return [{ type: "pumpAll", scope: m[3] === "you control" ? "you" : "opp", p: m[5] ? Number(m[5]) : 0, th: m[6] ? Number(m[6]) : 0, kws, spec: filter }];
+    }
+  }
+  // Zusammengesetzter Satz „A, then B“: beide Teile müssen verstanden werden
+  if (/, then /i.test(s)) {
+    const mark = specs.length;
+    const parts = s.split(/, then /i);
+    const out = [];
+    for (const part of parts) {
+      const parsed = parseSentence(part, specs);
+      if (!parsed) {
+        specs.length = mark;
+        return null;
+      }
+      out.push(...parsed);
+    }
+    return out;
   }
   return null;
 }
@@ -895,10 +1179,15 @@ function parseAbilityCost(text) {
     else if (part === "Discard ~") cost.discardSelf = true;
     else if ((m = part.match(/^Remove a counter from an? (nonland )?permanent you control$/i))) cost.extra = [...(cost.extra ?? []), { kind: "removeAnyCounter", n: 1, nonland: Boolean(m[1]) }];
     else if ((m = part.match(/^Sacrifice (a|an|another) (artifact creature|nontoken creature|nonland permanent)$/i))) cost.extra = [...(cost.extra ?? []), { kind: "sacrifice", what: m[2].toLowerCase() === "nonland permanent" ? "nonland" : m[2].toLowerCase().replace("nontoken ", ""), n: 1, other: m[1].toLowerCase() === "another", ...(/artifact creature/i.test(m[2]) ? { artifactCreature: true } : {}), ...(/nontoken/i.test(m[2]) ? { nontoken: true } : {}) }];
-    else if ((m = part.match(/^Remove an? ([a-z0-9+/-]+) counter from ~$/i))) {
+    else if (/^Remove a counter from ~$/i.test(part)) {
+      cost.extra = [...(cost.extra ?? []), { kind: "removeCounter", counter: "any", n: 1 }];
+    } else if ((m = part.match(/^Remove an? ([a-z0-9+/-]+) counter from ~$/i))) {
       cost.extra = [...(cost.extra ?? []), { kind: "removeCounter", counter: m[1].toLowerCase(), n: 1 }];
     } else if ((m = part.match(/^Tap (an|one|two|three) untapped (creature|artifact|land|permanent)s? you control$/i))) {
       cost.extra = [...(cost.extra ?? []), { kind: "tap", what: m[2].toLowerCase(), n: COUNT_WORD[m[1].toLowerCase()] ?? 1 }];
+    } else if ((m = part.match(/^Tap (an|one|two|three) untapped (.+?) you control$/i)) && groupSpec(m[2].toLowerCase())) {
+      const spec = groupSpec(m[2].toLowerCase());
+      cost.extra = [...(cost.extra ?? []), { kind: "tap", what: "permanent", spec, n: COUNT_WORD[m[1].toLowerCase()] ?? 1 }];
     } else if ((m = part.match(/^Sacrifice (a|an|another|one|two|three) (creature|artifact|land|enchantment|permanent|nonland permanent|[A-Za-z]+)s?$/i))) {
       cost.extra = [...(cost.extra ?? []), { kind: "sacrifice", what: m[2].toLowerCase() === "nonland permanent" ? "nonland" : m[2].toLowerCase(), n: COUNT_WORD[m[1].toLowerCase()] ?? 1, other: m[1].toLowerCase() === "another" }];
     } else if ((m = part.match(/^Discard (a|one|two|three) cards?$/i))) {
@@ -940,12 +1229,20 @@ function describeBase(effect) {
     case "discard": return `${who} wirft ${effect.n} ${plural(effect.n, "Karte", "Karten")} ab.`;
     case "scry": return `Wühlen ${effect.n}.`;
     case "surveil": return `Überwachen ${effect.n}.`;
-    case "damage": return `${effect.n} Schaden an ${{ target: "das Ziel", eachOpp: "jeden Gegner", each: "jeden Spieler", eachCreature: "jede Kreatur", eachOppCreature: "jede gegnerische Kreatur" }[effect.to.k]}.`;
+    case "damage": return `${effect.nFromDamage ? "Ebenso viel" : effect.n} Schaden an ${{ target: "das Ziel", eachOpp: "jeden Gegner", eachOtherOpp: "jeden anderen Gegner", each: "jeden Spieler", eachCreature: "jede Kreatur", eachOppCreature: "jede gegnerische Kreatur" }[effect.to.k] ?? "die Betroffenen"}.`;
     case "destroy": return "Zerstört das Ziel.";
     case "tuckSelf": return "Kommt unter die Bibliothek ihres Besitzers.";
+    case "tapEach": return effect.untap ? "Enttappt alle passenden Permanents." : "Tappt alle passenden Permanents.";
     case "untapAllMine": return "Enttappt alle deine Kreaturen.";
     case "topLandMay": return "Ist die oberste Karte ein Land, darf es aufs Schlachtfeld.";
     case "attachToSelf": return "Hängt die Ziel-Ausrüstung an diese Kreatur.";
+    case "returnSelfFromGy": return effect.to === "hand" ? "Kommt aus dem Friedhof auf die Hand." : "Kommt aus dem Friedhof aufs Schlachtfeld.";
+    case "sacrificeOwn": return "Opfert ein eigenes Permanent.";
+    case "freeCast":
+    case "freeCastFromHand":
+    case "freeCastLast": return "Du darfst den Zauber in diesem Zug ohne Manakosten wirken.";
+    case "freeCastExile": return "Danach kommt er ins Exil statt in den Friedhof.";
+    case "copyOf": return "Erzeugt einen Spielstein als Kopie.";
     case "wheel": return `Jeder mischt Hand und Friedhof in die Bibliothek und zieht ${effect.n}.`;
     case "commanderToHand": return "Nimmt deinen Kommandanten aus der Kommandozone auf die Hand.";
     case "untapLands": return `Enttappt bis zu ${effect.n} Länder.`;
@@ -987,6 +1284,8 @@ function describeBase(effect) {
     case "noCombat": return "Verhindert allen Kampfschaden an und von dieser Kreatur in diesem Zug.";
     case "counterTo": return "";
     case "ifCounterThisTurn": return `Wenn in diesem Zug ein Marker auf diese Karte kam: ${effect.effects.map(describeEffect).join(" ")}`;
+    case "goad": return effect.all ? "Stachelt alle gegnerischen Kreaturen auf." : "Stachelt die Kreatur auf (muss angreifen, nicht dich).";
+    case "countersEach": return `${effect.n}× ${effect.kind}-Marker auf jedes passende Permanent.`;
     case "countersAll": return `${effect.n}× ${effect.kind}-Marker auf jede ${effect.other ? "andere " : ""}eigene Kreatur.`;
     case "digUntil": return "Deckt Karten auf, bis eine Kreatur erscheint; sie kommt auf die Hand, der Rest unter die Bibliothek.";
     case "digRest": return "";
@@ -1041,7 +1340,7 @@ function describeBase(effect) {
       if (effect.xFrom?.stat) return `X ${effect.kind}-Marker auf das Ziel (X = ${effect.xFrom.stat === "power" ? "Stärke" : "Widerstandskraft"} des Ziels).`;
       return `${effect.n}× ${effect.kind}-Marker ${effect.self ? "auf diese Karte" : "auf das Ziel"}.`;
     case "pump": return `${effect.self ? "Diese Kreatur" : "Das Ziel"} erhält ${signed(effect.p)}/${signed(effect.th)} bis zum Zugende.`;
-    case "pumpAll": return `${{ you: "Deine Kreaturen", opp: "Kreaturen deiner Gegner", all: "Alle Kreaturen" }[effect.scope ?? "you"]} erhalten ${signed(effect.p)}/${signed(effect.th)} bis zum Zugende.`;
+    case "pumpAll": return `${effect.spec ? "Passende " : ""}${{ you: effect.spec ? "eigene Kreaturen" : "Deine Kreaturen", opp: "Kreaturen deiner Gegner", all: "Alle Kreaturen" }[effect.scope ?? "you"]} erhalten ${effect.p || effect.th || !effect.kws?.length ? `${signed(effect.p)}/${signed(effect.th)}` : ""}${effect.kws?.length ? `${effect.p || effect.th ? " und " : ""}${effect.kws.join(", ")}` : ""} bis zum Zugende.`;
     case "token": return `Erzeugt ${effect.n}× ${effect.name} ${effect.p}/${effect.th}.`;
     case "search": return `Durchsucht die Bibliothek nach ${effect.what === "card" ? "einer Karte" : `einer Karte (${effect.what})`} und legt sie ${effect.to === "hand" ? "auf die Hand" : `aufs Schlachtfeld${effect.tapped ? " (getappt)" : ""}`}.`;
     case "gyReturn": return `Holt eine Karte (${effect.what}) aus dem Friedhof ${effect.to === "hand" ? "auf die Hand" : "aufs Schlachtfeld"}.`;
@@ -1207,16 +1506,31 @@ function triggerEvent(word, condition) {
     return { event: "creatureEnters", scope: { owner: "you", another: false, anyOf: [m[1], m[2]] } };
   }
   if (word === "At" && condition === "the beginning of each end step") return { event: "endStep", scope: { owner: "any", another: false } };
+  if (/^a creature you control attacks$/.test(condition)) return { event: "creatureAttacks", scope: { owner: "you", another: false } };
+  if (/^(?:another )?creature you control attacks$/.test(condition)) return { event: "creatureAttacks", scope: { owner: "you", another: true } };
+  if (/^your commander attacks$/.test(condition)) return { event: "creatureAttacks", scope: { owner: "you", another: false, commander: true } };
   if (/^one or more other creatures die$/.test(condition)) return { event: "creatureDies", scope: { owner: "any", another: true } };
   if (/^an opponent casts a creature spell$/.test(condition)) return { event: "castCreature", scope: { owner: "opp", another: false } };
   if (/^~ deals combat damage to a player or planeswalker$/.test(condition)) return { event: "dealsCombatDamage" };
   if (/^a legendary creature you control enters( the battlefield)?$/.test(condition)) return { event: "creatureEnters", scope: { owner: "you", another: false, legendary: true } };
+  if ((m = condition.match(/^you sacrifice an? (nontoken )?([a-z]+)$/))) return { event: "youSacrifice", sacrificeWhat: m[2], ...(m[1] ? { sacrificeNontoken: true } : {}), scope: { owner: "you", another: false } };
+  if (/^you sacrifice (?:a|another) permanent$/.test(condition)) return { event: "youSacrifice", scope: { owner: "you", another: false } };
+  if (/^one or more creatures attack$/.test(condition)) return { event: "anyAttack", scope: { owner: "any", another: false } };
+  if ((m = condition.match(/^~ or another (nontoken )?(legendary )?(permanent|creature|artifact) you control enters( the battlefield)?$/))) {
+    return { event: m[3] === "creature" ? "creatureEnters" : "permanentEnters", scope: { owner: "you", another: false, ...(m[1] ? { nontoken: true } : {}), ...(m[2] ? { legendary: true } : {}), ...(m[3] === "artifact" ? { permType: "artifact" } : {}) } };
+  }
+  if (/^~ becomes tapped$/.test(condition)) return { event: "becomesTapped" };
   if (/^~ mutates$/.test(condition)) return { event: "mutates" };
   if (/^~ dies$/.test(condition) || /^~ is put into a graveyard from the battlefield$/.test(condition)) return { event: "dies" };
+  if (/^~ leaves the battlefield$/.test(condition)) return { event: "leaves" };
   if ((m = condition.match(/^~ or another (nontoken )?creature you control dies$/))) return { event: "creatureDies", scope: { owner: "you", another: false, ...(m[1] ? { nontoken: true } : {}) } };
+  if ((m = condition.match(/^~ or another (nontoken )?([a-z]+) (?:creature )?you control dies$/)) && !["creature"].includes(m[2])) return { event: "creatureDies", scope: { owner: "you", another: false, subtype: m[2], ...(m[1] ? { nontoken: true } : {}) } };
+  if ((m = condition.match(/^one or more (?:other )?creatures you control attack$/))) return { event: "youAttack", scope: { owner: "you", another: false } };
+  if ((m = condition.match(/^one or more ([a-z]+) you control attack$/)) && m[1] !== "creatures") return { event: "youAttack", attackerSubtype: m[1].replace(/s$/, ""), scope: { owner: "you", another: false } };
+  if ((m = condition.match(/^you attack with one or more ([a-z]+)$/))) return { event: "youAttack", attackerSubtype: m[1].replace(/s$/, ""), scope: { owner: "you", another: false } };
   if (/^~ or another creature dies$/.test(condition)) return { event: "creatureDies", scope: { owner: "any", another: false } };
   if (/^equipped creature dies$/.test(condition)) return { event: "equippedDies" };
-  if (/^~ deals combat damage to a player$/.test(condition)) return { event: "dealsCombatDamage" };
+  if (/^~ deals combat damage to (?:a player|an opponent)$/.test(condition)) return { event: "dealsCombatDamage" };
   if (/^equipped creature deals combat damage to a player$/.test(condition)) return { event: "equippedDealsCombatDamage" };
   if (word === "At" && /^the beginning of combat on your turn$/.test(condition)) return { event: "beginCombat", scope: { owner: "you", another: false } };
   if (/^you gain life$/.test(condition)) return { event: "youGainLife", scope: { owner: "you", another: false } };
@@ -1267,7 +1581,90 @@ function triggerEvent(word, condition) {
   if (word === "At" && /^the beginning of each upkeep$/.test(condition)) return { event: "upkeep", scope: { owner: "any", another: false } };
   if (word === "At" && condition === "the beginning of your upkeep") return { event: "upkeep", scope: { owner: "you", another: false } };
   if (word === "At" && condition === "the beginning of your end step") return { event: "endStep", scope: { owner: "you", another: false } };
-  return null;
+  if (word === "At") {
+    // Phasen: Hauptphasen, Kampfbeginn, Endschritt, Versorgung, Ziehschritt – für dich, jeden Spieler oder jeden Gegner
+    if ((m = condition.match(/^the beginning of (your|each player's|each opponent's) (precombat |first |second |postcombat )?main phase$/))) {
+      const which = { "precombat ": "main1", "first ": "main1", "second ": "main2", "postcombat ": "main2" }[m[2] ?? ""] ?? "each";
+      return { event: "mainPhase", mainWhich: which, scope: { owner: { your: "you", "each player's": "any", "each opponent's": "opp" }[m[1]], another: false } };
+    }
+    if (/^the beginning of each of your main phases$/.test(condition)) return { event: "mainPhase", mainWhich: "each", scope: { owner: "you", another: false } };
+    if (/^the beginning of each combat$/.test(condition)) return { event: "beginCombat", scope: { owner: "any", another: false } };
+    if (/^the beginning of combat on each opponent's turn$/.test(condition)) return { event: "beginCombat", scope: { owner: "opp", another: false } };
+    if ((m = condition.match(/^the beginning of (each player's|each opponent's|the) end step$/))) return { event: "endStep", scope: { owner: m[1] === "each opponent's" ? "opp" : "any", another: false } };
+    if ((m = condition.match(/^the beginning of (each player's|each opponent's) upkeep$/))) return { event: "upkeep", scope: { owner: m[1] === "each opponent's" ? "opp" : "any", another: false } };
+    if (/^the beginning of your draw step$/.test(condition)) return { event: "drawStep", scope: { owner: "you", another: false } };
+  }
+  if ((m = condition.match(/^one or more (other )?(.+?) you control attack$/))) {
+    const spec = groupSpec(m[2]);
+    if (spec && ["creature", "myCreature"].includes(spec.kind)) {
+      const filter = { ...spec };
+      delete filter.kind;
+      return { event: "youAttack", attackerSpec: filter, scope: { owner: "you", another: false } };
+    }
+  }
+  return genericCastEvent(condition) ?? genericSubjectEvent(condition);
+}
+
+/** „Whenever you cast a <Filter> spell (with mana value N or greater | with {X} in its mana cost)“. */
+function genericCastEvent(condition) {
+  const m = condition.match(/^(you cast|an opponent casts|a player casts) (?:an? )?(?:(.+?) )?spell( with mana value (\d+) or (greater|less)| with \{x\} in its mana cost)?$/);
+  if (!m) return null;
+  const filter = {};
+  const words = (m[2] ?? "").replace(/ or /g, " | ").split(" ").filter(Boolean);
+  const anyTypes = [];
+  for (const word of words) {
+    if (word === "|") continue;
+    if (["creature", "artifact", "enchantment", "instant", "sorcery", "planeswalker", "land", "battle"].includes(word)) anyTypes.push(word);
+    else if (/^non(creature|artifact|enchantment|land)$/.test(word)) filter.nonTypes = [...(filter.nonTypes ?? []), word.slice(3)];
+    else if (word === "multicolored") filter.multicolored = true;
+    else if (word === "colorless") filter.colorless = true;
+    else if (word === "legendary") filter.legendary = true;
+    else if (word === "historic") filter.historic = true;
+    else return null;
+  }
+  if (anyTypes.length) filter.anyTypes = anyTypes;
+  if (m[4]) filter[m[5] === "greater" ? "mvMin" : "mvMax"] = Number(m[4]);
+  if (m[3] && /\{x\}/.test(m[3])) filter.hasX = true;
+  if (Object.keys(filter).length === 0) return null;
+  return { event: "castSpell", castFilter: filter, scope: { owner: m[1] === "you cast" ? "you" : m[1] === "an opponent casts" ? "opp" : "any", another: false } };
+}
+
+/**
+ * Allgemeiner Dauereffekt „(Other) <Filter> you control get +N/+N and have <Schlüsselwörter>“:
+ * der Filter wird wie eine Zielangabe gelesen (Typ, Farbe, Marker, Schlüsselwort …).
+ */
+function genericStatic(line) {
+  const m = line.toLowerCase().replace(/\.$/, "").match(/^(other )?(.+?) (you control|your opponents control)((?: with| without| that) .+?)? (?:(?:get|gets) ([+-]\d+)\/([+-]\d+)(?:,? and (?:have|has) (.+))?|(?:have|has) (.+))$/);
+  if (!m) return null;
+  const extra = (m[4] ?? "").replace(/ with (\+1\/\+1 )?counters on them$/, (whole, kind) => ` with ${kind ? "a +1/+1 counter" : "a counter"} on it`);
+  const spec = parseTargetSpec(`target ${singular(m[2])}${extra}`);
+  if (!spec || !["creature", "myCreature"].includes(spec.kind) || spec.ctrl) return null;
+  const words = (m[7] ?? m[8] ?? "").split(/,\s*(?:and )?|\s+and\s+/).map(word => word.trim()).filter(Boolean);
+  if (!words.every(word => KEYWORDS.includes(word))) return null;
+  const filter = { ...spec };
+  delete filter.kind;
+  return { scope: m[3] === "your opponents control" ? "opp" : m[1] ? "youOther" : "you", spec: filter, p: m[5] ? Number(m[5]) : 0, th: m[6] ? Number(m[6]) : 0, grants: words };
+}
+
+/**
+ * Allgemeine Form „Whenever a/another <Filter> enters|dies|attacks|deals combat damage to a player“:
+ * Der Filter wird wie eine Zielangabe gelesen (Farbe, Typ, Schlüsselwort, Marker, Kontrolleur …).
+ */
+function genericSubjectEvent(condition) {
+  const m = condition.match(/^(another|an?|~ or another) (.+?) (enters(?: the battlefield)?(?: under your control)?|dies|attacks|deals combat damage to a player)$/);
+  if (!m) return null;
+  const phrase = m[2];
+  const under = /under your control$/.test(m[3]);
+  const spec = parseTargetSpec(`target ${phrase}`);
+  if (!spec || !["creature", "myCreature", "permanent", "artifact", "enchantment", "land", "planeswalker"].includes(spec.kind)) return null;
+  const creature = ["creature", "myCreature"].includes(spec.kind) || (spec.subtypes && spec.kind === "creature");
+  const verb = m[3].split(" ")[0];
+  if (!creature && verb !== "enters") return null;
+  const event = { enters: creature ? "creatureEnters" : "permanentEnters", dies: "creatureDies", attacks: "creatureAttacks", deals: "creatureDealsCombatDamage" }[verb];
+  const owner = under || spec.ctrl === "you" || spec.kind === "myCreature" ? "you" : spec.ctrl === "opp" ? "opp" : "any";
+  const filter = { ...spec };
+  delete filter.ctrl;
+  return { event, scope: { owner, another: m[1] !== "a" && m[1] !== "an" && m[1] !== "~ or another" ? true : false, spec: filter } };
 }
 
 const stripPrefix = line => line.replace(/^[•*]\s*/, "").replace(/^[A-Z][^—.:]{0,60}[!.]?\s*[—-]\s*(?=(?:When|Whenever|At|Equip)\b)/, "");
@@ -1278,7 +1675,7 @@ const stripPrefix = line => line.replace(/^[•*]\s*/, "").replace(/^[A-Z][^—.
  */
 export function parseCardText({ name, typeLine, oracleText }) {
   const types = typesOf(typeLine);
-  let rawLines = normalizeText(oracleText, name);
+  let rawLines = normalizeText(oracleText, name, /\bLegendary\b/.test(typeLine ?? ""));
   // Raumschiffe: Zeilen „N+ | …“ gehören zu Ladungsstufen; sie werden getrennt ausgewertet und mit Schwelle versehen.
   const tiers = [];
   let stationAt = null;
@@ -1312,12 +1709,12 @@ export function parseCardText({ name, typeLine, oracleText }) {
         }
         i -= modeLines.length;
       }
-      const header = rawLines[i].match(/^(When|Whenever|At) (.+), choose one\s*[\u2014-]\s*$/i);
+      const header = rawLines[i].match(/^(When|Whenever|At) (.+), choose (one|two)\s*[\u2014-]\s*$/i);
       if (header) {
         const modes = [];
         while (i + 1 < rawLines.length && /^[•*]\s*/.test(rawLines[i + 1])) modes.push(rawLines[(i += 1)].replace(/^[•*]\s*/, ""));
         if (modes.length >= 2) {
-          modalTriggers.push({ word: header[1], condition: header[2].toLowerCase(), modes, line: rawLines[i - modes.length] });
+          modalTriggers.push({ word: header[1], condition: header[2].toLowerCase(), modes, line: rawLines[i - modes.length], pick: header[3].toLowerCase() === "two" ? 2 : 1 });
           continue;
         }
         i -= modes.length;
@@ -1338,14 +1735,26 @@ export function parseCardText({ name, typeLine, oracleText }) {
   if (types.instant || types.sorcery) {
     // Modale Zauber: „Choose one —“ mit Aufzählung; der Spieler wählt beim Wirken einen Modus.
     const modeLines = rawLines.filter(line => /^[•*]\s*/.test(line)).map(line => line.replace(/^[•*]\s*/, ""));
-    if (rawLines.some(line => /^choose one(?:\s*[—-]|\.)/i.test(line)) && modeLines.length >= 2) {
+    const header = rawLines.find(line => /^choose (one|two|three|one or more|any number)(?:\s*[—-]|\.)/i.test(line));
+    if (header && modeLines.length >= 2) {
       const modes = modeLines.map(text => ({ label: text, ...parseEffectText(text) }));
-      result.spell = { effects: [], specs: [], unparsed: [], modes };
+      const word = header.toLowerCase().match(/^choose (one or more|any number|one|two|three)/)[1];
+      const count = { one: [1, 1], two: [2, 2], three: [3, 3], "one or more": [1, modes.length], "any number": [0, modes.length] }[word];
+      const commanderBoth = /if you control a commander[^.]*, you may choose both instead/i.test(header);
+      result.spell = { effects: [], specs: [], unparsed: [], modes, ...(count[1] > 1 || commanderBoth ? { modeCount: { min: count[0], max: count[1], ...(commanderBoth ? { commanderMax: 2 } : {}) } } : {}) };
       return result;
     }
     const body = [];
     for (const line of lines) {
       if (isKeywordLine(line)) continue;
+      const condCostSpell = line.match(/^~ costs \{(\d+)\} less to cast if (.+?)\.?$/i);
+      if (condCostSpell) {
+        const cond = parseCondition(condCostSpell[2], phrase => parseTargetSpec(phrase));
+        if (cond) {
+          result.condCost = { amount: Number(condCostSpell[1]), cond };
+          continue;
+        }
+      }
       const reduce = line.match(/^~ costs \{(\d+)\} less to cast for each (creature|land|artifact) on the battlefield\.?$/i);
       if (reduce) {
         result.costReduction = { amount: Number(reduce[1]), per: reduce[2].toLowerCase() };
@@ -1391,6 +1800,11 @@ export function parseCardText({ name, typeLine, oracleText }) {
         const kind = additional[1].toLowerCase();
         const what = additional[3].toLowerCase() === "nonland permanent" ? "nonland" : additional[3].toLowerCase();
         result.additionalCost = [{ kind, n: COUNT_WORD[additional[2].toLowerCase()] ?? 1, ...(kind === "sacrifice" ? { what } : {}) }];
+        continue;
+      }
+      const lifeCost = line.match(/^as an additional cost to cast ~, pay (\d+|x) life\.?$/i);
+      if (lifeCost) {
+        result.additionalCost = [{ kind: "life", n: /x/i.test(lifeCost[1]) ? "X" : Number(lifeCost[1]) }];
         continue;
       }
       const flash = line.match(/^flashback (\{[^}]+\}(?:\{[^}]+\})*)$/i);
@@ -1456,7 +1870,7 @@ export function parseCardText({ name, typeLine, oracleText }) {
       result.attach = { p: result.attach?.p ?? 0, th: result.attach?.th ?? 0, grants: [...(result.attach?.grants ?? []), ...grants] };
       continue;
     }
-    const typedKw = line.match(/^(other )?(artifact|historic|legendary|[a-z]+s and [a-z]+s|[a-z]+) creatures you control have ([a-z, ]+?)(?:,? and ward \{\d+\})?\.?$/i) ?? line.match(/^(other )?([A-Za-z]+s and [A-Za-z]+s|[A-Z][a-z]+s) you control have ([a-z, ]+?)\.?$/);
+    const typedKw = line.match(/^(other )?(?!(?:tapped|untapped|attacking|blocking|white|blue|black|red|green|nontoken|token|multicolored|colorless)\b)(artifact|historic|legendary|[a-z]+s and [a-z]+s|[a-z]+) creatures you control have ([a-z, ]+?)(?:,? and ward \{\d+\})?\.?$/i) ?? line.match(/^(other )?([A-Za-z]+s and [A-Za-z]+s|[A-Z][a-z]+s) you control have ([a-z, ]+?)\.?$/);
     if (typedKw && !/^creatures?$/i.test(typedKw[2])) {
       const grants = typedKw[3].split(/,| and /).map(word => word.trim().toLowerCase()).filter(Boolean);
       if (grants.length > 0 && grants.every(word => KEYWORDS.includes(word))) {
@@ -1502,9 +1916,9 @@ export function parseCardText({ name, typeLine, oracleText }) {
       result.manaCond = manaCond[1].startsWith("an artifact") ? { type: "artifact" } : { type: "bigCreature" };
       continue;
     }
-    const entersCounters = line.match(/^~ enters with (one|two|three|four|five|\d+) ([a-z]+|[+-]1\/[+-]1) counters? on it\.?$/i);
+    const entersCounters = line.match(/^~ enters with (a|an|one|two|three|four|five|\d+|x) ([a-z]+|[+-]1\/[+-]1) counters? on it\.?$/i);
     if (entersCounters) {
-      result.entersWithCounters = { n: /^\d+$/.test(entersCounters[1]) ? Number(entersCounters[1]) : COUNT_WORD[entersCounters[1].toLowerCase()] ?? { four: 4, five: 5 }[entersCounters[1].toLowerCase()], kind: entersCounters[2].toLowerCase() };
+      result.entersWithCounters = { n: /^x$/i.test(entersCounters[1]) ? "X" : /^\d+$/.test(entersCounters[1]) ? Number(entersCounters[1]) : (COUNT_WORD[entersCounters[1].toLowerCase()] ?? { four: 4, five: 5 }[entersCounters[1].toLowerCase()]), kind: entersCounters[2].toLowerCase() };
       continue;
     }
     const chargeEnters = line.match(/^~ enters tapped with (one|two|three|\d+) charge counters? on it\.?$/i);
@@ -1609,6 +2023,47 @@ export function parseCardText({ name, typeLine, oracleText }) {
       result.oppEnterTapped = true;
       continue;
     }
+    const duringTurn = line.match(/^during your turn, (~ and )?creatures you control have ([a-z, ]+?)\.?$/i);
+    if (duringTurn) {
+      const grants = duringTurn[2].split(/,| and /).map(word => word.trim().toLowerCase()).filter(Boolean);
+      if (grants.every(word => KEYWORDS.includes(word))) {
+        result.statics.push({ scope: "you", p: 0, th: 0, grants, duringYourTurn: true });
+        if (duringTurn[1]) result.selfGrantsYourTurn = grants;
+        continue;
+      }
+    }
+    // Bedingte Eigenschaften: „~ can't be blocked if …“, „As long as …, ~ has …“, „~ costs {N} less to cast if …“
+    let condLine;
+    if ((condLine = line.match(/^~ can't be blocked if (.+?)\.?$/i)) || (condLine = line.match(/^~ has ([a-z, ]+?) as long as (.+?)\.?$/i)) || (condLine = line.match(/^as long as (.+?), ~ has ([a-z, ]+?)\.?$/i))) {
+      const isBlock = /can't be blocked/i.test(line);
+      const condText = isBlock ? condLine[1] : /^as long as/i.test(line) ? condLine[1] : condLine[2];
+      const kwText = isBlock ? "unblockable" : /^as long as/i.test(line) ? condLine[2] : condLine[1];
+      const kws = kwText.split(/,| and /).map(word => word.trim().toLowerCase()).filter(Boolean);
+      const cond = parseCondition(condText.replace(/\bthis spell\b/i, "~"), phrase => parseTargetSpec(phrase));
+      if (cond && kws.every(word => KEYWORDS.includes(word) || word === "unblockable")) {
+        result.condGrants = [...(result.condGrants ?? []), { cond, kws }];
+        continue;
+      }
+    }
+    if ((condLine = line.match(/^~ costs \{(\d+)\} less to cast if (.+?)\.?$/i))) {
+      const cond = parseCondition(condLine[2], phrase => parseTargetSpec(phrase));
+      if (cond) {
+        result.condCost = { amount: Number(condLine[1]), cond };
+        continue;
+      }
+    }
+    const clone = line.match(/^you may have ~ enter as a copy of (?:any|a) (creature|artifact|artifact or creature|creature or artifact|enchantment|permanent) (?:on the battlefield|you control)(?:, except (.+?))?\.?$/i);
+    if (clone) {
+      const mods = parseCopyExceptions(clone[2]);
+      if (mods) {
+        result.cloneOnEnter = { what: clone[1].toLowerCase(), mods, mine: /you control/i.test(line) };
+        continue;
+      }
+    }
+    if (/^untap all artifacts you control during each other player's untap step\.?$/i.test(line)) {
+      result.untapArtifactsOthers = true;
+      continue;
+    }
     if (/^you may play lands from your graveyard\.?$/i.test(line)) {
       result.landsFromGraveyard = true;
       continue;
@@ -1654,6 +2109,11 @@ export function parseCardText({ name, typeLine, oracleText }) {
     const attachPer = line.match(/^(?:equipped|enchanted) creature gets ([+-]\d+)\/([+-]\d+) for each (artifact|creature|land|enchantment) you control\.?$/i);
     if (attachPer) {
       result.attachPer = { p: Number(attachPer[1]), th: Number(attachPer[2]), per: `${attachPer[3].toLowerCase()} you control` };
+      continue;
+    }
+    const ownPower = line.match(/^~'s power is equal to the number of (artifacts|creatures|lands) you control\.?$/i);
+    if (ownPower) {
+      result.dynamicPT = { per: `${ownPower[1].toLowerCase().replace(/s$/, "")} you control`, mult: 1, powerOnly: true };
       continue;
     }
     const oppPower = line.match(/^~'s power is equal to the number of (artifacts|creatures|lands) your opponents control\.?$/i);
@@ -1784,8 +2244,47 @@ export function parseCardText({ name, typeLine, oracleText }) {
       }
     }
     // Dauerbonus durch Anhängen: „Equipped creature gets +2/+1, has trample and loses flying.“
-    const attach = line.match(/^(?:equipped|enchanted) creature (gets|has|loses) (.+?)\.?$/i);
+    const attach = line.match(/^(?:equipped|enchanted) creature (gets|has|loses|is) (.+?)\.?$/i);
     if (attach) {
+      // Bausteine herauslösen: Fähigkeiten in Anführungszeichen, Schutz vor Farben, „+N/+N for each …“, Typ-Zusätze
+      let rest = `${attach[1]} ${attach[2]}`;
+      let ok = true;
+      const grantedTriggers = [];
+      rest = rest.replace(/(?:,\s*)?(?:and )?has "([^"]+)"/gi, (whole, quoted) => {
+        const sub = parseCardText({ name: "~", typeLine: "Creature", oracleText: quoted.replace(/\bthis creature\b/gi, "~").replace(/,$/, "") });
+        if (sub.triggers.length === 0 || sub.notes.length > 0 || sub.activated.length > 0 || sub.triggers.some(trigger => trigger.unparsed.length > 0)) ok = false;
+        grantedTriggers.push(...sub.triggers);
+        return "";
+      });
+      const protection = [];
+      rest = rest.replace(/(?:,\s*)?(?:and )?(?:has )?protection from ((?:white|blue|black|red|green)(?:,? (?:and )?from (?:white|blue|black|red|green))*)/gi, (whole, colors) => {
+        protection.push(...colors.toLowerCase().split(/,? (?:and )?from /).map(color => COLOR_LETTERS[color.trim()]));
+        return "";
+      });
+      let perQ = null;
+      rest = rest.replace(/gets ([+-]\d+)\/([+-]\d+) for each (.+?)(?= and |,|$)/i, (whole, p, th, tail) => {
+        const quantity = parseForEach(tail.replace(/ on ~$/, " on ~"), phrase => parseTargetSpec(phrase));
+        if (!quantity) ok = false;
+        perQ = { p: Number(p), th: Number(th), q: quantity };
+        return "gets +0/+0";
+      });
+      rest = rest.replace(/(?:,\s*)?(?:and )?is an? [a-z ]+ in addition to its other (?:creature )?types/gi, "").replace(/,\s*(?=,|$)/g, "").replace(/\s+and\s*$/i, "").trim();
+      if (!rest || /^(gets|has|is)$/i.test(rest)) rest = "gets +0/+0";
+      if (ok && (grantedTriggers.length > 0 || protection.length > 0 || perQ)) {
+        const clauses = parseAttachClauses(rest.replace(/^is /i, "gets +0/+0 and "));
+        if (clauses) {
+          result.attach = {
+            p: (result.attach?.p ?? 0) + clauses.p,
+            th: (result.attach?.th ?? 0) + clauses.th,
+            grants: [...(result.attach?.grants ?? []), ...clauses.grants],
+            ...(clauses.revokes.length ? { revokes: clauses.revokes } : {}),
+            ...(protection.length ? { protection } : {}),
+            ...(perQ ? { perQ } : {})
+          };
+          if (grantedTriggers.length) result.attachTriggers = [...(result.attachTriggers ?? []), ...grantedTriggers];
+          continue;
+        }
+      }
       const clauses = parseAttachClauses(`${attach[1]} ${attach[2]}`);
       if (clauses) {
         result.attach = {
@@ -1854,8 +2353,13 @@ export function parseCardText({ name, typeLine, oracleText }) {
     }
 
     // Dauereffekte: Boni für Kreaturen
+    const tokenAnthem = line.match(/^creature tokens you control get ([+-]\d+)\/([+-]\d+)\.?$/i);
+    if (tokenAnthem) {
+      result.statics.push({ scope: "you", tokenOnly: true, p: Number(tokenAnthem[1]), th: Number(tokenAnthem[2]), grants: [] });
+      continue;
+    }
     const anthem = line.match(/^(other )?creatures you control get ([+-]\d+)\/([+-]\d+)(?: and have ([a-z, ]+))?\.?$/i);
-    const tribal = line.match(/^(other )?(?!creatures\b|other\b)([a-z]+)(?: creatures)? you control get ([+-]\d+)\/([+-]\d+)(?: and have ([a-z, ]+))?\.?$/i);
+    const tribal = line.match(/^(other )?(?!creatures\b|other\b|white\b|blue\b|black\b|red\b|green\b|multicolored\b|colorless\b|nonartifact\b|nontoken\b|tapped\b|untapped\b|attacking\b|legendary\b)([a-z]+)(?: creatures)? you control get ([+-]\d+)\/([+-]\d+)(?: and have ([a-z, ]+))?\.?$/i);
     const chosen = line.match(/^(other )?creatures you control of the chosen type get ([+-]\d+)\/([+-]\d+)(?: and have ([a-z, ]+))?\.?$/i);
     if (chosen) {
       const grants = (chosen[4] ?? "").split(/,| and /).map(word => word.trim().toLowerCase()).filter(word => KEYWORDS.includes(word));
@@ -1871,6 +2375,15 @@ export function parseCardText({ name, typeLine, oracleText }) {
     if (/^as ~ enters( the battlefield)?, choose a creature type\.?$/i.test(line)) {
       result.chooseType = true;
       continue;
+    }
+    const perEach = line.match(/^(~|creatures you control|other creatures you control) gets? ([+-]\d+)\/([+-]\d+) for each (.+?)\.?$/i);
+    if (perEach) {
+      const quantity = parseForEach(perEach[4], phrase => parseTargetSpec(phrase));
+      if (quantity) {
+        const scope = perEach[1] === "~" ? "self" : /^other/i.test(perEach[1]) ? "youOther" : "you";
+        result.statics.push({ scope, p: 0, th: 0, grants: [], perQ: { p: Number(perEach[2]), th: Number(perEach[3]), q: quantity } });
+        continue;
+      }
     }
     const oppAnthem = line.match(/^creatures your opponents control get ([+-]\d+)\/([+-]\d+)\.?$/i);
     if (anthem) {
@@ -1889,13 +2402,15 @@ export function parseCardText({ name, typeLine, oracleText }) {
       const condition = trigger[2].toLowerCase();
       const events = /^~ enters( the battlefield)? or attacks$/.test(condition)
         ? [triggerEvent(trigger[1], "~ enters"), triggerEvent(trigger[1], "~ attacks")]
-        : /^~ enters( the battlefield)? or dies$/.test(condition)
+        : /^(?:your commander|a commander you control) enters or attacks$/.test(condition)
+          ? [{ event: "creatureEnters", scope: { owner: "you", another: false, commander: true } }, { event: "creatureAttacks", scope: { owner: "you", another: false, commander: true } }]
+          : /^~ enters( the battlefield)? or dies$/.test(condition)
           ? [triggerEvent(trigger[1], "~ enters"), triggerEvent(trigger[1], "~ dies")]
           : /^~ attacks or blocks$/.test(condition)
           ? [triggerEvent(trigger[1], "~ attacks"), triggerEvent(trigger[1], "~ blocks")]
           : [triggerEvent(trigger[1], condition)];
       if (events.every(Boolean)) {
-        const selfEvent = events.every(event => ["etb", "attacks", "blocks", "dealsCombatDamage", "dies", "dealtDamage", "selfCounter"].includes(event.event));
+        const selfEvent = events.every(event => ["etb", "attacks", "blocks", "dealsCombatDamage", "dies", "leaves", "dealtDamage", "selfCounter"].includes(event.event));
         const effectText = selfEvent ? trigger[3].replace(/\b(on|it deals|returns?|gets?) it\b/g, match => match.replace(/\bit\b/, "~")) : trigger[3];
         const parsed = parseEffectText(effectText);
         if (parsed.specs.length <= 3) {
@@ -1904,12 +2419,17 @@ export function parseCardText({ name, typeLine, oracleText }) {
         }
       }
     }
+    const generic = genericStatic(line);
+    if (generic) {
+      result.statics.push(generic);
+      continue;
+    }
     result.notes.push(line);
   }
   for (const modal of modalTriggers) {
     const events = modal.condition === "~ attacks or blocks" ? [triggerEvent(modal.word, "~ attacks"), triggerEvent(modal.word, "~ blocks")] : modal.condition === "~ enters or attacks" ? [triggerEvent(modal.word, "~ enters"), triggerEvent(modal.word, "~ attacks")] : [triggerEvent(modal.word, modal.condition)];
     const modes = modal.modes.map(text => ({ label: text, ...parseEffectText(text) }));
-    if (events.every(Boolean) && modes.every(mode => mode.specs.length <= 2)) for (const event of events) result.triggers.push({ ...event, text: modal.line, modes, effects: [], specs: [], unparsed: modes.flatMap(mode => mode.unparsed) });
+    if (events.every(Boolean) && modes.every(mode => mode.specs.length <= 2)) for (const event of events) result.triggers.push({ ...event, text: modal.line, modes, ...(modal.pick > 1 ? { pick: modal.pick } : {}), effects: [], specs: [], unparsed: modes.flatMap(mode => mode.unparsed) });
     else result.notes.push(`${modal.word} ${modal.condition}, choose one — ${modal.modes.join(" • ")}`);
   }
   for (const tier of tiers) {

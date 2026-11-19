@@ -179,6 +179,24 @@ const LIB = [
   ["phoenixdown", "Phönixfeder", "Artifact", "{1}", 2, {}, "{1}, {T}, Exile ~: Choose one —\n• Return target creature card with mana value 4 or less from your graveyard to the battlefield tapped.\n• You gain 1 life."],
   ["handbolt", "Handblitz", "Creature — Borg", "{3}", 2, { power: "2", toughness: "2" }, "{G}, Discard this card: It deals 2 damage to target creature."],
   ["oaka", "Händler", "Creature — Merchant", "{1}", 2, { power: "1", toughness: "1" }, "{T}, Remove a counter from a nonland permanent you control: Draw a card."],
+  ["tome", "Sagenbuch", "Artifact", "{1}", 2, {}, "~ enters with a page counter on it.\nWhenever a creature you control attacks, put a page counter on ~."],
+  ["tokenlord", "Spielsteinherr", "Creature — Advisor", "{1}", 2, { power: "1", toughness: "1" }, "Creature tokens you control get +1/+1."],
+  ["swarmcaller", "Schwarmrufer", "Creature — Wizard", "{1}", 2, { power: "3", toughness: "3" }, "When ~ enters, create X 1/1 colorless Construct artifact creature tokens, where X is ~'s power."],
+  ["lifecount", "Lebenszähler", "Sorcery", "{G}", 2, {}, "You gain life equal to the number of creatures you control."],
+  ["lifewatch", "Lebenswächter", "Creature — Cleric", "{1}", 2, { power: "1", toughness: "1" }, "At the beginning of your end step, if you gained life this turn, draw a card."],
+  ["lightsword", "Lichtschwert", "Artifact — Equipment", "{1}", 2, {}, "Equipped creature gets +2/+2 and has protection from red.\nEquip {1}"],
+  ["chargemace", "Ladungskeule", "Artifact — Equipment", "{1}", 2, {}, "Equipped creature gets +1/+1 for each charge counter on this Equipment.\nWhenever equipped creature attacks, you gain 1 life.\nEquip {1}"],
+  ["battlecry", "Schlachtruf-Rüstung", "Artifact — Equipment", "{1}", 2, {}, "Equipped creature has \"Whenever this creature attacks, you gain 2 life.\"\nEquip {1}"],
+  ["cryptcall", "Gruftruf", "Sorcery", "{G}", 2, {}, "You may cast target instant or sorcery card with mana value 3 or less from your graveyard without paying its mana cost. If that spell would be put into your graveyard, exile it instead."],
+  ["tracker", "Spurenleser", "Creature — Scout", "{1}", 2, { power: "1", toughness: "1" }, "Whenever you sacrifice a Clue, put a +1/+1 counter on ~."],
+  ["investigator", "Nachforschung", "Sorcery", "{G}", 2, {}, "Investigate."],
+  ["drain", "Lebensentzug", "Sorcery", "{G}", 2, {}, "Each opponent loses 2 life. You gain life equal to the life lost this way."],
+  ["shipsneak", "Schiffsschleicher", "Creature — Human", "{1}", 2, { power: "2", toughness: "2" }, "~ can't be blocked if you control an artifact."],
+  ["spellstriker", "Spruchkämpferin", "Creature — Monk", "{1}", 2, { power: "2", toughness: "2" }, "As long as you've cast two or more noncreature spells this turn, ~ has double strike."],
+  ["story", "Geschichtenbuch", "Instant", "{5}{G}", 2, {}, "~ costs {3} less to cast if an opponent has seven or more cards in their graveyard.\nDraw a card."],
+  ["replicator", "Replikator", "Sorcery", "{G}", 2, {}, "Create a token that's a copy of target creature, except it isn't legendary and it has haste."],
+  ["shapeshifter", "Gestaltwandler", "Creature — Shapeshifter", "{1}", 2, { power: "0", toughness: "0" }, "You may have ~ enter as a copy of any creature on the battlefield."],
+  ["tokenfan", "Spielsteinfreund", "Creature — Elf", "{1}", 2, { power: "1", toughness: "1" }, "Whenever another creature you control enters, you gain 1 life."],
   ["convoker", "Einberufer", "Sorcery", "{3}{G}", 2, {}, "Convoke\nDraw a card."],
   ["delver", "Schürfer", "Sorcery", "{4}{G}", 2, {}, "Delve\nDraw a card."],
   ["sculptor", "Bildhauer", "Creature — Vedalken", "{G}", 2, { power: "1", toughness: "1" }, "Artifact spells you cast cost {1} less to cast."],
@@ -208,7 +226,28 @@ const LIB = [
   ["drifter", "Treiber", "Creature — Elemental", "{3}{G}", 2, { power: "2", toughness: "2" }, "When this creature enters, draw two cards.\nEvoke {1}{G}"],
   ["humanlord", "Menschenhauptmann", "Creature — Human Soldier", "{G}", 2, { power: "1", toughness: "1" }, "Whenever another Human you control enters, put a +1/+1 counter on this creature."],
   ["human2", "Mensch", "Creature — Human Peasant", "{G}", 2, { power: "1", toughness: "1" }],
-  ["priest", "Priester", "Creature — Cleric", "{G}", 2, { power: "1", toughness: "1" }, "At the beginning of your end step, you gain 1 life."]
+  ["priest", "Priester", "Creature — Cleric", "{G}", 2, { power: "1", toughness: "1" }, "At the beginning of your end step, you gain 1 life."],
+  ["twomodes", "Doppelwahl", "Sorcery", "{G}", 2, {}, "Choose two —\n• Doppelwahl deals 2 damage to any target.\n• You gain 5 life.\n• Draw a card."],
+  ["cmdboth", "Kommandowahl", "Instant", "{G}", 2, {}, "Choose one. If you control a commander as you cast this spell, you may choose both instead.\n• You gain 4 life.\n• Draw a card."],
+  ["twotrig", "Zweifachwesen", "Creature — Giant", "{1}", 2, { power: "2", toughness: "2" }, "When ~ enters, choose two —\n• You gain 3 life.\n• Draw a card.\n• Zweifachwesen deals 1 damage to any target."],
+  ["countlord", "Zählfürst", "Creature — Elf", "{G}", 2, { power: "1", toughness: "1" }, "Zählfürst gets +1/+1 for each creature card in your graveyard."],
+  ["mourner", "Markentrauer", "Enchantment", "{G}", 2, {}, "Whenever a creature you control with a +1/+1 counter on it dies, draw a card."],
+  ["skyherald", "Himmelsherold", "Enchantment", "{G}", 2, {}, "Whenever a creature you control with flying enters, it gains haste until end of turn."],
+  ["overseer", "Metallaufseher", "Creature — Construct", "{G}", 2, { power: "1", toughness: "1" }, "When Metallaufseher enters, put a +1/+1 counter on each other creature you control that entered this turn."],
+  ["goader", "Hetzruf", "Instant", "{G}", 2, {}, "Goad target creature."],
+  ["goadall", "Aufruhr", "Sorcery", "{G}", 2, {}, "Goad all creatures you don't control."],
+  ["skyanthem", "Flugbanner", "Enchantment", "{G}", 2, {}, "Creatures you control with flying get +1/+1."],
+  ["freeze", "Frostwelle", "Instant", "{G}", 2, {}, "Tap all creatures your opponents control."],
+  ["bigcaster", "Großzauberer", "Enchantment", "{G}", 2, {}, "Whenever you cast a noncreature spell with mana value 3 or greater, you gain 2 life."],
+  ["bigspell", "Großer Ruf", "Sorcery", "{2}{G}", 2, { manaValue: 3 }, "Draw a card."],
+  ["secondmain", "Nachmittagsruhe", "Enchantment", "{G}", 2, {}, "At the beginning of your second main phase, you gain 3 life."],
+  ["warcry", "Kriegsruf", "Creature — Warrior", "{G}", 2, { power: "2", toughness: "2" }, "Whenever Kriegsruf attacks, create a tapped and attacking 2/1 red Klingon Warrior creature token with haste."],
+  ["meleebanner", "Ruhmesbanner", "Enchantment", "{G}", 2, {}, "Creatures you control have melee."],
+  ["splash", "Streuschiff", "Creature — Ship", "{G}", 2, { power: "3", toughness: "3" }, "Whenever Streuschiff deals combat damage to an opponent, it deals that much damage to each other opponent."],
+  ["foreach", "Volksheer", "Sorcery", "{G}", 2, {}, "For each opponent, create a 1/1 white Soldier creature token."],
+  ["deluge", "Giftflut", "Sorcery", "{G}", 2, {}, "As an additional cost to cast this spell, pay X life.\nAll creatures get -X/-X until end of turn."],
+  ["relic", "Ahnenrelikt", "Artifact", "{G}", 2, {}, "Tap an untapped Bear you control: You gain 1 life."],
+  ["leaver", "Abschiedsgeist", "Creature — Spirit", "{G}", 2, { power: "1", toughness: "1" }, "When Abschiedsgeist leaves the battlefield, you gain 4 life."],
 ];
 const facts = new Map();
 
@@ -216,7 +255,7 @@ function deck(prefix, { commander = false } = {}) {
   const main = LIB.map(([key, name, typeLine, manaCost, count, extra, oracleText]) => {
     const id = `${prefix}-${key}`;
     facts.set(id, extra);
-    return { id, name, count, typeLine, manaCost, manaValue: 2, imageUri: null, oracleText: oracleText ?? "" };
+    return { id, name, count, typeLine, manaCost, manaValue: extra?.manaValue ?? 2, imageUri: null, oracleText: oracleText ?? "" };
   });
   const commanders = commander
     ? [{ id: `${prefix}-cmd`, name: `Boss ${prefix}`, count: 1, typeLine: "Legendary Creature — Dragon", manaCost: "{1}{G}", manaValue: 2, imageUri: null }]
@@ -1012,12 +1051,25 @@ describe("Dauertest: das Spiel bleibt nie stehen", () => {
       const blocks = blockers.length && attackers.length && random() < 0.5 ? [{ blocker: blockers[0].id, attacker: attackers[0].id }] : [];
       return [uid, { type: "declareBlockers", blocks }];
     }
-    if (game.turn.phase === "attackers" && game.turn.active === uid && random() < 0.6) {
-      const ready = mine.battlefield.filter(c => c.kind === "creature" && !c.tapped && !c.sick && !c.keywords?.includes("defender"));
-      if (ready.length) return [uid, { type: "declareAttackers", attackers: [{ id: ready[0].id, target: v.players.find(p => p.userId !== uid).userId }] }];
+    const forced = mine.battlefield.filter(c => c.kind === "creature" && !c.tapped && !c.sick && c.keywords?.includes("must-attack") && !c.keywords?.includes("defender") && !c.keywords?.includes("cant-attack"));
+    if (game.turn.phase === "attackers" && game.turn.active === uid && !game.combat && (forced.length > 0 || random() < 0.6)) {
+      const ready = mine.battlefield.filter(c => c.kind === "creature" && !c.tapped && !c.sick && !c.keywords?.includes("defender") && !c.keywords?.includes("cant-attack"));
+      const foes = v.players.filter(p => p.userId !== uid && !p.eliminated).map(p => p.userId);
+      const list = [...new Set([...forced, ...ready.slice(0, 1)])];
+      const pick = c => foes.find(foe => !(c.goadedBy ?? []).includes(foe)) ?? foes[0];
+      if (list.length) return [uid, { type: "declareAttackers", attackers: list.map(c => ({ id: c.id, target: pick(c) })) }];
     }
     for (const card of [...mine.hand, ...mine.command, ...mine.graveyard]) {
       if (card.play?.ok) {
+        if (card.play.modes?.length) {
+          // modale Zauber: die ersten wählbaren Modi (bei „choose two“ entsprechend viele)
+          const need = card.play.modeCount?.min ?? 1;
+          const usable = card.play.modes.map((mode, index) => ({ mode, index })).filter(({ mode }) => !mode.manual && mode.targets.every(t => t.options.length > 0)).slice(0, need);
+          if (usable.length < need) continue;
+          const targets = usable.flatMap(({ mode }) => mode.targets.map(t => t.options[0]));
+          options.push({ type: "cast", id: card.id, ...(card.play.modeCount ? { modes: usable.map(u => u.index) } : { mode: usable[0].index }), ...(targets.length ? { targets } : {}) });
+          continue;
+        }
         const targets = (card.play.targets ?? []).map(t => t.options[0]);
         if (card.play.targets?.some(t => t.options.length === 0)) continue;
         options.push({ type: card.play.kind === "land" ? "playLand" : "cast", id: card.id, ...(targets.length ? { targets } : {}) });
@@ -1141,8 +1193,7 @@ describe("Länder mit Bedingung beim Ins-Spiel-Kommen", () => {
     expect(game.cards[land].tapped).toBe(false);
     expect(game.players.u0.hand).toContain(mountain);
     const second = started();
-    const hand = second.game.players.u0.hand.filter(id => second.game.defs[second.game.cards[id].def].name === "Mountain");
-    for (const id of hand) second.game.players.u0.hand.splice(second.game.players.u0.hand.indexOf(id), 1);
+    second.game.players.u0.hand = []; // keine Karte zum Zeigen auf der Hand
     const tapped = play(second.game, second.random, "Zeigland");
     expect(second.game.choice).toBeNull();
     expect(second.game.cards[tapped].tapped).toBe(true);
@@ -1219,6 +1270,267 @@ describe("Bedingungen, Modi, X und Cycling", () => {
     expect(act(game, "u0", { type: "cast", id, mode: 0 }, random).ok).toBe(false); // Ziel fehlt
     expect(act(game, "u0", { type: "cast", id, mode: 1 }, random).ok).toBe(true);
     expect(game.players.u0.life).toBe(25);
+  });
+
+  it("Mehrfach-Modi: „Choose two“ verbindet Effekte und Ziele, falsche Anzahl wird abgelehnt", () => {
+    const { game, random } = started();
+    forest(game, "u0", 2);
+    const id = put(game, "u0", "Doppelwahl", "hand", { only: "library" });
+    const play = view(game, "u0").players[0].hand.find(c => c.id === id).play;
+    expect(play.modeCount).toEqual({ min: 2, max: 2 });
+    expect(act(game, "u0", { type: "cast", id, modes: [1] }, random).error).toMatch(/genau 2/);
+    expect(act(game, "u0", { type: "cast", id, modes: [0, 1, 2] }, random).error).toMatch(/genau 2/);
+    const life = game.players.u1.life;
+    const own = game.players.u0.life;
+    expect(act(game, "u0", { type: "cast", id, modes: [1, 0], targets: ["u1"] }, random).ok).toBe(true);
+    for (let i = 0; i < 4 && game.stack.length > 0; i += 1) act(game, game.priority, { type: "pass" }, random);
+    expect(game.players.u1.life).toBe(life - 2);
+    expect(game.players.u0.life).toBe(own + 5);
+  });
+
+  it("Mehrfach-Modi: „both“ nur mit eigenem Kommandanten auf dem Schlachtfeld", () => {
+    const { game, random } = started();
+    forest(game, "u0", 2);
+    const id = put(game, "u0", "Kommandowahl", "hand", { only: "library" });
+    expect(act(game, "u0", { type: "cast", id, modes: [0, 1] }, random).error).toMatch(/Modi/);
+    const cmd = put(game, "u0", "Bär", "battlefield");
+    game.cards[cmd].cmd = true;
+    expect(view(game, "u0").players[0].hand.find(c => c.id === id).play.modeCount).toEqual({ min: 1, max: 2 });
+    const hand = game.players.u0.hand.length - 1;
+    const own = game.players.u0.life;
+    expect(act(game, "u0", { type: "cast", id, modes: [0, 1] }, random).ok).toBe(true);
+    for (let i = 0; i < 4 && game.stack.length > 0; i += 1) act(game, game.priority, { type: "pass" }, random);
+    expect(game.players.u0.life).toBe(own + 4);
+    expect(game.players.u0.hand.length).toBe(hand + 1);
+  });
+
+  it("Modaler Auslöser mit „choose two“: zwei Modi wählen, beide ausführen", () => {
+    const { game, random } = started();
+    forest(game, "u0", 2);
+    const life = game.players.u0.life;
+    const id = put(game, "u0", "Zweifachwesen", "hand");
+    const hand = game.players.u0.hand.length - 1;
+    expect(act(game, "u0", { type: "cast", id }, random).ok).toBe(true);
+    for (let i = 0; i < 4 && game.stack.length > 0; i += 1) act(game, game.priority, { type: "pass" }, random);
+    expect(game.choice?.kind).toBe("cards");
+    expect(game.choice.min).toBe(2);
+    act(game, "u0", { type: "choose", ids: ["0", "1"] }, random);
+    for (let i = 0; i < 4 && game.stack.length > 0; i += 1) act(game, game.priority, { type: "pass" }, random);
+    expect(game.players.u0.life).toBe(life + 3);
+    expect(game.players.u0.hand.length).toBe(hand + 1);
+  });
+
+  it("Dauereffekt „~ gets +1/+1 for each creature card in your graveyard“", () => {
+    const { game } = started();
+    const lord = put(game, "u0", "Zählfürst", "battlefield");
+    const power = () => view(game, "u0").players[0].battlefield.find(c => c.id === lord).power;
+    game.players.u0.graveyard = [];
+    expect(power()).toBe(1);
+    put(game, "u0", "Bär", "graveyard");
+    put(game, "u0", "Falke", "graveyard");
+    expect(power()).toBe(3);
+  });
+
+  it("Gefilterte Auslöser: „a creature you control with a +1/+1 counter on it dies“ / „with flying enters, it gains haste“", () => {
+    const { game, random } = started();
+    forest(game, "u0", 3);
+    put(game, "u0", "Markentrauer", "battlefield");
+    put(game, "u0", "Himmelsherold", "battlefield");
+    game.players.u0.hand = [];
+    const plain = put(game, "u0", "Bär", "battlefield");
+    const marked = put(game, "u0", "Bär", "battlefield");
+    game.cards[marked].counters["+1/+1"] = 1;
+    game.cards[plain].damage = 5;
+    game.cards[marked].damage = 5;
+    const hawk = castAndResolve(game, "u0", "Falke", random);
+    for (let i = 0; i < 6 && game.stack.length > 0; i += 1) act(game, game.priority, { type: "pass" }, random);
+    expect(game.players.u0.graveyard).toContain(marked);
+    expect(game.players.u0.hand.length).toBe(1); // nur die Kreatur mit Marke löst aus
+    expect(view(game, "u0").players[0].battlefield.find(c => c.id === hawk).sick).toBe(false); // Eile durch den Herold
+  });
+
+  it("„put a +1/+1 counter on each other creature you control that entered this turn“", () => {
+    const { game, random } = started();
+    forest(game, "u0", 3);
+    const old = put(game, "u0", "Bär", "battlefield");
+    game.cards[old].sinceSeq = -1;
+    const fresh = castAndResolve(game, "u0", "Bär", random);
+    const overseer = castAndResolve(game, "u0", "Metallaufseher", random);
+    for (let i = 0; i < 6 && game.stack.length > 0; i += 1) act(game, game.priority, { type: "pass" }, random);
+    expect(game.cards[fresh].counters["+1/+1"]).toBe(1);
+    expect(game.cards[old].counters["+1/+1"] ?? 0).toBe(0);
+    expect(game.cards[overseer].counters["+1/+1"] ?? 0).toBe(0);
+  });
+
+  it("Dauereffekt mit Schlüsselwort-Filter („creatures you control with flying get +1/+1“) und „tap all creatures your opponents control“", () => {
+    const { game, random } = started();
+    forest(game, "u0", 2);
+    put(game, "u0", "Flugbanner", "battlefield");
+    const hawk = put(game, "u0", "Falke", "battlefield");
+    const bear = put(game, "u0", "Bär", "battlefield");
+    const foe = put(game, "u1", "Bär", "battlefield");
+    const stats = id => view(game, "u0").players.flatMap(p => p.battlefield).find(c => c.id === id);
+    expect(stats(hawk).power).toBe(2);
+    expect(stats(bear).power).toBe(2);
+    castAndResolve(game, "u0", "Frostwelle", random);
+    for (let i = 0; i < 6 && game.stack.length > 0; i += 1) act(game, game.priority, { type: "pass" }, random);
+    expect(game.cards[foe].tapped).toBe(true);
+    expect(game.cards[bear].tapped).toBe(false);
+  });
+
+  it("Wirk-Auslöser mit Filter: nur nichtkreaturen-Zauber mit Manawert ≥ 3", () => {
+    const { game, random } = started();
+    forest(game, "u0", 6);
+    put(game, "u0", "Großzauberer", "battlefield");
+    const life = game.players.u0.life;
+    castAndResolve(game, "u0", "Frostwelle", random); // Manawert 2
+    for (let i = 0; i < 6 && game.stack.length > 0; i += 1) act(game, game.priority, { type: "pass" }, random);
+    expect(game.players.u0.life).toBe(life);
+    castAndResolve(game, "u0", "Großer Ruf", random); // Manawert 3
+    for (let i = 0; i < 6 && game.stack.length > 0; i += 1) act(game, game.priority, { type: "pass" }, random);
+    expect(game.players.u0.life).toBe(life + 2);
+  });
+
+  it("„At the beginning of your second main phase“ löst nur in der zweiten Hauptphase aus", () => {
+    const { game, random } = started();
+    put(game, "u0", "Nachmittagsruhe", "battlefield");
+    const life = game.players.u0.life;
+    expect(game.turn.phase).toBe("main1");
+    for (let i = 0; i < 10 && game.turn.phase !== "main2"; i += 1) {
+      if (game.turn.phase === "attackers" && game.priority === "u0" && !game.combat) act(game, "u0", { type: "declareAttackers", attackers: [] }, random);
+      else act(game, game.priority, { type: "pass" }, random);
+    }
+    expect(game.turn.phase).toBe("main2");
+    for (let i = 0; i < 4 && game.stack.length > 0; i += 1) act(game, game.priority, { type: "pass" }, random);
+    expect(game.players.u0.life).toBe(life + 3);
+  });
+
+  it("Spielstein „tapped and attacking“, verliehenes Melee, „that much damage to each other opponent“ (3 Spieler)", () => {
+    const { game, random } = started("standard", 3);
+    put(game, "u0", "Ruhmesbanner", "battlefield");
+    const war = put(game, "u0", "Kriegsruf", "battlefield");
+    const ship = put(game, "u0", "Streuschiff", "battlefield");
+    game.cards[war].sinceSeq = -1;
+    game.cards[ship].sinceSeq = -1;
+    game.turn.phase = "attackers";
+    game.priority = "u0";
+    expect(act(game, "u0", { type: "declareAttackers", attackers: [{ id: war, target: "u1" }, { id: ship, target: "u2" }] }, random).ok).toBe(true);
+    for (let i = 0; i < 8 && (game.stack.length > 0 || game.triggerQueue?.length); i += 1) act(game, game.priority, { type: "pass" }, random);
+    const token = game.combat.attackers.find(a => game.cards[a.id]?.token);
+    expect(token).toMatchObject({ target: "u1" });
+    expect(game.cards[token.id].tapped).toBe(true);
+    // Melee: zwei Gegner angegriffen → +2/+2
+    expect(view(game, "u0").players.flatMap(p => p.battlefield).find(c => c.id === war).power).toBe(4);
+    const life1 = game.players.u1.life;
+    const life2 = game.players.u2.life;
+    for (let i = 0; i < 20 && game.turn.phase !== "main2"; i += 1) {
+      if (game.turn.phase === "blockers" && !game.priority) {
+        for (const uid of ["u1", "u2"]) act(game, uid, { type: "declareBlockers", blocks: [] }, random);
+        continue;
+      }
+      act(game, game.priority, { type: "pass" }, random);
+    }
+    for (let i = 0; i < 6 && game.stack.length > 0; i += 1) act(game, game.priority, { type: "pass" }, random);
+    // Streuschiff (3 + 2 Melee = 5) trifft u2, dann 5 an jeden anderen Gegner (u1); u1 bekommt außerdem Kriegsruf 4 + Token 2
+    expect(game.players.u2.life).toBe(life2 - 5);
+    expect(game.players.u1.life).toBe(life1 - 4 - 2 - 5);
+  });
+
+  it("„pay X life“ als Zusatzkosten mit gewähltem X; Tap-Kosten mit Kreaturtyp-Filter", () => {
+    const { game, random } = started();
+    forest(game, "u0", 2);
+    const bear = put(game, "u0", "Bär", "battlefield");
+    const id = put(game, "u0", "Giftflut", "hand", { only: "library" });
+    const life = game.players.u0.life;
+    expect(view(game, "u0").players[0].hand.find(c => c.id === id).play.pays).toEqual([{ kind: "life", n: "X", options: [] }]);
+    expect(act(game, "u0", { type: "cast", id, x: 2 }, random).ok).toBe(true);
+    expect(game.players.u0.life).toBe(life - 2);
+    for (let i = 0; i < 6 && game.stack.length > 0; i += 1) act(game, game.priority, { type: "pass" }, random);
+    expect(game.players.u0.graveyard).toContain(bear);
+    const relic = put(game, "u0", "Ahnenrelikt", "battlefield");
+    const bear2 = put(game, "u0", "Bär", "battlefield", { sick: true });
+    put(game, "u0", "Falke", "battlefield");
+    const abilities = view(game, "u0").players[0].battlefield.find(c => c.id === relic).abilities;
+    expect(abilities[0].pays[0].options).toEqual([bear2]); // nur Bären, auch beschwörungsmüde
+    expect(act(game, "u0", { type: "activate", id: relic, index: 0, pay: [bear2] }, random).ok).toBe(true);
+    expect(game.cards[bear2].tapped).toBe(true);
+  });
+
+  it("„When ~ leaves the battlefield“: löst beim Exilieren und beim Sterben aus", () => {
+    const { game, random } = started();
+    put(game, "u0", "Mountain", "battlefield");
+    const spirit = put(game, "u0", "Abschiedsgeist", "battlefield");
+    const life = game.players.u0.life;
+    game.players.u0.hand = [];
+    castAndResolve(game, "u0", "Schwerter", random, [spirit]);
+    for (let i = 0; i < 6 && game.stack.length > 0; i += 1) act(game, game.priority, { type: "pass" }, random);
+    expect(game.players.u0.exile).toContain(spirit);
+    expect(game.players.u0.life).toBe(life + 1 + 4); // Schwerter: +1 (Stärke), Abschied: +4
+    const second = put(game, "u0", "Abschiedsgeist", "battlefield");
+    game.cards[second].damage = 5;
+    act(game, "u0", { type: "pass" }, random);
+    for (let i = 0; i < 6 && game.stack.length > 0; i += 1) act(game, game.priority, { type: "pass" }, random);
+    expect(game.players.u0.graveyard).toContain(second);
+    expect(game.players.u0.life).toBe(life + 1 + 4 + 4);
+  });
+
+  it("„For each opponent, create …“", () => {
+    const { game, random } = started("standard", 3);
+    forest(game, "u0", 1);
+    castAndResolve(game, "u0", "Volksheer", random);
+    expect(game.players.u0.battlefield.filter(id => game.cards[id].token).length).toBe(2);
+  });
+
+  it("Goad: aufgestachelte Kreatur muss angreifen, nicht den Aufstachler; endet mit dessen nächstem Zug", () => {
+    const { game, random } = started("standard", 3);
+    forest(game, "u0", 2);
+    const bear = put(game, "u1", "Bär", "battlefield");
+    castAndResolve(game, "u0", "Hetzruf", random, [bear]);
+    for (let i = 0; i < 6 && game.stack.length > 0; i += 1) act(game, game.priority, { type: "pass" }, random);
+    expect(game.cards[bear].goadedBy).toEqual(["u0"]);
+    expect(view(game, "u1").players.flatMap(p => p.battlefield).find(c => c.id === bear).goaded).toBe(true);
+    // u1 ist am Zug und greift an
+    game.turn.active = "u1";
+    game.turn.phase = "attackers";
+    game.priority = "u1";
+    game.stack = [];
+    game.cards[bear].sinceSeq = -1;
+    expect(act(game, "u1", { type: "declareAttackers", attackers: [] }, random).error).toMatch(/muss angreifen/);
+    expect(act(game, "u1", { type: "declareAttackers", attackers: [{ id: bear, target: "u0" }] }, random).error).toMatch(/aufgestachelt/);
+    expect(act(game, "u1", { type: "declareAttackers", attackers: [{ id: bear, target: "u2" }] }, random).ok).toBe(true);
+  });
+
+  it("Goad: „all creatures you don't control“ trifft nur gegnerische Kreaturen; Zugbeginn des Aufstachlers beendet es", () => {
+    const { game, random } = started();
+    forest(game, "u0", 2);
+    const mine = put(game, "u0", "Bär", "battlefield");
+    const theirs = put(game, "u1", "Bär", "battlefield");
+    castAndResolve(game, "u0", "Aufruhr", random);
+    for (let i = 0; i < 6 && game.stack.length > 0; i += 1) act(game, game.priority, { type: "pass" }, random);
+    expect(game.cards[theirs].goadedBy).toEqual(["u0"]);
+    expect(game.cards[mine].goadedBy ?? []).toEqual([]);
+    // Zwei Spieler: nur der Aufstachler ist angreifbar, also greift u1 ihn an; mit dem nächsten Zug von u0 endet Goad
+    game.cards[theirs].sinceSeq = -1;
+    let attacked = false;
+    for (let i = 0; i < 80 && !(attacked && game.turn.active === "u0"); i += 1) {
+      if (game.turn.active === "u1" && game.turn.phase === "attackers" && !game.combat) {
+        const forced = act(game, "u1", { type: "declareAttackers", attackers: [] }, random);
+        expect(forced.error).toMatch(/muss angreifen/);
+        expect(act(game, "u1", { type: "declareAttackers", attackers: [{ id: theirs, target: "u0" }] }, random).ok).toBe(true);
+        attacked = true;
+        continue;
+      }
+      if (game.turn.phase === "blockers" && game.combat && !game.priority) {
+        act(game, "u0", { type: "declareBlockers", blocks: [] }, random);
+        continue;
+      }
+      if (game.choice) act(game, game.choice.userId, { type: "choose", ids: game.choice.options.slice(0, game.choice.min ?? 0) }, random);
+      else if (game.pendingDiscard) act(game, "u1", { type: "discard", ids: game.players.u1.hand.slice(0, game.players.u1.hand.length - 7) }, random);
+      else act(game, game.priority ?? game.turn.active, { type: "pass" }, random);
+    }
+    expect(attacked).toBe(true);
+    expect(game.turn.active).toBe("u0");
+    expect(game.cards[theirs].goadedBy).toEqual([]);
   });
 
   it("X-Zauber: der gewählte Wert bestimmt die Menge", () => {
@@ -2685,15 +2997,15 @@ describe("Neue Mechaniken aus den Commander-Decks", () => {
     const { game, random } = started();
     forest(game, "u0", 2);
     const life = game.players.u0.life;
-    const hand = game.players.u0.hand.length;
     const id = put(game, "u0", "Wahlwesen", "hand");
+    const hand = game.players.u0.hand.length - 1; // ohne Wahlwesen selbst
     expect(act(game, "u0", { type: "cast", id }, random).ok).toBe(true);
     for (let i = 0; i < 4 && game.stack.length > 0; i += 1) act(game, game.priority, { type: "pass" }, random);
     expect(game.choice?.kind).toBe("yesno");
     expect(view(game, "u0").choice.options.map(o => o.label)).toEqual(["You gain 3 life.", "Draw a card."]);
     act(game, "u0", { type: "choose", ids: ["1"] }, random);
     for (let i = 0; i < 4 && game.stack.length > 0; i += 1) act(game, game.priority, { type: "pass" }, random);
-    expect(game.players.u0.hand.length).toBe(hand + 1); // Karte gezogen (Wahlwesen selbst verlässt die Hand)
+    expect(game.players.u0.hand.length).toBe(hand + 1); // Karte gezogen
     expect(game.players.u0.life).toBe(life);
   });
 
@@ -2767,7 +3079,8 @@ describe("Neue Mechaniken aus den Commander-Decks", () => {
   it("Bedingter Effekt („if you control a creature with power 4 or greater“) und verzögertes Zurückkehren aus dem Exil", () => {
     const { game, random } = started();
     forest(game, "u0", 3);
-    const hand = game.players.u0.hand.length;
+    game.players.u0.hand = [];
+    const hand = 0;
     castAndResolve(game, "u0", "Bedingungswesen", random);
     for (let i = 0; i < 4 && game.stack.length > 0; i += 1) act(game, game.priority, { type: "pass" }, random);
     expect(game.players.u0.hand.length).toBe(hand); // keine Kreatur mit Stärke 4: nichts gezogen
@@ -2875,6 +3188,149 @@ describe("Neue Mechaniken aus den Commander-Decks", () => {
     go(game, random);
     expect(game.cards[holder].counters["+1/+1"]).toBeUndefined();
     expect(game.players.u0.hand.length).toBe(hand + 1);
+  });
+
+  it("Runde 3: Eintritts-Marker, „a creature you control attacks“, Token-Anthem", () => {
+    const { game, random } = started();
+    const tome = put(game, "u0", "Sagenbuch", "hand");
+    forest(game, "u0", 1);
+    expect(act(game, "u0", { type: "cast", id: tome }, random).ok).toBe(true);
+    go(game, random);
+    expect(game.cards[tome].counters.page).toBe(1);
+    const a = put(game, "u0", "Bär", "battlefield");
+    const b = put(game, "u0", "Falke", "battlefield");
+    game.turn.phase = "attackers";
+    expect(act(game, "u0", { type: "declareAttackers", attackers: [{ id: a, target: "u1" }, { id: b, target: "u1" }] }, random).ok).toBe(true);
+    go(game, random);
+    expect(game.cards[tome].counters.page).toBe(3); // je Angreifer ein Marker
+    const { game: g2, random: r2 } = started();
+    put(g2, "u0", "Spielsteinherr", "battlefield");
+    forest(g2, "u0", 1);
+    castAndResolve(g2, "u0", "Koboldsturm", r2);
+    const goblin = g2.players.u0.battlefield.find(id => g2.cards[id].token);
+    expect(view(g2, "u0").players[0].battlefield.find(c => c.id === goblin).power).toBe(2);
+  });
+
+  it("Mengenangaben: „where X is ~'s power“ und „equal to the number of creatures you control“", () => {
+    const { game, random } = started();
+    forest(game, "u0", 3);
+    castAndResolve(game, "u0", "Schwarmrufer", random);
+    for (let i = 0; i < 4 && game.stack.length > 0; i += 1) act(game, game.priority, { type: "pass" }, random);
+    expect(game.players.u0.battlefield.filter(id => game.cards[id].token)).toHaveLength(3);
+    const life = game.players.u0.life;
+    castAndResolve(game, "u0", "Lebenszähler", random);
+    expect(game.players.u0.life).toBe(life + 4); // Schwarmrufer + 3 Spielsteine
+  });
+
+  it("Bedingung „if you gained life this turn“ wird zur Laufzeit geprüft", () => {
+    const { game, random } = started();
+    put(game, "u0", "Lebenswächter", "battlefield");
+    forest(game, "u0", 1);
+    castAndResolve(game, "u0", "Heilung", random);
+    expect(game.players.u0.lifeGained).toBe(4);
+    const hand = game.players.u0.hand.length;
+    game.turn.phase = "main2";
+    for (let i = 0; i < 20 && game.turn.active === "u0" && game.turn.phase !== "end"; i += 1) act(game, game.priority ?? "u0", { type: "pass" }, random);
+    go(game, random);
+    expect(game.players.u0.hand.length).toBeGreaterThanOrEqual(hand + 1);
+  });
+
+  it("Ausrüstung: Schutz vor Farben, „+1/+1 for each charge counter“, verliehener Angriffs-Auslöser", () => {
+    const { game, random } = started();
+    const bear = put(game, "u0", "Bär", "battlefield");
+    const sword = put(game, "u0", "Lichtschwert", "battlefield");
+    game.cards[sword].attachedTo = bear;
+    put(game, "u1", "Mountain", "battlefield");
+    expect(view(game, "u0").players[0].battlefield.find(c => c.id === bear).power).toBe(4);
+    const bolt = put(game, "u1", "Blitz", "hand");
+    game.priority = "u1";
+    expect(act(game, "u1", { type: "cast", id: bolt, targets: [bear] }, random).ok).toBe(false); // Schutz vor Rot
+    const mace = put(game, "u0", "Ladungskeule", "battlefield");
+    game.cards[mace].attachedTo = bear;
+    game.cards[mace].counters.charge = 2;
+    expect(view(game, "u0").players[0].battlefield.find(c => c.id === bear).power).toBe(6);
+    const cry = put(game, "u0", "Schlachtruf-Rüstung", "battlefield");
+    game.cards[cry].attachedTo = bear;
+    const life = game.players.u0.life;
+    game.priority = "u0";
+    game.turn.phase = "attackers";
+    expect(act(game, "u0", { type: "declareAttackers", attackers: [{ id: bear, target: "u1" }] }, random).ok).toBe(true);
+    go(game, random);
+    expect(game.players.u0.life).toBe(life + 3); // 1 (Keule) + 2 (verliehen)
+  });
+
+  it("„You may cast target … card from your graveyard without paying its mana cost“ + danach Exil", () => {
+    const { game, random } = started();
+    forest(game, "u0", 1);
+    const heal = put(game, "u0", "Heilung", "graveyard");
+    castAndResolve(game, "u0", "Gruftruf", random, [heal]);
+    const option = view(game, "u0").players[0].graveyard.find(c => c.id === heal).play;
+    expect(option?.ok).toBe(true); // kostenlos, obwohl kein Mana mehr frei ist
+    const life = game.players.u0.life;
+    expect(act(game, "u0", { type: "cast", id: heal }, random).ok).toBe(true);
+    go(game, random);
+    expect(game.players.u0.life).toBe(life + 4);
+    expect(game.players.u0.exile).toContain(heal);
+    expect(game.cards[heal].freeCast).toBeUndefined();
+  });
+
+  it("„Whenever you sacrifice a Clue“ und „You gain life equal to the life lost this way“", () => {
+    const { game, random } = started();
+    forest(game, "u0", 4);
+    const tracker = put(game, "u0", "Spurenleser", "battlefield");
+    castAndResolve(game, "u0", "Nachforschung", random);
+    const clue = game.players.u0.battlefield.find(id => game.cards[id].token);
+    expect(act(game, "u0", { type: "activate", id: clue, index: 0 }, random).ok).toBe(true);
+    go(game, random);
+    expect(game.cards[tracker].counters["+1/+1"]).toBe(1);
+    const life = game.players.u0.life;
+    castAndResolve(game, "u0", "Lebensentzug", random);
+    expect(game.players.u0.life).toBe(life + 2);
+  });
+
+  it("Bedingte Eigenschaften und Kosten: „can't be blocked if …“, „as long as you've cast …“, „costs {3} less if …“", () => {
+    const { game, random } = started();
+    forest(game, "u0", 6);
+    const kws = id => view(game, "u0").players[0].battlefield.find(c => c.id === id).keywords;
+    const sneak = put(game, "u0", "Schiffsschleicher", "battlefield");
+    expect(kws(sneak)).not.toContain("unblockable");
+    put(game, "u0", "Sense", "battlefield");
+    expect(kws(sneak)).toContain("unblockable");
+    const monk = put(game, "u0", "Spruchkämpferin", "battlefield");
+    expect(kws(monk)).not.toContain("double strike");
+    castAndResolve(game, "u0", "Heilung", random);
+    castAndResolve(game, "u0", "Heilung", random);
+    expect(kws(monk)).toContain("double strike");
+    const { game: g2 } = started();
+    forest(g2, "u0", 3);
+    const book = put(g2, "u0", "Geschichtenbuch", "hand");
+    expect(view(g2, "u0").players[0].hand.find(c => c.id === book).play.ok).toBe(false);
+    for (let i = 0; i < 7; i += 1) g2.players.u1.graveyard.push(g2.players.u1.library.pop());
+    expect(view(g2, "u0").players[0].hand.find(c => c.id === book).play.ok).toBe(true);
+  });
+
+  it("Kopien: Spielstein-Kopie mit Ausnahmen, Klon beim Ins-Spiel-Kommen; Spielsteine lösen „enters“ aus", () => {
+    const { game, random } = started();
+    forest(game, "u0", 4);
+    put(game, "u0", "Spielsteinfreund", "battlefield");
+    const ogre = put(game, "u1", "Oger", "battlefield");
+    const life = game.players.u0.life;
+    castAndResolve(game, "u0", "Replikator", random, [ogre]);
+    go(game, random);
+    const copy = game.players.u0.battlefield.find(id => game.cards[id].token);
+    const card = view(game, "u0").players[0].battlefield.find(c => c.id === copy);
+    expect(card.name).toBe("Oger");
+    expect(card.keywords).toContain("haste");
+    expect(game.players.u0.life).toBe(life + 1); // Spielstein-Eintritt löst aus
+    const shifter = put(game, "u0", "Gestaltwandler", "hand");
+    expect(act(game, "u0", { type: "cast", id: shifter }, random).ok).toBe(true);
+    for (let i = 0; i < 4 && game.stack.length > 0 && !game.choice; i += 1) act(game, game.priority, { type: "pass" }, random);
+    expect(game.choice?.step?.type).toBe("clone");
+    act(game, "u0", { type: "choose", ids: [ogre] }, random);
+    expect(view(game, "u0").players[0].battlefield.find(c => c.id === shifter).name).toBe("Oger");
+    openManual(game, "u0");
+    act(game, "u0", { type: "move", id: shifter, to: "graveyard" }, random);
+    expect(game.defs[game.cards[shifter].def]?.name).toBe("Gestaltwandler"); // im Friedhof wieder die Karte selbst
   });
 
   it("Convoke und Delve bezahlen fehlendes Mana mit Kreaturen bzw. Friedhofskarten", () => {

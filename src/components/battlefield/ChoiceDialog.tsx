@@ -42,6 +42,10 @@ export default function ChoiceDialog({ choice, act, onHover }: { choice: Choice;
               <button key={option.id} type="button" className={picked.includes(option.id) ? "primary" : "secondary"} onClick={() => toggle(option.id)}>
                 {option.player.name}
               </button>
+            ) : option.label && !option.card ? (
+              <button key={option.id} type="button" className={picked.includes(option.id) ? "primary" : "secondary"} aria-pressed={picked.includes(option.id)} onClick={() => toggle(option.id)}>
+                {option.label}
+              </button>
             ) : option.card ? (
               <CardView
                 key={option.id}

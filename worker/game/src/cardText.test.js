@@ -37,7 +37,7 @@ describe("cardText: Zauber", () => {
   });
 
   it("alles Unverstandene bleibt unausgeführt und wird gemeldet", () => {
-    expect(spell("Doom Blade", "Instant", "Destroy target creature with a +1/+1 counter on it.")).toMatchObject({ effects: [], unparsed: ["Destroy target creature with a +1/+1 counter on it"] });
+    expect(spell("Doom Blade", "Instant", "Destroy target creature that was dealt damage this turn.")).toMatchObject({ effects: [], unparsed: ["Destroy target creature that was dealt damage this turn"] });
     expect(spell("Wahl", "Instant", "Choose one or both —\n• Counter target spell.\n• Draw a card.").unparsed).toHaveLength(1);
     const mixed = spell("Mix", "Sorcery", "Draw a card. Exile all cards from each graveyard.");
     expect(mixed.effects).toHaveLength(1);
@@ -257,6 +257,82 @@ describe("cardText: weitere Lücken (Kopieren, Skulk, Stufen, Einzelzeilen)", ()
     expect(parse("Artifact — Equipment", "Whenever equipped creature attacks, you scry 2.").triggers[0]).toMatchObject({ event: "attachedAttacks", effects: [{ type: "scry", n: 2 }] });
   });
 
+  it("Filter wie Zielangaben: Marker, „without“, „that entered this turn“; allgemeine Auslöser und Marker auf „each …“", () => {
+    expect(parse("Enchantment", "Whenever a creature you control with a +1/+1 counter on it dies, draw a card.").triggers[0]).toMatchObject({ event: "creatureDies", scope: { owner: "you", spec: { kind: "creature", counter: "+1/+1" } } });
+    expect(parse("Enchantment", "Whenever a creature you control without flying dies, draw a card.").triggers[0].scope.spec).toMatchObject({ noKeyword: "flying" });
+    expect(parse("Enchantment", "Whenever a green creature you control enters, draw a card.").triggers[0]).toMatchObject({ event: "creatureEnters", scope: { owner: "you", spec: { colors: ["G"] } } });
+    expect(parse("Enchantment", "Whenever an artifact creature an opponent controls attacks, draw a card.").triggers[0]).toMatchObject({ event: "creatureAttacks", scope: { owner: "opp" } });
+    expect(parse("Enchantment", "Whenever an artifact you control attacks, draw a card.").triggers).toEqual([]); // „attacks“ nur für Kreaturen
+    expect(parse("Sorcery", "Put a +1/+1 counter on each artifact creature you control.").spell.effects[0]).toMatchObject({ type: "countersEach", spec: { types: ["artifact"], ctrl: "you" } });
+    expect(parse("Creature — Elf", "~ gets +1/+0 for each artifact you control.").statics[0]).toMatchObject({ scope: "self", perQ: { p: 1, th: 0 } });
+  });
+
+  it("Allgemeine Dauereffekte mit Filter, „up to N target …“ und „tap all …“", () => {
+    expect(parse("Enchantment", "Creatures you control with +1/+1 counters on them have reach and trample.").statics[0]).toMatchObject({ scope: "you", spec: { counter: "+1/+1" }, grants: ["reach", "trample"] });
+    expect(parse("Enchantment", "Other green creatures you control get +1/+1.").statics[0]).toMatchObject({ scope: "youOther", spec: { colors: ["G"] }, p: 1, th: 1 });
+    expect(parse("Enchantment", "Tapped creatures you control have hexproof.").statics[0]).toMatchObject({ spec: { tapped: true }, grants: ["hexproof"] });
+    expect(parse("Enchantment", "Creatures your opponents control with flying get -1/-0.").statics[0]).toMatchObject({ scope: "opp", spec: { keyword: "flying" }, p: -1 });
+    expect(parse("Enchantment", "Elves you control get +1/+1.").statics[0]).toMatchObject({ subtype: "elves" }); // Kreaturtypen bleiben beim alten Weg
+    const seven = parse("Instant", "Up to seven target attacking creatures gain flying until end of turn.").spell;
+    expect(seven.effects).toHaveLength(7);
+    expect(seven.specs.every(spec => spec.optional && spec.attacking)).toBe(true);
+    expect(parse("Instant", "Destroy up to two target artifacts.").spell.effects).toEqual([{ type: "destroy", t: 0 }, { type: "destroy", t: 1 }]);
+    expect(parse("Instant", "Tap all creatures your opponents control.").spell.effects[0]).toMatchObject({ type: "tapEach", spec: { kind: "creature", ctrl: "opp" } });
+    expect(parse("Instant", "Untap all lands you control.").spell.effects[0]).toMatchObject({ type: "tapEach", untap: true, spec: { kind: "land", ctrl: "you" } });
+    expect(parse("Instant", "Tap all creatures target player controls.").spell).toMatchObject({ effects: [{ type: "tapEach", ofTarget: 0 }], specs: [{ kind: "player" }] });
+  });
+
+  it("Gruppen bis Zugende, Spielstein-Filter, Wirk-Auslöser mit Filter, „up to two target … cards“", () => {
+    expect(parse("Instant", "Creature tokens you control gain double strike until end of turn.").spell.effects[0]).toMatchObject({ type: "pumpAll", scope: "you", kws: ["double strike"], spec: { token: true } });
+    expect(parse("Instant", "Other creatures you control with flying get +1/+1 until end of turn.").spell.effects[0]).toMatchObject({ p: 1, th: 1, spec: { keyword: "flying", another: true } });
+    expect(parse("Enchantment", "Creature tokens you control have deathtouch.").statics[0]).toMatchObject({ spec: { token: true }, grants: ["deathtouch"] });
+    expect(parse("Instant", "Destroy target nontoken creature.").spell.specs[0]).toMatchObject({ kind: "creature", token: false });
+    expect(parse("Enchantment", "Whenever you cast a noncreature spell with mana value 3 or greater, draw a card.").triggers[0]).toMatchObject({ event: "castSpell", castFilter: { nonTypes: ["creature"], mvMin: 3 } });
+    expect(parse("Enchantment", "Whenever you cast a spell with {X} in its mana cost, draw a card.").triggers[0].castFilter).toEqual({ hasX: true });
+    expect(parse("Enchantment", "Whenever a player casts a blue spell, draw a card.").triggers).toEqual([]); // Farben (noch) nicht
+    expect(parse("Sorcery", "Return up to two target creature cards from your graveyard to the battlefield.").spell.effects).toHaveLength(2);
+  });
+
+  it("Phasen-Auslöser und „one or more <Filter> you control attack“", () => {
+    expect(parse("Enchantment", "At the beginning of your second main phase, you gain 1 life.").triggers[0]).toMatchObject({ event: "mainPhase", mainWhich: "main2", scope: { owner: "you" } });
+    expect(parse("Enchantment", "At the beginning of each of your main phases, add {G}{G}.").triggers[0]).toMatchObject({ event: "mainPhase", mainWhich: "each" });
+    expect(parse("Enchantment", "At the beginning of combat on each opponent's turn, draw a card.").triggers[0]).toMatchObject({ event: "beginCombat", scope: { owner: "opp" } });
+    expect(parse("Enchantment", "At the beginning of each opponent's end step, draw a card.").triggers[0]).toMatchObject({ event: "endStep", scope: { owner: "opp" } });
+    expect(parse("Enchantment", "At the beginning of each player's upkeep, that player draws a card.").triggers[0]).toMatchObject({ event: "upkeep", scope: { owner: "any" } });
+    expect(parse("Enchantment", "Whenever one or more nontoken Vampires you control attack, draw a card.").triggers[0]).toMatchObject({ event: "youAttack", attackerSpec: { subtypes: ["vampire"], token: false } });
+    expect(parse("Instant", "Destroy target legendary Dragon.").spell.specs[0]).toMatchObject({ kind: "creature", subtypes: ["dragon"], legendary: true });
+  });
+
+  it("Zusatzkosten „pay N/X life“, Tap-Kosten mit Filter, Karte mit Manawert-Grenze aus der Hand ins Spiel, angreifende Spielsteine", () => {
+    expect(parse("Sorcery", "As an additional cost to cast this spell, pay 3 life.\nDraw two cards.").additionalCost).toEqual([{ kind: "life", n: 3 }]);
+    expect(parse("Sorcery", "As an additional cost to cast this spell, pay X life.\nAll creatures get -X/-X until end of turn.").additionalCost).toEqual([{ kind: "life", n: "X" }]);
+    expect(parse("Artifact", "Tap an untapped legendary creature you control: Add one mana of any color.").activated[0].cost.extra[0]).toMatchObject({ kind: "tap", spec: { kind: "creature", legendary: true } });
+    expect(parse("Creature — X", "When ~ enters, you may put a creature card with mana value 3 or less from your hand onto the battlefield.").triggers[0].effects[0].effects[0]).toEqual({ type: "handToField", what: "creature", tapped: false, mvMax: 3 });
+    expect(parse("Sorcery", "Create a tapped and attacking 2/1 red Klingon Warrior creature token with haste.").spell.effects[0]).toMatchObject({ type: "token", tapped: true, attacking: true, keywords: ["haste"] });
+    expect(parse("Sorcery", "For each opponent, create a 1/1 white Soldier creature token.").spell.effects[0]).toMatchObject({ perQ: { kind: "opponents" } });
+    expect(parse("Creature — X", "Whenever ~ deals combat damage to an opponent, it deals that much damage to each other opponent.").triggers[0].effects[0]).toMatchObject({ nFromDamage: true, to: { k: "eachOtherOpp" } });
+  });
+
+  it("Goad-Sätze", () => {
+    expect(parse("Instant", "Goad target creature.").spell.effects).toEqual([{ type: "goad", t: 0 }]);
+    expect(parse("Sorcery", "Goad all creatures you don't control.").spell.effects).toEqual([{ type: "goad", all: true }]);
+    expect(parse("Sorcery", "Goad each creature target player controls.").spell.effects).toEqual([{ type: "goad", eachOfTarget: 0 }]);
+    const two = parse("Sorcery", "Goad up to two target creatures.").spell;
+    expect(two.effects).toHaveLength(2);
+    expect(two.specs.every(spec => spec.optional)).toBe(true);
+    expect(parse("Sorcery", "Goad up to X target creatures.").spell.unparsed).toHaveLength(1);
+  });
+
+  it("Mehrfach-Modi: „Choose two“, „one or more“, „both“ mit Kommandant, modaler Auslöser mit zwei Modi", () => {
+    expect(parse("Sorcery", "Choose two —\n• Draw a card.\n• You gain 3 life.\n• Scry 2.").spell.modeCount).toEqual({ min: 2, max: 2 });
+    expect(parse("Sorcery", "Choose one or more —\n• Draw a card.\n• You gain 3 life.").spell.modeCount).toEqual({ min: 1, max: 2 });
+    expect(parse("Instant", "Choose one. If you control a commander as you cast this spell, you may choose both instead.\n• Draw a card.\n• Gain 3 life.").spell.modeCount).toMatchObject({ min: 1, max: 1, commanderMax: 2 });
+    expect(parse("Instant", "Choose one —\n• Draw a card.\n• Gain 3 life.").spell.modeCount).toBeUndefined();
+    const titan = parse("Creature — Giant", "When ~ enters, choose two —\n• Draw a card.\n• You gain 3 life.\n• Scry 1.").triggers[0];
+    expect(titan.pick).toBe(2);
+    expect(titan.modes).toHaveLength(3);
+  });
+
   it("Einzeilige Modi, Länder mit „unless … eight or more lands“, Suche nach Basisländern", () => {
     expect(parse("Instant", "Choose one. If you control a commander as you cast this spell, you may choose both instead.\n• Draw a card.\n• Gain 3 life.").spell.modes).toHaveLength(2);
     expect(parse("Land", "~ enters tapped unless your opponents control eight or more lands.").entersTappedUnless).toEqual({ kind: "oppLands", n: 8 });
@@ -369,5 +445,44 @@ describe("cardText: Star Trek/FF Runde 2", () => {
     expect(parse("Creature — X", "When ~ enters, support 2.").triggers[0].effects).toHaveLength(2);
     expect(parse("Sorcery", "Look at the top seven cards of your library. Put two of them into your hand and the rest on the bottom of your library in any order.").spell.unparsed).toEqual([]);
     expect(parse("Creature — X", "When ~ enters, you may discard your hand. If you do, draw a card for each card discarded this way.").triggers[0].unparsed).toEqual([]);
+  });
+});
+
+describe("cardText: Star Trek/FF Runde 3", () => {
+  const parse = (typeLine, oracleText) => parseCardText({ name: "Karte", typeLine, oracleText });
+
+  it("Kommandant/Angriff-Auslöser, Marker-Kosten, Eintritts-Marker, Token-Anthem", () => {
+    expect(parse("Artifact", "Whenever your commander enters or attacks, put a page counter on ~.").triggers.map(t => [t.event, t.scope.commander])).toEqual([["creatureEnters", true], ["creatureAttacks", true]]);
+    expect(parse("Creature — X", "Whenever a creature you control attacks, you gain 1 life.").triggers[0].event).toBe("creatureAttacks");
+    expect(parse("Artifact", "{T}, Remove a counter from ~: Draw a card.").activated[0].cost.extra[0]).toMatchObject({ kind: "removeCounter", counter: "any" });
+    expect(parse("Artifact", "~ enters with a page counter on it.").entersWithCounters).toEqual({ n: 1, kind: "page" });
+    expect(parse("Creature — X", "Creature tokens you control get +1/+1.").statics[0]).toMatchObject({ tokenOnly: true, p: 1, th: 1 });
+    expect(parse("Artifact Creature — Golem", "~'s power is equal to the number of artifacts you control.").dynamicPT).toMatchObject({ per: "artifact you control", powerOnly: true });
+  });
+
+  it("Spruchtexte: Drachen zerstören, Syphon Mind, Satyr Wayfinder, „for each attacking creature“", () => {
+    expect(parse("Sorcery", "Destroy all non-Dragon creatures.").spell.effects[0]).toMatchObject({ type: "destroyAll", nonSubtype: "dragon" });
+    expect(parse("Sorcery", "Each other player discards a card. You draw a card for each card discarded this way.").spell.unparsed).toEqual([]);
+    expect(parse("Creature — X", "When ~ enters, reveal the top four cards of your library. You may put a land card from among them into your hand. Put the rest into your graveyard.").triggers[0].unparsed).toEqual([]);
+    expect(parse("Instant", "Draw a card for each attacking creature.").spell.effects[0]).toMatchObject({ per: "attacking creature" });
+  });
+});
+
+describe("cardText: Kurznamen legendärer Karten und weitere Satzformen", () => {
+  it("„Loran“ steht für „Loran of the Third Path“, „Lieutenant Sulu“ für „Lieutenant Hikaru Sulu“", () => {
+    const loran = parseCardText({ name: "Loran of the Third Path", typeLine: "Legendary Creature — Human Artificer", oracleText: "When Loran enters, destroy up to one target artifact or enchantment." });
+    expect(loran.triggers[0]).toMatchObject({ event: "etb", effects: [{ type: "destroy" }] });
+    const sulu = parseCardText({ name: "Lieutenant Hikaru Sulu", typeLine: "Legendary Creature — Human Soldier", oracleText: "Whenever Lieutenant Sulu becomes tapped, he explores." });
+    expect(sulu.triggers[0].event).toBe("becomesTapped");
+    // nicht legendär: keine Kurzform
+    const plain = parseCardText({ name: "Goblin Guide", typeLine: "Creature — Goblin", oracleText: "Whenever a Goblin you control attacks, draw a card." });
+    expect(plain.triggers[0]?.event).not.toBe("attacks");
+  });
+
+  it("„Then …“, „those creatures get …“, „you may sacrifice it“", () => {
+    const parse = (typeLine, oracleText) => parseCardText({ name: "Karte", typeLine, oracleText });
+    expect(parse("Creature — X", "When ~ enters, draw a card. Then put a +1/+1 counter on ~ for each creature you control.").triggers[0].unparsed).toEqual([]);
+    expect(parse("Creature — X", "Whenever you attack with three or more creatures, those creatures get +1/+1 until end of turn.").triggers[0].effects[0]).toMatchObject({ type: "pumpAll", attackingOnly: true });
+    expect(parse("Artifact", "At the beginning of your end step, you may sacrifice it.").triggers[0].effects[0]).toMatchObject({ type: "may" });
   });
 });

@@ -93,6 +93,7 @@ export default function Battlefield({
   };
   const [payPick, setPayPick] = useState<{ action: GameAction; name: string; cost: string } | null>(null);
   const [modePick, setModePick] = useState<{ card: GameCard; x?: number } | null>(null);
+  const [modePicked, setModePicked] = useState<number[]>([]);
   const [coinDone, setCoinDone] = useState<number | null>(null);
   const [mountedAt] = useState(() => Date.now());
   const hoverTimer = useRef<number | undefined>(undefined);
@@ -204,7 +205,7 @@ export default function Battlefield({
   const withPays = (specs: TargetOption[], pays: PayRequirement[] | undefined, build: (targets: string[], pay: string[]) => GameAction) => {
     const picks: TargetOption[] = (pays ?? [])
       .filter(item => item.kind !== "life" && item.kind !== "removeCounter" && item.kind !== "energy")
-      .flatMap(item => Array.from({ length: item.n }, () => ({ kind: item.kind === "discard" ? "payDiscard" : item.kind === "tap" ? "payTap" : item.kind === "removeAnyCounter" ? "payCounter" : "paySacrifice", options: item.options })));
+      .flatMap(item => Array.from({ length: typeof item.n === "number" ? item.n : 0 }, () => ({ kind: item.kind === "discard" ? "payDiscard" : item.kind === "tap" ? "payTap" : item.kind === "removeAnyCounter" ? "payCounter" : "paySacrifice", options: item.options })));
     return { specs: [...specs, ...picks], run: (picked: string[]) => build(picked.slice(0, specs.length), picked.slice(specs.length)) };
   };
 
@@ -223,15 +224,18 @@ export default function Battlefield({
     setPayPick({ action, name: card.name ?? "Karte", cost });
   };
 
-  const startCast = (card: GameCard, x?: number, mode?: number) => {
+  const startCast = (card: GameCard, x?: number, mode?: number | number[]) => {
     if (card.play?.kind === "land") return act({ type: "playLand", id: card.id });
-    if (x === undefined && /\{X\}/i.test(card.manaCost ?? "")) return setCastX({ id: card.id, name: card.name ?? "", value: 0 });
+    if (x === undefined && (/\{X\}/i.test(card.manaCost ?? "") || card.play?.pays?.some(pay => pay.n === "X"))) return setCastX({ id: card.id, name: card.name ?? "", value: 0 });
     if (mode === undefined && card.play?.modes?.length) return setModePick({ card, x });
-    const chosen = mode !== undefined ? card.play?.modes?.[mode] : undefined;
-    const flow = withPays(chosen?.targets ?? card.play?.targets ?? [], card.play?.pays, (targets, pay) => ({
+    const list = Array.isArray(mode) ? [...mode].sort((a, b) => a - b) : null;
+    const chosen = typeof mode === "number" ? card.play?.modes?.[mode] : undefined;
+    const modeTargets = list ? list.flatMap(index => card.play?.modes?.[index]?.targets ?? []) : chosen?.targets;
+    const flow = withPays(modeTargets ?? card.play?.targets ?? [], card.play?.pays, (targets, pay) => ({
       type: "cast",
       id: card.id,
-      ...(mode !== undefined ? { mode } : {}),
+      ...(typeof mode === "number" ? { mode } : {}),
+      ...(list ? { modes: list } : {}),
       ...(x !== undefined ? { x } : {}),
       ...(targets.length > 0 ? { targets } : {}),
       ...(pay.length > 0 ? { pay } : {})
@@ -638,17 +642,24 @@ export default function Battlefield({
           {modePick && (
             <div className="modal-back">
               <div className="modal small" role="dialog" aria-label="Modus wählen">
-                <h3>{modePick.card.name}: Wähle einen Modus</h3>
+                <h3>{modePick.card.name}: {modePick.card.play?.modeCount && modePick.card.play.modeCount.max > 1 ? `Wähle ${modePick.card.play.modeCount.min === modePick.card.play.modeCount.max ? modePick.card.play.modeCount.min : `${modePick.card.play.modeCount.min}–${modePick.card.play.modeCount.max}`} Modi` : "Wähle einen Modus"}</h3>
                 <div className="mode-list">
                   {modePick.card.play?.modes?.map((mode, index) => {
                     const blocked = mode.targets.some(target => target.options.length === 0) || mode.manual;
+                    const multi = (modePick.card.play?.modeCount?.max ?? 1) > 1;
+                    const picked = modePicked.includes(index);
                     return (
                       <button
                         key={index}
                         type="button"
-                        className="secondary"
+                        className={picked ? "primary" : "secondary"}
+                        aria-pressed={multi ? picked : undefined}
                         disabled={blocked}
                         onClick={() => {
+                          if (multi) {
+                            setModePicked(current => (current.includes(index) ? current.filter(item => item !== index) : current.length < (modePick.card.play?.modeCount?.max ?? 1) ? [...current, index] : current));
+                            return;
+                          }
                           const { card, x } = modePick;
                           setModePick(null);
                           startCast(card, x, index);
@@ -661,7 +672,32 @@ export default function Battlefield({
                   })}
                 </div>
                 <div className="start-actions">
-                  <button type="button" className="secondary" onClick={() => setModePick(null)}>Abbrechen</button>
+                  {(modePick.card.play?.modeCount?.max ?? 1) > 1 && (
+                    <button
+                      type="button"
+                      className="primary"
+                      disabled={modePicked.length < (modePick.card.play?.modeCount?.min ?? 1)}
+                      onClick={() => {
+                        const { card, x } = modePick;
+                        const list = modePicked;
+                        setModePick(null);
+                        setModePicked([]);
+                        startCast(card, x, list);
+                      }}
+                    >
+                      Wirken
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    className="secondary"
+                    onClick={() => {
+                      setModePick(null);
+                      setModePicked([]);
+                    }}
+                  >
+                    Abbrechen
+                  </button>
                 </div>
               </div>
             </div>
