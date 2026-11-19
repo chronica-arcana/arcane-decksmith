@@ -257,6 +257,16 @@ describe("cardText: weitere Lücken (Kopieren, Skulk, Stufen, Einzelzeilen)", ()
     expect(parse("Artifact — Equipment", "Whenever equipped creature attacks, you scry 2.").triggers[0]).toMatchObject({ event: "attachedAttacks", effects: [{ type: "scry", n: 2 }] });
   });
 
+  it("Mehrfach-Modi: „Choose two“, „one or more“, „both“ mit Kommandant, modaler Auslöser mit zwei Modi", () => {
+    expect(parse("Sorcery", "Choose two —\n• Draw a card.\n• You gain 3 life.\n• Scry 2.").spell.modeCount).toEqual({ min: 2, max: 2 });
+    expect(parse("Sorcery", "Choose one or more —\n• Draw a card.\n• You gain 3 life.").spell.modeCount).toEqual({ min: 1, max: 2 });
+    expect(parse("Instant", "Choose one. If you control a commander as you cast this spell, you may choose both instead.\n• Draw a card.\n• Gain 3 life.").spell.modeCount).toMatchObject({ min: 1, max: 1, commanderMax: 2 });
+    expect(parse("Instant", "Choose one —\n• Draw a card.\n• Gain 3 life.").spell.modeCount).toBeUndefined();
+    const titan = parse("Creature — Giant", "When ~ enters, choose two —\n• Draw a card.\n• You gain 3 life.\n• Scry 1.").triggers[0];
+    expect(titan.pick).toBe(2);
+    expect(titan.modes).toHaveLength(3);
+  });
+
   it("Einzeilige Modi, Länder mit „unless … eight or more lands“, Suche nach Basisländern", () => {
     expect(parse("Instant", "Choose one. If you control a commander as you cast this spell, you may choose both instead.\n• Draw a card.\n• Gain 3 life.").spell.modes).toHaveLength(2);
     expect(parse("Land", "~ enters tapped unless your opponents control eight or more lands.").entersTappedUnless).toEqual({ kind: "oppLands", n: 8 });

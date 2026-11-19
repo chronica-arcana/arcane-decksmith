@@ -1498,12 +1498,12 @@ export function parseCardText({ name, typeLine, oracleText }) {
         }
         i -= modeLines.length;
       }
-      const header = rawLines[i].match(/^(When|Whenever|At) (.+), choose one\s*[\u2014-]\s*$/i);
+      const header = rawLines[i].match(/^(When|Whenever|At) (.+), choose (one|two)\s*[\u2014-]\s*$/i);
       if (header) {
         const modes = [];
         while (i + 1 < rawLines.length && /^[•*]\s*/.test(rawLines[i + 1])) modes.push(rawLines[(i += 1)].replace(/^[•*]\s*/, ""));
         if (modes.length >= 2) {
-          modalTriggers.push({ word: header[1], condition: header[2].toLowerCase(), modes, line: rawLines[i - modes.length] });
+          modalTriggers.push({ word: header[1], condition: header[2].toLowerCase(), modes, line: rawLines[i - modes.length], pick: header[3].toLowerCase() === "two" ? 2 : 1 });
           continue;
         }
         i -= modes.length;
@@ -1524,9 +1524,13 @@ export function parseCardText({ name, typeLine, oracleText }) {
   if (types.instant || types.sorcery) {
     // Modale Zauber: „Choose one —“ mit Aufzählung; der Spieler wählt beim Wirken einen Modus.
     const modeLines = rawLines.filter(line => /^[•*]\s*/.test(line)).map(line => line.replace(/^[•*]\s*/, ""));
-    if (rawLines.some(line => /^choose one(?:\s*[—-]|\.)/i.test(line)) && modeLines.length >= 2) {
+    const header = rawLines.find(line => /^choose (one|two|three|one or more|any number)(?:\s*[—-]|\.)/i.test(line));
+    if (header && modeLines.length >= 2) {
       const modes = modeLines.map(text => ({ label: text, ...parseEffectText(text) }));
-      result.spell = { effects: [], specs: [], unparsed: [], modes };
+      const word = header.toLowerCase().match(/^choose (one or more|any number|one|two|three)/)[1];
+      const count = { one: [1, 1], two: [2, 2], three: [3, 3], "one or more": [1, modes.length], "any number": [0, modes.length] }[word];
+      const commanderBoth = /if you control a commander[^.]*, you may choose both instead/i.test(header);
+      result.spell = { effects: [], specs: [], unparsed: [], modes, ...(count[1] > 1 || commanderBoth ? { modeCount: { min: count[0], max: count[1], ...(commanderBoth ? { commanderMax: 2 } : {}) } } : {}) };
       return result;
     }
     const body = [];
@@ -2195,7 +2199,7 @@ export function parseCardText({ name, typeLine, oracleText }) {
   for (const modal of modalTriggers) {
     const events = modal.condition === "~ attacks or blocks" ? [triggerEvent(modal.word, "~ attacks"), triggerEvent(modal.word, "~ blocks")] : modal.condition === "~ enters or attacks" ? [triggerEvent(modal.word, "~ enters"), triggerEvent(modal.word, "~ attacks")] : [triggerEvent(modal.word, modal.condition)];
     const modes = modal.modes.map(text => ({ label: text, ...parseEffectText(text) }));
-    if (events.every(Boolean) && modes.every(mode => mode.specs.length <= 2)) for (const event of events) result.triggers.push({ ...event, text: modal.line, modes, effects: [], specs: [], unparsed: modes.flatMap(mode => mode.unparsed) });
+    if (events.every(Boolean) && modes.every(mode => mode.specs.length <= 2)) for (const event of events) result.triggers.push({ ...event, text: modal.line, modes, ...(modal.pick > 1 ? { pick: modal.pick } : {}), effects: [], specs: [], unparsed: modes.flatMap(mode => mode.unparsed) });
     else result.notes.push(`${modal.word} ${modal.condition}, choose one — ${modal.modes.join(" • ")}`);
   }
   for (const tier of tiers) {

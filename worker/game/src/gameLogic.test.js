@@ -226,7 +226,10 @@ const LIB = [
   ["drifter", "Treiber", "Creature — Elemental", "{3}{G}", 2, { power: "2", toughness: "2" }, "When this creature enters, draw two cards.\nEvoke {1}{G}"],
   ["humanlord", "Menschenhauptmann", "Creature — Human Soldier", "{G}", 2, { power: "1", toughness: "1" }, "Whenever another Human you control enters, put a +1/+1 counter on this creature."],
   ["human2", "Mensch", "Creature — Human Peasant", "{G}", 2, { power: "1", toughness: "1" }],
-  ["priest", "Priester", "Creature — Cleric", "{G}", 2, { power: "1", toughness: "1" }, "At the beginning of your end step, you gain 1 life."]
+  ["priest", "Priester", "Creature — Cleric", "{G}", 2, { power: "1", toughness: "1" }, "At the beginning of your end step, you gain 1 life."],
+  ["twomodes", "Doppelwahl", "Sorcery", "{G}", 2, {}, "Choose two —\n• Doppelwahl deals 2 damage to any target.\n• You gain 5 life.\n• Draw a card."],
+  ["cmdboth", "Kommandowahl", "Instant", "{G}", 2, {}, "Choose one. If you control a commander as you cast this spell, you may choose both instead.\n• You gain 4 life.\n• Draw a card."],
+  ["twotrig", "Zweifachwesen", "Creature — Giant", "{1}", 2, { power: "2", toughness: "2" }, "When ~ enters, choose two —\n• You gain 3 life.\n• Draw a card.\n• Zweifachwesen deals 1 damage to any target."],
 ];
 const facts = new Map();
 
@@ -1236,6 +1239,54 @@ describe("Bedingungen, Modi, X und Cycling", () => {
     expect(act(game, "u0", { type: "cast", id, mode: 0 }, random).ok).toBe(false); // Ziel fehlt
     expect(act(game, "u0", { type: "cast", id, mode: 1 }, random).ok).toBe(true);
     expect(game.players.u0.life).toBe(25);
+  });
+
+  it("Mehrfach-Modi: „Choose two“ verbindet Effekte und Ziele, falsche Anzahl wird abgelehnt", () => {
+    const { game, random } = started();
+    forest(game, "u0", 2);
+    const id = put(game, "u0", "Doppelwahl", "hand", { only: "library" });
+    const play = view(game, "u0").players[0].hand.find(c => c.id === id).play;
+    expect(play.modeCount).toEqual({ min: 2, max: 2 });
+    expect(act(game, "u0", { type: "cast", id, modes: [1] }, random).error).toMatch(/genau 2/);
+    expect(act(game, "u0", { type: "cast", id, modes: [0, 1, 2] }, random).error).toMatch(/genau 2/);
+    const life = game.players.u1.life;
+    const own = game.players.u0.life;
+    expect(act(game, "u0", { type: "cast", id, modes: [1, 0], targets: ["u1"] }, random).ok).toBe(true);
+    for (let i = 0; i < 4 && game.stack.length > 0; i += 1) act(game, game.priority, { type: "pass" }, random);
+    expect(game.players.u1.life).toBe(life - 2);
+    expect(game.players.u0.life).toBe(own + 5);
+  });
+
+  it("Mehrfach-Modi: „both“ nur mit eigenem Kommandanten auf dem Schlachtfeld", () => {
+    const { game, random } = started();
+    forest(game, "u0", 2);
+    const id = put(game, "u0", "Kommandowahl", "hand", { only: "library" });
+    expect(act(game, "u0", { type: "cast", id, modes: [0, 1] }, random).error).toMatch(/Modi/);
+    const cmd = put(game, "u0", "Bär", "battlefield");
+    game.cards[cmd].cmd = true;
+    expect(view(game, "u0").players[0].hand.find(c => c.id === id).play.modeCount).toEqual({ min: 1, max: 2 });
+    const hand = game.players.u0.hand.length - 1;
+    const own = game.players.u0.life;
+    expect(act(game, "u0", { type: "cast", id, modes: [0, 1] }, random).ok).toBe(true);
+    for (let i = 0; i < 4 && game.stack.length > 0; i += 1) act(game, game.priority, { type: "pass" }, random);
+    expect(game.players.u0.life).toBe(own + 4);
+    expect(game.players.u0.hand.length).toBe(hand + 1);
+  });
+
+  it("Modaler Auslöser mit „choose two“: zwei Modi wählen, beide ausführen", () => {
+    const { game, random } = started();
+    forest(game, "u0", 2);
+    const life = game.players.u0.life;
+    const id = put(game, "u0", "Zweifachwesen", "hand");
+    const hand = game.players.u0.hand.length - 1;
+    expect(act(game, "u0", { type: "cast", id }, random).ok).toBe(true);
+    for (let i = 0; i < 4 && game.stack.length > 0; i += 1) act(game, game.priority, { type: "pass" }, random);
+    expect(game.choice?.kind).toBe("cards");
+    expect(game.choice.min).toBe(2);
+    act(game, "u0", { type: "choose", ids: ["0", "1"] }, random);
+    for (let i = 0; i < 4 && game.stack.length > 0; i += 1) act(game, game.priority, { type: "pass" }, random);
+    expect(game.players.u0.life).toBe(life + 3);
+    expect(game.players.u0.hand.length).toBe(hand + 1);
   });
 
   it("X-Zauber: der gewählte Wert bestimmt die Menge", () => {
@@ -2784,7 +2835,8 @@ describe("Neue Mechaniken aus den Commander-Decks", () => {
   it("Bedingter Effekt („if you control a creature with power 4 or greater“) und verzögertes Zurückkehren aus dem Exil", () => {
     const { game, random } = started();
     forest(game, "u0", 3);
-    const hand = game.players.u0.hand.length;
+    game.players.u0.hand = [];
+    const hand = 0;
     castAndResolve(game, "u0", "Bedingungswesen", random);
     for (let i = 0; i < 4 && game.stack.length > 0; i += 1) act(game, game.priority, { type: "pass" }, random);
     expect(game.players.u0.hand.length).toBe(hand); // keine Kreatur mit Stärke 4: nichts gezogen

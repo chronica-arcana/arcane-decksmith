@@ -1,17 +1,17 @@
 {
-  "measuredAt": "2026-11-19T11:00:57.892Z",
+  "measuredAt": "2026-11-19T11:06:13.409Z",
   "focus": {
     "cards": 545,
-    "automated": 315,
-    "rate": 57.8,
+    "automated": 317,
+    "rate": 58.2,
     "decks": [
       {
         "name": "FIC Counter Blitz (FINAL FANTASY X)",
-        "rate": 67
+        "rate": 68
       },
       {
         "name": "FIC Limit Break (FINAL FANTASY VII)",
-        "rate": 58
+        "rate": 59
       },
       {
         "name": "FIC Revival Trance (FINAL FANTASY VI)",
@@ -31,7 +31,7 @@
       },
       {
         "name": "TRC Landing Party",
-        "rate": 72
+        "rate": 73
       },
       {
         "name": "TRC We Are the Borg",
@@ -41,7 +41,7 @@
   },
   "all": {
     "cards": 2006,
-    "automated": 837,
-    "rate": 41.7
+    "automated": 841,
+    "rate": 41.9
   }
 }

@@ -1243,7 +1243,7 @@ function resolveTop(game) {
   const owner = game.players[card.owner];
   if (def.types.instant || def.types.sorcery) {
     const base = def.rules?.spell ?? { effects: [], specs: [], unparsed: [] };
-    const spell = base.modes ? base.modes[item.mode] ?? { effects: [], specs: [], unparsed: [] } : base;
+    const spell = base.modes ? (Array.isArray(item.modeList) ? combineModes(base.modes, item.modeList) : base.modes[item.mode] ?? { effects: [], specs: [], unparsed: [] }) : base;
     if (spell.specs.length > 0 && !targetsLegal(game, spell.specs, item.targets ?? [], item.controller, srcOfDef(def, card.id))) {
       addLog(game, `${def.name} verpufft (Ziel nicht mehr gültig).`);
     } else {
@@ -2182,15 +2182,15 @@ function flushTriggers(game) {
       unparsed: trigger.unparsed
     };
     if (trigger.modes) {
-      // Modaler Auslöser: erst den Modus wählen, dann ggf. Ziele
+      // Modaler Auslöser: erst den Modus wählen (bei „choose two“ zwei), dann ggf. Ziele
       openChoice(game, {
         userId: next.controller,
-        kind: "yesno",
+        kind: trigger.pick > 1 ? "cards" : "yesno",
         prompt: `${next.sourceName}: Wähle einen Modus.`,
         options: trigger.modes.map((_, index) => String(index)),
         labels: Object.fromEntries(trigger.modes.map((mode, index) => [String(index), mode.label])),
-        min: 1,
-        max: 1,
+        min: trigger.pick ?? 1,
+        max: trigger.pick ?? 1,
         step: { type: "triggerMode", base, trigger },
         queue: [],
         ctx: null
@@ -2267,6 +2267,40 @@ function noteLifeGain(game, userId, amount) {
     player.lifeGained = 0;
   }
   player.lifeGained += amount;
+}
+
+/** Verschiebt Zielindizes eines Effekts (für zusammengesetzte Modi). */
+function shiftTargets(effect, offset) {
+  if (!offset) return effect;
+  const next = { ...effect };
+  for (const key of ["t", "from", "to"]) if (typeof next[key] === "number") next[key] += offset;
+  if (next.to && typeof next.to === "object" && typeof next.to.t === "number") next.to = { ...next.to, t: next.to.t + offset };
+  if (next.source && typeof next.source === "object" && typeof next.source.t === "number") next.source = { ...next.source, t: next.source.t + offset };
+  if (next.forTargetController !== undefined) next.forTargetController += offset;
+  if (next.who && typeof next.who === "object" && typeof next.who.t === "number") next.who = { ...next.who, t: next.who.t + offset };
+  if (Array.isArray(next.effects)) next.effects = next.effects.map(item => shiftTargets(item, offset));
+  return next;
+}
+
+/** Mehrere gewählte Modi zu einem Effekt mit gemeinsamen Zielen zusammenfügen (in Kartenreihenfolge). */
+function combineModes(modes, list) {
+  const out = { effects: [], specs: [], unparsed: [] };
+  for (const index of [...list].sort((a, b) => a - b)) {
+    const mode = modes[index];
+    if (!mode) continue;
+    const offset = out.specs.length;
+    out.specs.push(...mode.specs);
+    out.effects.push(...mode.effects.map(effect => shiftTargets(effect, offset)));
+    out.unparsed.push(...mode.unparsed);
+  }
+  return out;
+}
+
+/** Wie viele Modi darf der Spieler wählen? */
+function modeLimits(game, userId, spell) {
+  const count = spell.modeCount ?? { min: 1, max: 1 };
+  const commander = count.commanderMax && game.players[userId].battlefield.some(id => game.cards[id].cmd);
+  return { min: Math.max(1, count.min), max: commander ? Math.max(count.max, count.commanderMax) : count.max };
 }
 
 /** Prüft eine Bedingung (siehe parseCondition in quantity.js) für den Kontrolleur aus `ctx`. */
@@ -3890,9 +3924,9 @@ function chooseAction(game, userId, action, random, now) {
       break;
     }
     case "triggerMode": {
-      const mode = step.trigger.modes[Number(ids[0])];
+      const mode = ids.length > 1 ? combineModes(step.trigger.modes, ids.map(Number)) : step.trigger.modes[Number(ids[0])];
       if (!mode) break;
-      const base = { ...step.base, text: mode.label, effects: mode.effects, specs: mode.specs, unparsed: mode.unparsed };
+      const base = { ...step.base, text: mode.label ?? ids.map(index => step.trigger.modes[Number(index)]?.label).join(" "), effects: mode.effects, specs: mode.specs, unparsed: mode.unparsed };
       if (mode.specs.length === 0) pushAbility(game, { ...base, targets: [] });
       else openTriggerTarget(game, userId, base, [], base.sourceName, mode.label);
       break;
@@ -4153,6 +4187,7 @@ export function playOptions(game, userId, id) {
     pays: def.rules?.additionalCost ? payRequirements(game, userId, def.rules.additionalCost, id) : [],
     targets: spell && !spell.modes && spell.specs.length > 0 ? targetOptions(game, spell.specs, userId, srcOfDef(def, id)) : [],
     modes: spell?.modes?.map(mode => ({ label: mode.label, summary: mode.summary, targets: targetOptions(game, mode.specs, userId, srcOfDef(def, id)), manual: mode.unparsed.length > 0 })),
+    ...(spell?.modes && (spell.modeCount || false) ? { modeCount: modeLimits(game, userId, spell) } : {}),
     manual: Boolean(spell && !spell.modes && spell.unparsed.length > 0)
   };
 }
@@ -4842,7 +4877,13 @@ function castAction(game, userId, action) {
   const spellRules = def.rules?.spell;
   let activeRules = spellRules;
   let mode = null;
-  if (spellRules?.modes) {
+  let modeList = null;
+  if (spellRules?.modes && Array.isArray(action.modes)) {
+    const limits = modeLimits(game, userId, spellRules);
+    modeList = [...new Set(action.modes.filter(index => Number.isInteger(index) && spellRules.modes[index]))];
+    if (modeList.length < limits.min || modeList.length > limits.max) return fail(limits.min === limits.max ? `Wähle genau ${limits.min} Modi.` : `Wähle ${limits.min} bis ${limits.max} Modi.`);
+    activeRules = combineModes(spellRules.modes, modeList);
+  } else if (spellRules?.modes) {
     mode = action.mode;
     if (!Number.isInteger(mode) || !spellRules.modes[mode]) return fail("Wähle zuerst einen Modus für diesen Zauber.");
     activeRules = spellRules.modes[mode];
@@ -4887,7 +4928,7 @@ function castAction(game, userId, action) {
   found.card.revealed = false;
   const greatestPower = player.battlefield.reduce((max, id) => (defOf(game, game.cards[id]).types.creature ? Math.max(max, powerOf(game, game.cards[id])) : max), 0);
   found.card.faceDown = false;
-  game.stack.push({ sid: newId(game, "s"), kind: "spell", controller: userId, cardId: found.card.id, x, flashback, mode, targets: specs.length > 0 ? action.targets : [], greatestPower, fromExile: found.zone === "exile", evoked, ...(freeInfo?.exileAfter ? { exileAfter: true } : {}), ...(mutating ? { mutate: action.mutate, over: action.over !== false } : {}) });
+  game.stack.push({ sid: newId(game, "s"), kind: "spell", controller: userId, cardId: found.card.id, x, flashback, mode, targets: specs.length > 0 ? action.targets : [], greatestPower, fromExile: found.zone === "exile", evoked, ...(modeList ? { modeList } : {}), ...(freeInfo?.exileAfter ? { exileAfter: true } : {}), ...(mutating ? { mutate: action.mutate, over: action.over !== false } : {}) });
   game.priority = userId;
   game.passed = [];
   addLog(game, `${player.name} wirkt ${def.name}${paid}.`);
