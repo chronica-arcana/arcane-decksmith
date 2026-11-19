@@ -1,13 +1,13 @@
 {
-  "measuredAt": "2026-11-19T10:53:56.564Z",
+  "measuredAt": "2026-11-19T11:00:57.892Z",
   "focus": {
     "cards": 545,
-    "automated": 313,
-    "rate": 57.4,
+    "automated": 315,
+    "rate": 57.8,
     "decks": [
       {
         "name": "FIC Counter Blitz (FINAL FANTASY X)",
-        "rate": 66
+        "rate": 67
       },
       {
         "name": "FIC Limit Break (FINAL FANTASY VII)",
@@ -23,7 +23,7 @@
       },
       {
         "name": "TRC Federation Fleet",
-        "rate": 72
+        "rate": 74
       },
       {
         "name": "TRC Klingon Fury",
@@ -41,7 +41,7 @@
   },
   "all": {
     "cards": 2006,
-    "automated": 831,
-    "rate": 41.4
+    "automated": 837,
+    "rate": 41.7
   }
 }

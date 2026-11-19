@@ -27,6 +27,7 @@ Startpunkt der autonomen Phase (PR #69): Star Trek/FF 278/545 (51,0 %), alle Dec
 | 8 | Kurznamen legendärer Karten („Loran enters“), „Then …“, „becomes tapped“, „those creatures get …“, „you may sacrifice it“, Gearhulk-Form, „up to two <Typ> cards from among them“ | 303 (55,6 %) | 810 (40,4 %) |
 | 9 | Opfer-Ereignisse („whenever you sacrifice a Clue/Treasure …“), „life lost this way“, „one or more creatures attack“, „~ or another legendary permanent enters“, Unwinding Clock, Friedhofsziele mit Untertypen, „a commander you control enters or attacks“ | 309 (56,7 %) | 825 (41,1 %) |
 | 10 | Bedingungen als Baustein auch für Dauereffekte und Kosten (`evalCondition`): „can't be blocked if …“, „as long as …, ~ has …“, „costs {N} less if …“; „you've cast two or more noncreature spells“; „all nonartifact creatures get -X/-X“; Monstrosity X; „search for up to X“ | 313 (57,4 %) | 831 (41,4 %) |
+| 11 | Kopie-Baustein: Spielstein-Kopien mit Ausnahmen („isn't legendary“, „has haste“, „4/4 black Zombie“ …), Klone beim Ins-Spiel-Kommen; Spielsteine lösen jetzt „enters“-Auslöser aus (Regelkorrektur) | 315 (57,8 %) | 837 (41,7 %) |
 
 ## Implementierte Bausteine (Auswahl)
 

@@ -137,3 +137,39 @@ export function parseCondition(text, parseSpec) {
   if (/^it's not your turn$/.test(t)) return { kind: "notYourTurn" };
   return null;
 }
+
+const COLOR_WORDS = { white: "W", blue: "U", black: "B", red: "R", green: "G" };
+const KEYWORD_WORDS = ["flying", "haste", "trample", "vigilance", "menace", "lifelink", "deathtouch", "reach", "first strike", "double strike", "hexproof", "indestructible"];
+
+/**
+ * Ausnahmen bei Kopien („except it isn't legendary, it's a 4/4 black Zombie, it has haste“).
+ * Rückgabe: Änderungen für die Kopie oder `null`, wenn eine Ausnahme unbekannt ist.
+ */
+export function parseCopyExceptions(text) {
+  const mods = { kws: [], addSubtypes: [] };
+  if (!text) return mods;
+  const parts = text.toLowerCase().replace(/\.$/, "").split(/,\s*(?:and\s+)?|\s+and\s+(?=it|its|he|she|they)/).map(part => part.trim()).filter(Boolean);
+  for (const part of parts) {
+    let m;
+    if (/^(?:it|he|she|they) (?:isn't|aren't) legendary$/.test(part)) mods.nonlegendary = true;
+    else if ((m = part.match(/^(?:it|they) (?:has|have|gains?) ([a-z ]+)$/)) && KEYWORD_WORDS.includes(m[1])) mods.kws.push(m[1]);
+    else if ((m = part.match(/^(?:it's|they're) (?:a|an) ((?:\d+\/\d+ )?(?:(?:white|blue|black|red|green|colorless) )*(?:[a-z]+ )*?)(?:creature )?in addition to its other types$/))) {
+      const words = m[1].trim().split(/\s+/).filter(Boolean);
+      for (const word of words) {
+        if (/^\d+\/\d+$/.test(word)) [mods.power, mods.toughness] = word.split("/").map(Number);
+        else if (COLOR_WORDS[word]) mods.color = COLOR_WORDS[word];
+        else if (word === "artifact") mods.artifact = true;
+        else if (word !== "colorless") mods.addSubtypes.push(word);
+      }
+    } else if ((m = part.match(/^(?:it's|they're) (?:a|an) (\d+)\/(\d+) ((?:(?:white|blue|black|red|green) )*)([a-z]+)$/))) {
+      mods.power = Number(m[1]);
+      mods.toughness = Number(m[2]);
+      const color = m[3].trim().split(/\s+/).find(word => COLOR_WORDS[word]);
+      if (color) mods.color = COLOR_WORDS[color];
+      mods.addSubtypes.push(m[4]);
+    } else if ((m = part.match(/^(?:it|they) (?:enters|enter) with (\w+) additional \+1\/\+1 counters? on (?:it|them)$/))) mods.plusCounters = m[1];
+    else if (/^it's an artifact in addition to its other types$/.test(part)) mods.artifact = true;
+    else return null;
+  }
+  return mods;
+}

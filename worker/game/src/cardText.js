@@ -8,7 +8,7 @@
  * bzw. `notes`. Der Spielkern öffnet dafür ein manuelles Fenster, statt etwas Falsches zu automatisieren.
  */
 import { KEYWORDS, parseManaCost, typesOf } from "./cardFacts.js";
-import { attachQuantity, parseCondition, parseForEach, parseQuantity, rewriteEqualTo, usesX } from "./quantity.js";
+import { attachQuantity, parseCondition, parseCopyExceptions, parseForEach, parseQuantity, rewriteEqualTo, usesX } from "./quantity.js";
 
 const WORDS = { a: 1, an: 1, one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10, eleven: 11, twelve: 12, thirteen: 13, fourteen: 14, fifteen: 15, sixteen: 16, seventeen: 17, eighteen: 18, nineteen: 19, twenty: 20 };
 const N = "(a|an|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|\\d+|x)";
@@ -660,6 +660,22 @@ function parseSentence(raw, specs) {
     const value = v => (/x$/.test(v) ? (v.startsWith("-") ? "-X" : "X") : Number(v));
     return [{ type: "pumpAll", scope: "all", p: value(m[2]), th: value(m[3]), kws: [], ...(m[1] ? { nonType: m[1].trim().slice(3) } : {}) }];
   }
+  // Kopien: „create a token that's a copy of <Bezug>(, except …)“
+  if ((m = lower.match(/^create (?:a|two) (tapped )?tokens? that's a copy of (.+?)(?:, except (.+))?$/))) {
+    const count = /^create two/.test(lower) ? 2 : 1;
+    const mods = parseCopyExceptions(m[3]);
+    if (!mods) return null;
+    const ref = m[2];
+    let source;
+    if (["~", "it", "that creature", "that card", "that permanent", "that token"].includes(ref)) source = ref === "~" ? { k: "self" } : { k: "last" };
+    else if (/^(?:up to one |another )?target /.test(ref)) {
+      const t = addTarget(specs, ref.replace(/^up to one /, ""));
+      if (t === null) return null;
+      if (/^up to one/.test(ref)) specs[t] = { ...specs[t], optional: true };
+      source = { k: "target", t };
+    } else return null;
+    return [{ type: "copyOf", source, mods, n: count, tapped: Boolean(m[1]) }];
+  }
   if (/^you may choose new targets for (the|that|target) (cop(y|ies)|spell or ability)$/.test(lower)) return [{ type: "noop" }];
   if ((m = lower.match(new RegExp(`^you may have (?:it|~) deal ${N} damage to each creature$`)))) {
     const n = num(m[1]);
@@ -1101,6 +1117,7 @@ function describeBase(effect) {
     case "freeCastFromHand":
     case "freeCastLast": return "Du darfst den Zauber in diesem Zug ohne Manakosten wirken.";
     case "freeCastExile": return "Danach kommt er ins Exil statt in den Friedhof.";
+    case "copyOf": return "Erzeugt einen Spielstein als Kopie.";
     case "wheel": return `Jeder mischt Hand und Friedhof in die Bibliothek und zieht ${effect.n}.`;
     case "commanderToHand": return "Nimmt deinen Kommandanten aus der Kommandozone auf die Hand.";
     case "untapLands": return `Enttappt bis zu ${effect.n} Länder.`;
@@ -1812,6 +1829,14 @@ export function parseCardText({ name, typeLine, oracleText }) {
       const cond = parseCondition(condLine[2], phrase => parseTargetSpec(phrase));
       if (cond) {
         result.condCost = { amount: Number(condLine[1]), cond };
+        continue;
+      }
+    }
+    const clone = line.match(/^you may have ~ enter as a copy of (?:any|a) (creature|artifact|artifact or creature|creature or artifact|enchantment|permanent) (?:on the battlefield|you control)(?:, except (.+?))?\.?$/i);
+    if (clone) {
+      const mods = parseCopyExceptions(clone[2]);
+      if (mods) {
+        result.cloneOnEnter = { what: clone[1].toLowerCase(), mods, mine: /you control/i.test(line) };
         continue;
       }
     }

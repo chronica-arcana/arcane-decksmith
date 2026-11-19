@@ -173,9 +173,19 @@ function staticEffects(game, card) {
   return result;
 }
 const KEYWORD_COUNTERS = new Set(["flying", "first strike", "double strike", "deathtouch", "haste", "hexproof", "indestructible", "lifelink", "menace", "reach", "trample", "vigilance"]);
+let conditionDepth = 0; // Sperre: bedingte Schlüsselwörter prüfen keine bedingten Schlüsselwörter anderer Karten
+const condGrantsOf = (game, card, def) => {
+  if (!def.rules?.condGrants || conditionDepth > 0 || !onBattlefield(game, card.id)) return [];
+  conditionDepth += 1;
+  try {
+    return def.rules.condGrants.filter(item => evalCondition(game, { controller: card.owner, source: card.id, targets: [] }, item.cond)).flatMap(item => item.kws);
+  } finally {
+    conditionDepth -= 1;
+  }
+};
 const keywordsOfCard = (game, card) => {
   const def = defOf(game, card);
-  const condGrants = (def.rules?.condGrants ?? []).filter(item => onBattlefield(game, card.id) && evalCondition(game, { controller: card.owner, source: card.id, targets: [] }, item.cond)).flatMap(item => item.kws);
+  const condGrants = condGrantsOf(game, card, def);
   const base = [...(def.keywords ?? []), ...condGrants, ...(def.rules?.selfGrants ?? []), ...(def.rules?.selfGrantsYourTurn && game.turn?.active === card.owner ? def.rules.selfGrantsYourTurn : []), ...(def.rules?.tiers ?? []).filter(tier => tierOn(card, { minCharge: tier.n })).flatMap(tier => tier.kws)];
   const effects = staticEffects(game, card);
   const counterKeywords = Object.keys(card.counters ?? {}).filter(kind => card.counters[kind] > 0 && KEYWORD_COUNTERS.has(kind));
@@ -442,6 +452,10 @@ function resetCardState(card) {
   card.foretoldTurn = undefined;
   card.playUntil = undefined;
   card.playBy = undefined;
+  if (card.cloneOf) {
+    card.def = card.cloneOf; // eine Kopie ist außerhalb des Schlachtfelds wieder die Karte selbst
+    delete card.cloneOf;
+  }
   delete card.freeCast;
 }
 
@@ -460,6 +474,10 @@ function enterBattlefield(game, card) {
   else if (def.rules?.shock) game.triggerQueue.push({ kind: "entry", entry: "shock", cardId: card.id, controller: card.owner, life: def.rules.shock.life });
   else if (def.rules?.reveal) game.triggerQueue.push({ kind: "entry", entry: "reveal", cardId: card.id, controller: card.owner, types: def.rules.reveal.types });
   if (def.rules?.chooseType) game.triggerQueue.push({ kind: "entry", entry: "chooseType", cardId: card.id, controller: card.owner });
+  if (def.rules?.cloneOnEnter && game.phase === "playing") {
+    card.pendingClone = true;
+    game.triggerQueue.push({ kind: "entry", entry: "clone", cardId: card.id, controller: card.owner });
+  }
   if (def.rules?.chooseColor) game.triggerQueue.push({ kind: "entry", entry: "chooseColor", cardId: card.id, controller: card.owner, except: def.rules.chooseColor.except });
   if (game.phase === "playing") fireGlobal(game, "permanentEnters", card);
   if (def.types.creature) {
@@ -1487,7 +1505,7 @@ function checkStateBased(game, now) {
         const card = game.cards[id];
         const def = defOf(game, card);
         let dies = false;
-        if (def.types.creature && !card.faceDown) {
+        if (def.types.creature && !card.faceDown && !card.pendingClone) { // ein Klon wählt seine Kopie beim Eintritt
           const toughness = toughnessOf(game, card);
           if (toughness <= 0) dies = true;
           else if (!hasKeyword(game, card, "indestructible") && (card.damage >= toughness || (card.deathtouched && card.damage > 0))) dies = true;
@@ -1675,7 +1693,33 @@ function targetsLegal(game, specs, targets, controller, src) {
 }
 
 /** Spielstein, der eine Karte kopiert (Encore, Eternalize, Embalm). */
-function createCopyToken(game, userId, base, mode) {
+/** Definition einer Kopie mit Ausnahmen (nicht legendär, andere Stärke, zusätzliche Typen, Schlüsselwörter, Farbe). */
+function copyDef(base, mods = {}) {
+  const subtypes = (mods.addSubtypes ?? []).map(word => word[0].toUpperCase() + word.slice(1));
+  const [front, back = ""] = String(base.typeLine ?? "").split(" — ");
+  const typeLine = `${mods.nonlegendary ? front.replace(/\bLegendary\s*/, "") : front}${mods.artifact && !/Artifact/.test(front) ? " Artifact" : ""}${subtypes.length || back ? ` — ${[back, ...subtypes].filter(Boolean).join(" ")}` : ""}`.trim();
+  return {
+    ...base,
+    typeLine,
+    types: { ...base.types, ...(mods.nonlegendary ? { legendary: false } : {}), ...(mods.artifact ? { artifact: true } : {}) },
+    ...(mods.power !== undefined ? { power: mods.power, toughness: mods.toughness, powerText: String(mods.power), toughnessText: String(mods.toughness) } : {}),
+    ...(mods.color ? { manaCost: `{${mods.color}}` } : {}),
+    keywords: [...new Set([...(base.keywords ?? []), ...(mods.kws ?? [])])]
+  };
+}
+
+function createCopyToken(game, userId, base, mode, opp, mods) {
+  if (mods) {
+    const tokens = Object.values(game.cards).filter(card => card.token && card.owner === userId).length;
+    if (tokens >= MAX_TOKENS) return null;
+    const id = newId(game, "t");
+    const key = `token:${id}`;
+    const made = copyDef(base, mods);
+    game.xdefs[key] = { ...made, typeLine: /^Token/.test(made.typeLine) ? made.typeLine : `Token ${made.typeLine}`, manaValue: base.manaValue };
+    game.cards[id] = { id, owner: userId, def: key, tapped: false, faceDown: false, counters: {}, revealed: false, token: true, damage: 0, deathtouched: false, sinceSeq: tick(game), tp: 0, tt: 0 };
+    game.players[userId].battlefield.push(id);
+    return id;
+  }
   const tokens = Object.values(game.cards).filter(card => card.token && card.owner === userId).length;
   if (tokens >= MAX_TOKENS) return null;
   const id = newId(game, "t");
@@ -1730,6 +1774,8 @@ function createToken(game, userId, { name, power, toughness, artifact = false, t
     damage: 0, deathtouched: false, sinceSeq: tick(game), tp: 0, tt: 0
   };
   game.players[userId].battlefield.push(id);
+  // Spielsteine kommen wie andere Permanents ins Spiel (Auslöser „whenever a creature enters“ usw.)
+  if (game.phase === "playing") enterBattlefield(game, game.cards[id]);
   return id;
 }
 
@@ -2015,6 +2061,30 @@ function openEntryChoice(game, entry) {
       min: 1,
       max: 1,
       step: { type: "chooseColor", cardId: card.id },
+      queue: [],
+      ctx: null
+    };
+    return;
+  }
+  if (entry.entry === "clone") {
+    const rule = defOf(game, card).rules.cloneOnEnter;
+    const fits = other => {
+      const types = defOf(game, other).types;
+      return rule.what === "permanent" ? true : rule.what.includes("artifact") && types.artifact ? true : rule.what.includes("creature") ? types.creature : types[rule.what];
+    };
+    const options = game.seats.flatMap(id => game.players[id].battlefield).filter(id => id !== card.id && fits(game.cards[id]) && (!rule.mine || game.cards[id].owner === entry.controller));
+    if (options.length === 0) {
+      delete card.pendingClone;
+      return;
+    }
+    game.choice = {
+      userId: entry.controller,
+      kind: "cards",
+      prompt: `${name}: Als Kopie welcher Karte soll es ins Spiel kommen? (Keine = als es selbst)`,
+      options,
+      min: 0,
+      max: 1,
+      step: { type: "clone", cardId: card.id },
       queue: [],
       ctx: null
     };
@@ -3191,6 +3261,21 @@ function runEffect(game, rawEffect, ctx, rest) {
       for (const card of Object.values(game.cards)) if (card.freeCast?.group === ctx.freeGroup) card.freeCast.exileAfter = true;
       return false;
     }
+    case "copyOf": {
+      const ref = effect.source;
+      const original = ref.k === "self" ? sourceCard : ref.k === "target" ? game.cards[ctx.targets[ref.t]] : (ctx.madeTokens?.length ? game.cards[ctx.madeTokens.at(-1)] : null) ?? (ctx.lastExiled?.length ? game.cards[ctx.lastExiled.at(-1)] : null) ?? (ctx.subjectCard ? game.cards[ctx.subjectCard] : null);
+      if (!original) return false;
+      const base = defOf(game, original);
+      for (let i = 0; i < effect.n; i += 1) {
+        const id = createCopyToken(game, ctx.controller, base, null, null, effect.mods);
+        if (!id) break;
+        if (effect.tapped) game.cards[id].tapped = true;
+        ctx.madeTokens = [...(ctx.madeTokens ?? []), id];
+        enterBattlefield(game, game.cards[id]);
+      }
+      addLog(game, `${controller.name} erzeugt ${effect.n > 1 ? `${effect.n} Kopien` : "eine Kopie"} von ${base.name} als Spielstein (${name}).`);
+      return false;
+    }
     case "returnSelfFromGy": {
       const card = sourceCard;
       const owner = card ? game.players[card.origOwner ?? card.owner] : null;
@@ -3752,6 +3837,24 @@ function chooseAction(game, userId, action, random, now) {
         return ok();
       }
       pushAbility(game, { ...step.item, targets: picked });
+      break;
+    }
+    case "clone": {
+      const card = game.cards[step.cardId];
+      if (card) delete card.pendingClone;
+      const chosen = game.cards[ids[0]];
+      if (!card || !chosen || !onBattlefield(game, card.id)) break;
+      const rule = defOf(game, card).rules?.cloneOnEnter ?? { mods: {} };
+      const key = `clone:${card.id}`;
+      game.xdefs[key] = copyDef(defOf(game, chosen), rule.mods);
+      card.cloneOf = card.cloneOf ?? card.def;
+      card.def = key;
+      if (rule.mods?.plusCounters) {
+        const n = rule.mods.plusCounters === "x" ? card.enterX ?? 0 : ({ one: 1, two: 2, three: 3 }[rule.mods.plusCounters] ?? Number(rule.mods.plusCounters) ?? 0);
+        if (n > 0) card.counters["+1/+1"] = (card.counters["+1/+1"] ?? 0) + n;
+      }
+      addLog(game, `${player.name}: ${nameOf(game, card.id)} kommt als Kopie von ${defOf(game, chosen).name} ins Spiel.`);
+      fireTriggers(game, card, "etb");
       break;
     }
     case "topLand": {

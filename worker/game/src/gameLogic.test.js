@@ -194,6 +194,9 @@ const LIB = [
   ["shipsneak", "Schiffsschleicher", "Creature — Human", "{1}", 2, { power: "2", toughness: "2" }, "~ can't be blocked if you control an artifact."],
   ["spellstriker", "Spruchkämpferin", "Creature — Monk", "{1}", 2, { power: "2", toughness: "2" }, "As long as you've cast two or more noncreature spells this turn, ~ has double strike."],
   ["story", "Geschichtenbuch", "Instant", "{5}{G}", 2, {}, "~ costs {3} less to cast if an opponent has seven or more cards in their graveyard.\nDraw a card."],
+  ["replicator", "Replikator", "Sorcery", "{G}", 2, {}, "Create a token that's a copy of target creature, except it isn't legendary and it has haste."],
+  ["shapeshifter", "Gestaltwandler", "Creature — Shapeshifter", "{1}", 2, { power: "0", toughness: "0" }, "You may have ~ enter as a copy of any creature on the battlefield."],
+  ["tokenfan", "Spielsteinfreund", "Creature — Elf", "{1}", 2, { power: "1", toughness: "1" }, "Whenever another creature you control enters, you gain 1 life."],
   ["convoker", "Einberufer", "Sorcery", "{3}{G}", 2, {}, "Convoke\nDraw a card."],
   ["delver", "Schürfer", "Sorcery", "{4}{G}", 2, {}, "Delve\nDraw a card."],
   ["sculptor", "Bildhauer", "Creature — Vedalken", "{G}", 2, { power: "1", toughness: "1" }, "Artifact spells you cast cost {1} less to cast."],
@@ -3008,6 +3011,30 @@ describe("Neue Mechaniken aus den Commander-Decks", () => {
     expect(view(g2, "u0").players[0].hand.find(c => c.id === book).play.ok).toBe(false);
     for (let i = 0; i < 7; i += 1) g2.players.u1.graveyard.push(g2.players.u1.library.pop());
     expect(view(g2, "u0").players[0].hand.find(c => c.id === book).play.ok).toBe(true);
+  });
+
+  it("Kopien: Spielstein-Kopie mit Ausnahmen, Klon beim Ins-Spiel-Kommen; Spielsteine lösen „enters“ aus", () => {
+    const { game, random } = started();
+    forest(game, "u0", 4);
+    put(game, "u0", "Spielsteinfreund", "battlefield");
+    const ogre = put(game, "u1", "Oger", "battlefield");
+    const life = game.players.u0.life;
+    castAndResolve(game, "u0", "Replikator", random, [ogre]);
+    go(game, random);
+    const copy = game.players.u0.battlefield.find(id => game.cards[id].token);
+    const card = view(game, "u0").players[0].battlefield.find(c => c.id === copy);
+    expect(card.name).toBe("Oger");
+    expect(card.keywords).toContain("haste");
+    expect(game.players.u0.life).toBe(life + 1); // Spielstein-Eintritt löst aus
+    const shifter = put(game, "u0", "Gestaltwandler", "hand");
+    expect(act(game, "u0", { type: "cast", id: shifter }, random).ok).toBe(true);
+    for (let i = 0; i < 4 && game.stack.length > 0 && !game.choice; i += 1) act(game, game.priority, { type: "pass" }, random);
+    expect(game.choice?.step?.type).toBe("clone");
+    act(game, "u0", { type: "choose", ids: [ogre] }, random);
+    expect(view(game, "u0").players[0].battlefield.find(c => c.id === shifter).name).toBe("Oger");
+    openManual(game, "u0");
+    act(game, "u0", { type: "move", id: shifter, to: "graveyard" }, random);
+    expect(game.defs[game.cards[shifter].def]?.name).toBe("Gestaltwandler"); // im Friedhof wieder die Karte selbst
   });
 
   it("Convoke und Delve bezahlen fehlendes Mana mit Kreaturen bzw. Friedhofskarten", () => {
