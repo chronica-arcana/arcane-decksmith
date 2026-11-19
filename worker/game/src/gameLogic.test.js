@@ -240,6 +240,7 @@ const LIB = [
   ["freeze", "Frostwelle", "Instant", "{G}", 2, {}, "Tap all creatures your opponents control."],
   ["bigcaster", "Großzauberer", "Enchantment", "{G}", 2, {}, "Whenever you cast a noncreature spell with mana value 3 or greater, you gain 2 life."],
   ["bigspell", "Großer Ruf", "Sorcery", "{2}{G}", 2, { manaValue: 3 }, "Draw a card."],
+  ["secondmain", "Nachmittagsruhe", "Enchantment", "{G}", 2, {}, "At the beginning of your second main phase, you gain 3 life."],
 ];
 const facts = new Map();
 
@@ -1381,6 +1382,20 @@ describe("Bedingungen, Modi, X und Cycling", () => {
     castAndResolve(game, "u0", "Großer Ruf", random); // Manawert 3
     for (let i = 0; i < 6 && game.stack.length > 0; i += 1) act(game, game.priority, { type: "pass" }, random);
     expect(game.players.u0.life).toBe(life + 2);
+  });
+
+  it("„At the beginning of your second main phase“ löst nur in der zweiten Hauptphase aus", () => {
+    const { game, random } = started();
+    put(game, "u0", "Nachmittagsruhe", "battlefield");
+    const life = game.players.u0.life;
+    expect(game.turn.phase).toBe("main1");
+    for (let i = 0; i < 10 && game.turn.phase !== "main2"; i += 1) {
+      if (game.turn.phase === "attackers" && game.priority === "u0" && !game.combat) act(game, "u0", { type: "declareAttackers", attackers: [] }, random);
+      else act(game, game.priority, { type: "pass" }, random);
+    }
+    expect(game.turn.phase).toBe("main2");
+    for (let i = 0; i < 4 && game.stack.length > 0; i += 1) act(game, game.priority, { type: "pass" }, random);
+    expect(game.players.u0.life).toBe(life + 3);
   });
 
   it("Goad: aufgestachelte Kreatur muss angreifen, nicht den Aufstachler; endet mit dessen nächstem Zug", () => {

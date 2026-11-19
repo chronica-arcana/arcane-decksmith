@@ -156,7 +156,15 @@ function parseTargetSpec(phrase) {
     }
     return out;
   }
-  const words = rest.split(" ");
+  let words = rest.split(" ");
+  // Eigenschaftswörter vor einem Untertyp („nontoken Vampire“, „legendary Dragon“, „white Soldier“)
+  const ADJ = { nontoken: ["token", false], token: ["token", true], legendary: ["legendary", true], nonlegendary: ["legendary", false], tapped: ["tapped", true], untapped: ["tapped", false], attacking: ["attacking", true] };
+  while (words.length > 1 && (ADJ[words[0]] || COLOR_LETTERS[words[0]]) && !BASE_NOUNS[words.join(" ")] && !BASE_NOUNS[words[words.length - 1]] && /^[a-z]+$/.test(words[words.length - 1]) && !["card", "spell", "player", "opponent", "token", "ability"].includes(words[words.length - 1])) {
+    const word = words.shift();
+    if (COLOR_LETTERS[word]) spec.colors = [...(spec.colors ?? []), COLOR_LETTERS[word]];
+    else spec[ADJ[word][0]] = ADJ[word][1];
+  }
+  rest = words.join(" ");
   // Untertypen als Ziel: „target Equipment you control“, „target Rebel you control“, „target Skeleton, Spirit, or Zombie“
   const last = words[words.length - 1];
   const subtypeList = rest.match(/^([a-z]+)(?:, ([a-z]+))*,? (?:or|and\/or) ([a-z]+)$/);
@@ -1554,6 +1562,27 @@ function triggerEvent(word, condition) {
   if (word === "At" && /^the beginning of each upkeep$/.test(condition)) return { event: "upkeep", scope: { owner: "any", another: false } };
   if (word === "At" && condition === "the beginning of your upkeep") return { event: "upkeep", scope: { owner: "you", another: false } };
   if (word === "At" && condition === "the beginning of your end step") return { event: "endStep", scope: { owner: "you", another: false } };
+  if (word === "At") {
+    // Phasen: Hauptphasen, Kampfbeginn, Endschritt, Versorgung, Ziehschritt – für dich, jeden Spieler oder jeden Gegner
+    if ((m = condition.match(/^the beginning of (your|each player's|each opponent's) (precombat |first |second |postcombat )?main phase$/))) {
+      const which = { "precombat ": "main1", "first ": "main1", "second ": "main2", "postcombat ": "main2" }[m[2] ?? ""] ?? "each";
+      return { event: "mainPhase", mainWhich: which, scope: { owner: { your: "you", "each player's": "any", "each opponent's": "opp" }[m[1]], another: false } };
+    }
+    if (/^the beginning of each of your main phases$/.test(condition)) return { event: "mainPhase", mainWhich: "each", scope: { owner: "you", another: false } };
+    if (/^the beginning of each combat$/.test(condition)) return { event: "beginCombat", scope: { owner: "any", another: false } };
+    if (/^the beginning of combat on each opponent's turn$/.test(condition)) return { event: "beginCombat", scope: { owner: "opp", another: false } };
+    if ((m = condition.match(/^the beginning of (each player's|each opponent's|the) end step$/))) return { event: "endStep", scope: { owner: m[1] === "each opponent's" ? "opp" : "any", another: false } };
+    if ((m = condition.match(/^the beginning of (each player's|each opponent's) upkeep$/))) return { event: "upkeep", scope: { owner: m[1] === "each opponent's" ? "opp" : "any", another: false } };
+    if (/^the beginning of your draw step$/.test(condition)) return { event: "drawStep", scope: { owner: "you", another: false } };
+  }
+  if ((m = condition.match(/^one or more (other )?(.+?) you control attack$/))) {
+    const spec = groupSpec(m[2]);
+    if (spec && ["creature", "myCreature"].includes(spec.kind)) {
+      const filter = { ...spec };
+      delete filter.kind;
+      return { event: "youAttack", attackerSpec: filter, scope: { owner: "you", another: false } };
+    }
+  }
   return genericCastEvent(condition) ?? genericSubjectEvent(condition);
 }
 

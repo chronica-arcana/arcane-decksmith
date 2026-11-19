@@ -33,6 +33,7 @@ Startpunkt der autonomen Phase (PR #69): Star Trek/FF 278/545 (51,0 %), alle Dec
 | 14 | Goad (Aufstacheln): Ziel, „up to N“, „all creatures you don't control“, „each creature target player controls“; Angriffspflicht auch beim Passen, Mehrspieler-Zielregel, endet mit dem nächsten Zug des Aufstachlers; Angriffskosten heben die Pflicht auf (508.1d); Client-Badge und Zielwahl | 318 (58,3 %) | 862 (43,0 %) |
 | 15 | Allgemeine Dauereffekte „<Filter> you control get/have …“ (Farbe, Marker, Schlüsselwort, getappt; auch gegnerische); „up to N target …“ für beliebige Ein-Ziel-Sätze; „tap/untap all <Filter>“; „target attacking creature gains …“; Korrektur: Farben/„tapped“ wurden als Kreaturtyp gelesen | 320 (58,7 %) | 871 (43,4 %) |
 | 16 | Gruppen bis Zugende („<Filter> you control get/gain … until end of turn“), Spielstein-Filter („creature tokens“, „nontoken“), Wirk-Auslöser mit Filter (Typ, Nicht-Typ, Manawert, {X}, mehrfarbig, legendär), „up to N“ auch für Friedhofskarten | 321 (58,9 %) | 879 (43,8 %) |
+| 17 | Phasen-Auslöser: erste/zweite/jede Hauptphase, „each combat“, „combat on each opponent's turn“, „each player's/opponent's end step/upkeep“, eigener Ziehschritt; „one or more <Filter> you control attack“; Eigenschaftswörter vor Kreaturtypen („nontoken Vampires“, „legendary Dragon“) | 321 (58,9 %) | 884 (44,1 %) |
 
 ## Implementierte Bausteine (Auswahl)
 

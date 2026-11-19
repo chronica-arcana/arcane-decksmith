@@ -1153,6 +1153,10 @@ function enterPhase(game, phase) {
   game.passed = [];
   clearPools(game);
   if (phase === "main1") beginMain1(game);
+  if (phase === "main2" && game.phase === "playing") {
+    fireGlobal(game, "mainPhase", game.turn.active);
+    flushTriggers(game);
+  }
 }
 
 /** Beginn der ersten Hauptphase (nach dem Ziehen): Sagas erhalten einen Wissensmarker. */
@@ -1160,6 +1164,7 @@ function beginMain1(game) {
   if (game.phase !== "playing") return;
   if (!game.turn.drawBlocked) fireGlobal(game, "drawStep", game.turn.active); // „At the beginning of each player's draw step“
   for (const id of [...game.players[game.turn.active].battlefield]) if (game.cards[id]) addLore(game, game.cards[id]);
+  fireGlobal(game, "mainPhase", game.turn.active);
   flushTriggers(game);
 }
 
@@ -2031,6 +2036,8 @@ function fireGlobal(game, event, subject) {
         if (trigger.sacrificeWhat && (typeof subject === "string" || !(trigger.sacrificeWhat in defOf(game, subject).types ? defOf(game, subject).types[trigger.sacrificeWhat] : hasSubtype(defOf(game, subject), trigger.sacrificeWhat)) || (trigger.sacrificeNontoken && subject.token))) continue;
         if (trigger.attackerSubtype && !(game.combat?.attackers ?? []).some(attacker => game.cards[attacker.id] && hasSubtype(defOf(game, game.cards[attacker.id]), trigger.attackerSubtype))) continue;
         if (trigger.minAttackers && (game.combat?.attackers?.length ?? 0) < trigger.minAttackers) continue;
+        if (trigger.mainWhich && trigger.mainWhich !== "each" && trigger.mainWhich !== game.turn.phase) continue;
+        if (trigger.attackerSpec && !(game.combat?.attackers ?? []).some(attacker => game.cards[attacker.id] && game.cards[attacker.id].owner === source.owner && passesSpecFilter(game, attacker.id, trigger.attackerSpec, source.owner, source))) continue;
         if (scope.nontoken && typeof subject !== "string" && subject.token) continue;
         if (scope.permType && (typeof subject === "string" || !(scope.permType in defOf(game, subject).types ? defOf(game, subject).types[scope.permType] : hasSubtype(defOf(game, subject), scope.permType)))) continue;
         if (scope.anyOf && (typeof subject === "string" || !scope.anyOf.some(word => hasSubtype(defOf(game, subject), word)))) continue;

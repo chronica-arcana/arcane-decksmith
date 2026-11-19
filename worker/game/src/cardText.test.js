@@ -293,6 +293,16 @@ describe("cardText: weitere Lücken (Kopieren, Skulk, Stufen, Einzelzeilen)", ()
     expect(parse("Sorcery", "Return up to two target creature cards from your graveyard to the battlefield.").spell.effects).toHaveLength(2);
   });
 
+  it("Phasen-Auslöser und „one or more <Filter> you control attack“", () => {
+    expect(parse("Enchantment", "At the beginning of your second main phase, you gain 1 life.").triggers[0]).toMatchObject({ event: "mainPhase", mainWhich: "main2", scope: { owner: "you" } });
+    expect(parse("Enchantment", "At the beginning of each of your main phases, add {G}{G}.").triggers[0]).toMatchObject({ event: "mainPhase", mainWhich: "each" });
+    expect(parse("Enchantment", "At the beginning of combat on each opponent's turn, draw a card.").triggers[0]).toMatchObject({ event: "beginCombat", scope: { owner: "opp" } });
+    expect(parse("Enchantment", "At the beginning of each opponent's end step, draw a card.").triggers[0]).toMatchObject({ event: "endStep", scope: { owner: "opp" } });
+    expect(parse("Enchantment", "At the beginning of each player's upkeep, that player draws a card.").triggers[0]).toMatchObject({ event: "upkeep", scope: { owner: "any" } });
+    expect(parse("Enchantment", "Whenever one or more nontoken Vampires you control attack, draw a card.").triggers[0]).toMatchObject({ event: "youAttack", attackerSpec: { subtypes: ["vampire"], token: false } });
+    expect(parse("Instant", "Destroy target legendary Dragon.").spell.specs[0]).toMatchObject({ kind: "creature", subtypes: ["dragon"], legendary: true });
+  });
+
   it("Goad-Sätze", () => {
     expect(parse("Instant", "Goad target creature.").spell.effects).toEqual([{ type: "goad", t: 0 }]);
     expect(parse("Sorcery", "Goad all creatures you don't control.").spell.effects).toEqual([{ type: "goad", all: true }]);
