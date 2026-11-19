@@ -153,7 +153,8 @@ describe("Spielraum", () => {
     const wolf = creature("c1", "Wolf");
     const game = view({ manual: { userId: "me", text: "Draw a card, then return a creature to the battlefield.", source: "Rätsel" } }, { battlefield: [wolf] });
     const { send } = setup(game);
-    expect(screen.getByText(/lässt sich nicht automatisch umsetzen/)).toBeTruthy();
+    expect(screen.getByRole("alert", { name: "Manuell umsetzen" })).toBeTruthy();
+    expect(screen.getByText("Draw a card, then return a creature to the battlefield.")).toBeTruthy(); // ohne Bild: Text aufgeklappt
     fireEvent.click(screen.getByLabelText(/Bibliothek: 40 Karten/));
     expect(send).toHaveBeenLastCalledWith({ type: "draw" });
     fireEvent.contextMenu(screen.getByRole("button", { name: "Wolf" }));
@@ -170,6 +171,14 @@ describe("Spielraum", () => {
     expect(send).toHaveBeenCalledTimes(2);
     expect(send).toHaveBeenLastCalledWith({ type: "token", name: "Borg 1/1" });
     expect(screen.getByText("Zerstören: Karte rechtsklicken")).toBeTruthy();
+  });
+
+  it("manuelles Fenster zeigt die Karte selbst (mit Vorschau beim Darüberfahren), der Text ist eingeklappt", () => {
+    const game = view({ manual: { userId: "me", text: "Choose one at random.", source: "Magus Sisters", hints: [], cardId: "m1", imageUri: "https://cards.scryfall.io/normal/front/x/y.jpg" } });
+    setup(game);
+    const img = screen.getByRole("img", { name: "Magus Sisters" });
+    expect(img.getAttribute("src")).toContain("/normal/");
+    expect(screen.getByText("Nicht automatisch umgesetzt").closest("details")?.hasAttribute("open")).toBe(false);
   });
 
   it("andere sehen nur, dass jemand einen Kartentext umsetzt", () => {

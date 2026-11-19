@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { imageFor } from "./scryfallAssets";
 import type { GameAction, GameCard, GamePlayer, GameStep, GameView } from "../../gameClient";
 
 
@@ -29,6 +30,8 @@ export type ActionBarProps = {
   cancelTargeting: () => void;
   onRematch: () => void;
   onLeave: () => void;
+  /** Große Vorschau einer Karte (z. B. der Karte im manuellen Fenster). */
+  onHoverCard?: (card: GameCard | null) => void;
 };
 
 const TARGET_LABELS: Record<string, string> = {
@@ -89,12 +92,30 @@ export default function ActionBar(props: ActionBarProps) {
   }
 
   if (game.manual?.userId === game.you) {
+    const manual = game.manual;
+    // Die Karte selbst zeigt, was zu tun ist; der Text steht nur noch aufklappbar darunter.
+    const known = manual.cardId ? props.allCards.get(manual.cardId) : undefined;
+    const card: GameCard | null = known ?? (manual.imageUri ? ({ id: manual.cardId ?? "manual", name: manual.source, imageUri: manual.imageUri, counters: {} } as unknown as GameCard) : null);
+    const image = imageFor(card?.imageUri ?? manual.imageUri ?? null, "normal");
     return (
-      <div className="action-bar" role="alert">
-        <strong>Dieser Kartentext lässt sich nicht automatisch umsetzen: {game.manual.text}</strong>
-        {(game.manual.hints?.length ?? 0) > 0 ? (
+      <div className="action-bar side manual-panel" role="alert" aria-label="Manuell umsetzen">
+        <strong>Von Hand umsetzen{manual.source ? `: ${manual.source}` : ""}</strong>
+        {image ? (
+          <img
+            className="manual-card"
+            src={image}
+            alt={manual.source}
+            onMouseEnter={() => card && props.onHoverCard?.(card)}
+            onMouseLeave={() => props.onHoverCard?.(null)}
+          />
+        ) : null}
+        <details className="manual-text" open={!image}>
+          <summary>Nicht automatisch umgesetzt</summary>
+          <span>{manual.text}</span>
+        </details>
+        {(manual.hints?.length ?? 0) > 0 ? (
           <span className="manual-hints" aria-label="Vorschläge">
-            {game.manual.hints!.map(hint =>
+            {manual.hints!.map(hint =>
               hint.action ? (
                 <button
                   key={hint.label}
@@ -112,7 +133,7 @@ export default function ActionBar(props: ActionBarProps) {
             )}
           </span>
         ) : (
-          <span className="muted">Du darfst jetzt von Hand eingreifen (Rechtsklick auf Karten, Bibliothek, ⋯-Menü).</span>
+          <span className="muted">Rechtsklick auf Karten, Bibliothek oder ⋯-Menü.</span>
         )}
         <button type="button" className="primary" onClick={() => act({ type: "manualDone" })}>Fertig</button>
       </div>
