@@ -1149,8 +1149,7 @@ describe("Länder mit Bedingung beim Ins-Spiel-Kommen", () => {
     expect(game.cards[land].tapped).toBe(false);
     expect(game.players.u0.hand).toContain(mountain);
     const second = started();
-    const hand = second.game.players.u0.hand.filter(id => second.game.defs[second.game.cards[id].def].name === "Mountain");
-    for (const id of hand) second.game.players.u0.hand.splice(second.game.players.u0.hand.indexOf(id), 1);
+    second.game.players.u0.hand = []; // keine Karte zum Zeigen auf der Hand
     const tapped = play(second.game, second.random, "Zeigland");
     expect(second.game.choice).toBeNull();
     expect(second.game.cards[tapped].tapped).toBe(true);
@@ -2693,15 +2692,15 @@ describe("Neue Mechaniken aus den Commander-Decks", () => {
     const { game, random } = started();
     forest(game, "u0", 2);
     const life = game.players.u0.life;
-    const hand = game.players.u0.hand.length;
     const id = put(game, "u0", "Wahlwesen", "hand");
+    const hand = game.players.u0.hand.length - 1; // ohne Wahlwesen selbst
     expect(act(game, "u0", { type: "cast", id }, random).ok).toBe(true);
     for (let i = 0; i < 4 && game.stack.length > 0; i += 1) act(game, game.priority, { type: "pass" }, random);
     expect(game.choice?.kind).toBe("yesno");
     expect(view(game, "u0").choice.options.map(o => o.label)).toEqual(["You gain 3 life.", "Draw a card."]);
     act(game, "u0", { type: "choose", ids: ["1"] }, random);
     for (let i = 0; i < 4 && game.stack.length > 0; i += 1) act(game, game.priority, { type: "pass" }, random);
-    expect(game.players.u0.hand.length).toBe(hand + 1); // Karte gezogen (Wahlwesen selbst verlässt die Hand)
+    expect(game.players.u0.hand.length).toBe(hand + 1); // Karte gezogen
     expect(game.players.u0.life).toBe(life);
   });
 
