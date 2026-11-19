@@ -611,7 +611,7 @@ export default function Battlefield({
             <PlayerZone player={me} />
             {/* Aktionsleiste und Hinweise ganz unten bei den Phasen, nicht mitten auf dem Tisch */}
             <div className="bar-dock">
-              <ActionBar {...barProps} />
+              <ActionBar {...barProps} onHoverCard={setHoverStable} />
             </div>
             <PhaseStrip
               game={game}

@@ -337,3 +337,12 @@
 /* Vorschläge im manuellen Fenster */
 .manual-hints { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .manual-hints .manual-tip { font-size: 0.74rem; padding: 2px 8px; border: 1px dashed #c9a24b66; border-radius: 6px; }
+
+/* Manuelles Fenster als kompaktes Feld am linken Rand: Karte statt Text */
+.action-bar.side.manual-panel { max-width: 210px; top: auto; bottom: 90px; transform: none; max-height: calc(100vh - 120px); overflow-y: auto; }
+.manual-panel .manual-card { width: 100%; max-width: 180px; align-self: center; border-radius: 8px; box-shadow: 0 2px 10px #000a; cursor: zoom-in; }
+.manual-panel .manual-text summary { cursor: pointer; font-size: 0.7rem; color: var(--ink-dim); }
+.manual-panel .manual-text span { display: block; font-size: 0.7rem; margin-top: 4px; }
+.manual-panel .manual-hints { flex-direction: column; align-items: stretch; }
+.manual-panel .manual-hints button { width: 100%; }
+@media (max-width: 640px) { .action-bar.side.manual-panel { bottom: 70px; max-width: 160px; } .manual-panel .manual-card { max-width: 120px; } }

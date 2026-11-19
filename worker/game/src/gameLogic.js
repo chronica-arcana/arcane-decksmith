@@ -2123,7 +2123,8 @@ function runEffects(game, effects, ctx) {
 
 function afterEffects(game, ctx) {
   if (ctx.unparsed?.length > 0) {
-    game.manual = { userId: ctx.controller, text: ctx.unparsed.join(" "), source: ctx.sourceName ?? "", hints: manualHints(ctx.unparsed.join(" ")) };
+    const manualCard = ctx.source ? game.cards[ctx.source] : null;
+    game.manual = { userId: ctx.controller, text: ctx.unparsed.join(" "), source: ctx.sourceName ?? "", hints: manualHints(ctx.unparsed.join(" ")), cardId: manualCard?.id ?? null, imageUri: manualCard ? defOf(game, manualCard).imageUri ?? null : null };
     addLog(game, `${game.players[ctx.controller].name} muss einen Kartentext manuell umsetzen: ${ctx.unparsed.join(" ")}`);
   }
 }
@@ -3161,7 +3162,7 @@ function runEffect(game, rawEffect, ctx, rest) {
         addLog(game, `${name}: ${hiddenDef.name} ist ein Spontan-/Hexereizauber – bitte von Hand wirken (die Karte bleibt im Exil).`);
         hidden.faceDown = false;
         sourceCard.hidden = null;
-        game.manual = { userId: ctx.controller, text: `${hiddenDef.name} ohne Manakosten wirken (liegt im Exil).`, source: name, hints: [] };
+        game.manual = { userId: ctx.controller, text: `${hiddenDef.name} ohne Manakosten wirken (liegt im Exil).`, source: name, hints: [], cardId: hidden.id, imageUri: hiddenDef.imageUri ?? null };
         return false;
       }
       controller.exile.splice(controller.exile.indexOf(hidden.id), 1);
