@@ -140,6 +140,10 @@ function parseTargetSpec(phrase) {
     rest = c[1];
     spec.keyword = c[2];
   }
+  if ((c = rest.match(/^(.+) tokens?$/)) && !/^(?:a|the)$/.test(c[1])) {
+    rest = c[1];
+    spec.token = true;
+  }
   rest = rest.replace(/,\s+(?=non[a-z]+)/g, " ");
   const union = rest.match(/^(?:((?:non[a-z]+ )+))?((?:artifact|creature|enchantment|land|planeswalker)(?:, (?:artifact|creature|enchantment|land|planeswalker))*,? or (?:artifact|creature|enchantment|land|planeswalker))$/);
   if (union) {
@@ -172,6 +176,7 @@ function parseTargetSpec(phrase) {
     else if (word === "attacking") spec.attacking = true;
     else if (word === "blocking") spec.blocking = true;
     else if (word === "legendary") spec.legendary = true;
+    else if (word === "nontoken") spec.token = false;
     else if (word === "nonlegendary") spec.legendary = false;
     else if (COLOR_LETTERS[word]) spec.colors = [...(spec.colors ?? []), COLOR_LETTERS[word]];
     else if ((c = word.match(/^non(white|blue|black|red|green)$/))) spec.nonColors = [...(spec.nonColors ?? []), COLOR_LETTERS[c[1]]];
@@ -242,7 +247,7 @@ function parseSentence(raw, specs) {
       const tail = words.join(" ").replace(/\b(gain|get|have|deal|become)\b/i, verb => `${verb}s`).replace(/\beach (gains|gets)\b/i, "$1");
       const mark = specs.length;
       const inner = parseSentence(`${m[1]}${m[3] ? "another " : ""}target ${tail}`, specs);
-      const onlyT = effect => Object.keys(effect).every(key => !["from", "to", "source", "forTargetController", "effects"].includes(key));
+      const onlyT = effect => typeof effect.from !== "number" && typeof effect.to !== "number" && effect.to?.t === undefined && effect.source?.t === undefined && effect.forTargetController === undefined && !Array.isArray(effect.effects);
       if (inner && specs.length === mark + 1 && inner.every(onlyT)) {
         specs[mark] = { ...specs[mark], optional: true };
         const out = [...inner];
@@ -1074,6 +1079,17 @@ function parseSentence(raw, specs) {
   if ((m = s.match(/^[Aa]dd ((?:\{[WUBRGC]\})+)$/))) {
     return [{ type: "mana", symbols: [...m[1].matchAll(/\{([WUBRGC])\}/g)].map(x => x[1]) }];
   }
+  // Allgemein: „(Other) <Gruppe> you control get +N/+N and gain … until end of turn“
+  if ((m = lower.match(/^(other )?(.+?) (you control|your opponents control)((?: with| without| that) .+?)? (?:each )?(?:gets? ([+-]\d+)\/([+-]\d+)(?:,? and gains? (.+?))?|gains? (.+?)) until end of turn$/))) {
+    const extra = (m[4] ?? "").replace(/ with (\+1\/\+1 )?counters on them$/, (whole, kind) => ` with ${kind ? "a +1/+1 counter" : "a counter"} on it`);
+    const spec = parseTargetSpec(`target ${singular(m[2])}${extra}`);
+    const kws = (m[7] ?? m[8] ?? "").split(/,\s*(?:and )?|\s+and\s+/).map(word => word.trim()).filter(Boolean);
+    if (spec && ["creature", "myCreature"].includes(spec.kind) && !spec.ctrl && kws.every(word => KEYWORDS.includes(word))) {
+      const filter = { ...spec, ...(m[1] ? { another: true } : {}) };
+      delete filter.kind;
+      return [{ type: "pumpAll", scope: m[3] === "you control" ? "you" : "opp", p: m[5] ? Number(m[5]) : 0, th: m[6] ? Number(m[6]) : 0, kws, spec: filter }];
+    }
+  }
   // Zusammengesetzter Satz „A, then B“: beide Teile müssen verstanden werden
   if (/, then /i.test(s)) {
     const mark = specs.length;
@@ -1298,7 +1314,7 @@ function describeBase(effect) {
       if (effect.xFrom?.stat) return `X ${effect.kind}-Marker auf das Ziel (X = ${effect.xFrom.stat === "power" ? "Stärke" : "Widerstandskraft"} des Ziels).`;
       return `${effect.n}× ${effect.kind}-Marker ${effect.self ? "auf diese Karte" : "auf das Ziel"}.`;
     case "pump": return `${effect.self ? "Diese Kreatur" : "Das Ziel"} erhält ${signed(effect.p)}/${signed(effect.th)} bis zum Zugende.`;
-    case "pumpAll": return `${{ you: "Deine Kreaturen", opp: "Kreaturen deiner Gegner", all: "Alle Kreaturen" }[effect.scope ?? "you"]} erhalten ${signed(effect.p)}/${signed(effect.th)} bis zum Zugende.`;
+    case "pumpAll": return `${effect.spec ? "Passende " : ""}${{ you: effect.spec ? "eigene Kreaturen" : "Deine Kreaturen", opp: "Kreaturen deiner Gegner", all: "Alle Kreaturen" }[effect.scope ?? "you"]} erhalten ${effect.p || effect.th || !effect.kws?.length ? `${signed(effect.p)}/${signed(effect.th)}` : ""}${effect.kws?.length ? `${effect.p || effect.th ? " und " : ""}${effect.kws.join(", ")}` : ""} bis zum Zugende.`;
     case "token": return `Erzeugt ${effect.n}× ${effect.name} ${effect.p}/${effect.th}.`;
     case "search": return `Durchsucht die Bibliothek nach ${effect.what === "card" ? "einer Karte" : `einer Karte (${effect.what})`} und legt sie ${effect.to === "hand" ? "auf die Hand" : `aufs Schlachtfeld${effect.tapped ? " (getappt)" : ""}`}.`;
     case "gyReturn": return `Holt eine Karte (${effect.what}) aus dem Friedhof ${effect.to === "hand" ? "auf die Hand" : "aufs Schlachtfeld"}.`;
@@ -1538,7 +1554,31 @@ function triggerEvent(word, condition) {
   if (word === "At" && /^the beginning of each upkeep$/.test(condition)) return { event: "upkeep", scope: { owner: "any", another: false } };
   if (word === "At" && condition === "the beginning of your upkeep") return { event: "upkeep", scope: { owner: "you", another: false } };
   if (word === "At" && condition === "the beginning of your end step") return { event: "endStep", scope: { owner: "you", another: false } };
-  return genericSubjectEvent(condition);
+  return genericCastEvent(condition) ?? genericSubjectEvent(condition);
+}
+
+/** „Whenever you cast a <Filter> spell (with mana value N or greater | with {X} in its mana cost)“. */
+function genericCastEvent(condition) {
+  const m = condition.match(/^(you cast|an opponent casts|a player casts) (?:an? )?(?:(.+?) )?spell( with mana value (\d+) or (greater|less)| with \{x\} in its mana cost)?$/);
+  if (!m) return null;
+  const filter = {};
+  const words = (m[2] ?? "").replace(/ or /g, " | ").split(" ").filter(Boolean);
+  const anyTypes = [];
+  for (const word of words) {
+    if (word === "|") continue;
+    if (["creature", "artifact", "enchantment", "instant", "sorcery", "planeswalker", "land", "battle"].includes(word)) anyTypes.push(word);
+    else if (/^non(creature|artifact|enchantment|land)$/.test(word)) filter.nonTypes = [...(filter.nonTypes ?? []), word.slice(3)];
+    else if (word === "multicolored") filter.multicolored = true;
+    else if (word === "colorless") filter.colorless = true;
+    else if (word === "legendary") filter.legendary = true;
+    else if (word === "historic") filter.historic = true;
+    else return null;
+  }
+  if (anyTypes.length) filter.anyTypes = anyTypes;
+  if (m[4]) filter[m[5] === "greater" ? "mvMin" : "mvMax"] = Number(m[4]);
+  if (m[3] && /\{x\}/.test(m[3])) filter.hasX = true;
+  if (Object.keys(filter).length === 0) return null;
+  return { event: "castSpell", castFilter: filter, scope: { owner: m[1] === "you cast" ? "you" : m[1] === "an opponent casts" ? "opp" : "any", another: false } };
 }
 
 /**

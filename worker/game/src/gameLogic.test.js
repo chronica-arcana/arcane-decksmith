@@ -238,6 +238,8 @@ const LIB = [
   ["goadall", "Aufruhr", "Sorcery", "{G}", 2, {}, "Goad all creatures you don't control."],
   ["skyanthem", "Flugbanner", "Enchantment", "{G}", 2, {}, "Creatures you control with flying get +1/+1."],
   ["freeze", "Frostwelle", "Instant", "{G}", 2, {}, "Tap all creatures your opponents control."],
+  ["bigcaster", "Großzauberer", "Enchantment", "{G}", 2, {}, "Whenever you cast a noncreature spell with mana value 3 or greater, you gain 2 life."],
+  ["bigspell", "Großer Ruf", "Sorcery", "{2}{G}", 2, { manaValue: 3 }, "Draw a card."],
 ];
 const facts = new Map();
 
@@ -245,7 +247,7 @@ function deck(prefix, { commander = false } = {}) {
   const main = LIB.map(([key, name, typeLine, manaCost, count, extra, oracleText]) => {
     const id = `${prefix}-${key}`;
     facts.set(id, extra);
-    return { id, name, count, typeLine, manaCost, manaValue: 2, imageUri: null, oracleText: oracleText ?? "" };
+    return { id, name, count, typeLine, manaCost, manaValue: extra?.manaValue ?? 2, imageUri: null, oracleText: oracleText ?? "" };
   });
   const commanders = commander
     ? [{ id: `${prefix}-cmd`, name: `Boss ${prefix}`, count: 1, typeLine: "Legendary Creature — Dragon", manaCost: "{1}{G}", manaValue: 2, imageUri: null }]
@@ -1366,6 +1368,19 @@ describe("Bedingungen, Modi, X und Cycling", () => {
     for (let i = 0; i < 6 && game.stack.length > 0; i += 1) act(game, game.priority, { type: "pass" }, random);
     expect(game.cards[foe].tapped).toBe(true);
     expect(game.cards[bear].tapped).toBe(false);
+  });
+
+  it("Wirk-Auslöser mit Filter: nur nichtkreaturen-Zauber mit Manawert ≥ 3", () => {
+    const { game, random } = started();
+    forest(game, "u0", 6);
+    put(game, "u0", "Großzauberer", "battlefield");
+    const life = game.players.u0.life;
+    castAndResolve(game, "u0", "Frostwelle", random); // Manawert 2
+    for (let i = 0; i < 6 && game.stack.length > 0; i += 1) act(game, game.priority, { type: "pass" }, random);
+    expect(game.players.u0.life).toBe(life);
+    castAndResolve(game, "u0", "Großer Ruf", random); // Manawert 3
+    for (let i = 0; i < 6 && game.stack.length > 0; i += 1) act(game, game.priority, { type: "pass" }, random);
+    expect(game.players.u0.life).toBe(life + 2);
   });
 
   it("Goad: aufgestachelte Kreatur muss angreifen, nicht den Aufstachler; endet mit dessen nächstem Zug", () => {

@@ -282,6 +282,17 @@ describe("cardText: weitere Lücken (Kopieren, Skulk, Stufen, Einzelzeilen)", ()
     expect(parse("Instant", "Tap all creatures target player controls.").spell).toMatchObject({ effects: [{ type: "tapEach", ofTarget: 0 }], specs: [{ kind: "player" }] });
   });
 
+  it("Gruppen bis Zugende, Spielstein-Filter, Wirk-Auslöser mit Filter, „up to two target … cards“", () => {
+    expect(parse("Instant", "Creature tokens you control gain double strike until end of turn.").spell.effects[0]).toMatchObject({ type: "pumpAll", scope: "you", kws: ["double strike"], spec: { token: true } });
+    expect(parse("Instant", "Other creatures you control with flying get +1/+1 until end of turn.").spell.effects[0]).toMatchObject({ p: 1, th: 1, spec: { keyword: "flying", another: true } });
+    expect(parse("Enchantment", "Creature tokens you control have deathtouch.").statics[0]).toMatchObject({ spec: { token: true }, grants: ["deathtouch"] });
+    expect(parse("Instant", "Destroy target nontoken creature.").spell.specs[0]).toMatchObject({ kind: "creature", token: false });
+    expect(parse("Enchantment", "Whenever you cast a noncreature spell with mana value 3 or greater, draw a card.").triggers[0]).toMatchObject({ event: "castSpell", castFilter: { nonTypes: ["creature"], mvMin: 3 } });
+    expect(parse("Enchantment", "Whenever you cast a spell with {X} in its mana cost, draw a card.").triggers[0].castFilter).toEqual({ hasX: true });
+    expect(parse("Enchantment", "Whenever a player casts a blue spell, draw a card.").triggers).toEqual([]); // Farben (noch) nicht
+    expect(parse("Sorcery", "Return up to two target creature cards from your graveyard to the battlefield.").spell.effects).toHaveLength(2);
+  });
+
   it("Goad-Sätze", () => {
     expect(parse("Instant", "Goad target creature.").spell.effects).toEqual([{ type: "goad", t: 0 }]);
     expect(parse("Sorcery", "Goad all creatures you don't control.").spell.effects).toEqual([{ type: "goad", all: true }]);

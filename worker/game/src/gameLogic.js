@@ -1619,6 +1619,21 @@ function typeMatches(def, what) {
 }
 
 /** Zusätzliche Bedingungen einer Zielangabe („nonblack“, „tapped“, „an opponent controls“, „with power 4 or greater“ …). */
+/** Passt ein gewirkter Zauber zum Filter von „Whenever you cast a <Filter> spell“? */
+function castFilterOk(def, filter) {
+  if (filter.anyTypes && !filter.anyTypes.some(type => def.types[type])) return false;
+  if (filter.nonTypes?.some(type => def.types[type])) return false;
+  if (filter.legendary && !def.types.legendary) return false;
+  if (filter.historic && !(def.types.legendary || def.types.artifact || /\bSaga\b/.test(def.typeLine ?? ""))) return false;
+  const colors = colorsOfDef(def);
+  if (filter.multicolored && colors.length < 2) return false;
+  if (filter.colorless && colors.length > 0) return false;
+  if (filter.mvMin !== undefined && (def.manaValue ?? 0) < filter.mvMin) return false;
+  if (filter.mvMax !== undefined && (def.manaValue ?? 0) > filter.mvMax) return false;
+  if (filter.hasX && !/\{X\}/.test(def.manaCost ?? "")) return false;
+  return true;
+}
+
 /** Passt das auslösende Permanent zum Filter eines allgemeinen Auslösers (Typ der Zielangabe plus Filter)? */
 function subjectMatches(game, card, spec, source) {
   const types = defOf(game, card).types;
@@ -1631,6 +1646,8 @@ function passesSpecFilter(game, id, spec, controller, src) {
   const card = game.cards[id];
   const def = defOf(game, card);
   if (spec.another && src?.id === id) return false;
+  if (spec.token === true && !card.token) return false;
+  if (spec.token === false && card.token) return false;
   if (spec.counter && !(spec.counter === "any" ? Object.values(card.counters ?? {}).some(value => value > 0) : (card.counters?.[spec.counter] ?? 0) > 0)) return false;
   if (spec.noKeyword && hasKeyword(game, card, spec.noKeyword)) return false;
   if (spec.enteredThisTurn && !(card.sinceSeq > (game.players[game.turn.active]?.turnStartSeq ?? 0))) return false;
@@ -2021,6 +2038,7 @@ function fireGlobal(game, event, subject) {
         if (scope.spec && (typeof subject === "string" || !subjectMatches(game, subject, scope.spec, source))) continue;
         if (scope.legendary && (typeof subject === "string" || !defOf(game, subject).types.legendary)) continue;
         if (trigger.kinds && (typeof subject === "string" || !trigger.kinds.some(kind => defOf(game, subject).types[kind]))) continue;
+        if (trigger.castFilter && (typeof subject === "string" || !castFilterOk(defOf(game, subject), trigger.castFilter))) continue;
         if (scope.minPower !== undefined && (typeof subject === "string" || powerOf(game, subject) < scope.minPower)) continue;
         if (scope.maxPower !== undefined && (typeof subject === "string" || powerOf(game, subject) > scope.maxPower)) continue;
         if (trigger.chosenType && (!source.chosenType || typeof subject === "string" || !hasSubtype(defOf(game, subject), source.chosenType))) continue;
@@ -3251,6 +3269,7 @@ function runEffect(game, rawEffect, ctx, rest) {
           if (effect.anyOf && !effect.anyOf.some(word => hasSubtype(defOf(game, c), word))) continue;
           if (effect.attackingOnly && !game.combat?.attackers?.some(attacker => attacker.id === c.id)) continue;
           if (effect.nonType && defOf(game, c).types[effect.nonType]) continue;
+          if (effect.spec && !passesSpecFilter(game, id, effect.spec, ctx.controller, sourceCard ?? { id: ctx.source })) continue;
           if (defOf(game, c).types.creature) {
             c.tp = (c.tp ?? 0) + effect.p;
             c.tt = (c.tt ?? 0) + effect.th;
