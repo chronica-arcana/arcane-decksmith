@@ -124,6 +124,7 @@ function staticEffects(game, card) {
           : true;
         if (!applies) continue;
         if (effect.tokenOnly && !card.token) continue;
+        if (effect.duringYourTurn && game.turn.active !== source.owner) continue;
         if (effect.anyOf && !effect.anyOf.some(word => (word in defOf(game, card).types ? defOf(game, card).types[word] : hasSubtype(defOf(game, card), word)))) continue;
         if (effect.counter && !(effect.counter === "any" ? Object.values(card.counters).some(value => value > 0) : card.counters[effect.counter] > 0)) continue;
         if (effect.colors && !colorsOfCard(game, card).some(color => effect.colors.includes(color))) continue;
@@ -174,7 +175,7 @@ function staticEffects(game, card) {
 const KEYWORD_COUNTERS = new Set(["flying", "first strike", "double strike", "deathtouch", "haste", "hexproof", "indestructible", "lifelink", "menace", "reach", "trample", "vigilance"]);
 const keywordsOfCard = (game, card) => {
   const def = defOf(game, card);
-  const base = [...(def.keywords ?? []), ...(def.rules?.selfGrants ?? []), ...(def.rules?.tiers ?? []).filter(tier => tierOn(card, { minCharge: tier.n })).flatMap(tier => tier.kws)];
+  const base = [...(def.keywords ?? []), ...(def.rules?.selfGrants ?? []), ...(def.rules?.selfGrantsYourTurn && game.turn?.active === card.owner ? def.rules.selfGrantsYourTurn : []), ...(def.rules?.tiers ?? []).filter(tier => tierOn(card, { minCharge: tier.n })).flatMap(tier => tier.kws)];
   const effects = staticEffects(game, card);
   const counterKeywords = Object.keys(card.counters ?? {}).filter(kind => card.counters[kind] > 0 && KEYWORD_COUNTERS.has(kind));
   const grants = [...effects.grants, ...(card.tk ?? []), ...counterKeywords];
@@ -2198,8 +2199,8 @@ function evalQuantity(game, ctx, q) {
   let value = 0;
   switch (q.kind) {
     case "stat": {
-      const card = q.ref === "self" ? source : q.ref === "attached" ? (source?.attachedTo ? game.cards[source.attachedTo] : null) : itCard();
-      value = statOf(card, q.stat, card?.id);
+      const card = q.ref === "self" ? source : q.ref === "sacrificed" ? (ctx.sacrificed ? game.cards[ctx.sacrificed] : null) : q.ref === "attached" ? (source?.attachedTo ? game.cards[source.attachedTo] : null) : itCard();
+      value = statOf(card, q.stat, q.ref === "sacrificed" ? ctx.sacrificed : card?.id);
       break;
     }
     case "opponents": value = alive(game).filter(id => id !== ctx.controller).length; break;
@@ -3858,6 +3859,10 @@ function chooseAction(game, userId, action, random, now) {
       break;
     case "sacrificeOne": {
       const card = game.cards[ids[0]];
+      if (ctx && card) {
+        ctx.sacrificed = card.id;
+        ctx.snap = { ...(ctx.snap ?? {}), ...snapshotTargets(game, [card.id]) };
+      }
       if (card && onBattlefield(game, card.id)) {
         addLog(game, `${game.players[userId].name} opfert ${nameOf(game, card.id)}.`);
         toGraveyard(game, card);

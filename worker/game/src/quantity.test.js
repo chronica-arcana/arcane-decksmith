@@ -55,4 +55,12 @@ describe("quantity: Mengenangaben", () => {
     const parse = (typeLine, oracleText) => parseCardText({ name: "Karte", typeLine, oracleText });
     expect(parse("Creature — X", "At the beginning of your end step, if you gained life this turn, draw a card.").triggers[0].effects[0]).toMatchObject({ type: "ifCond", cond: { kind: "gainedLife" } });
   });
+
+  it("„A, then B“, Spielsteine mit „can't block“, „during your turn … have hexproof“, Wert des geopferten Permanents", () => {
+    const parse = (typeLine, oracleText) => parseCardText({ name: "Karte", typeLine, oracleText });
+    expect(parse("Sorcery", "Draw a card, then creatures you control get +1/+1 until end of turn.").spell.effects.map(effect => effect.type)).toEqual(["draw", "pumpAll"]);
+    expect(parse("Creature — X", "When ~ enters, create X 1/1 white Tribble creature tokens with \"This token can't block,\" where X is ~'s power.").triggers[0].effects[0]).toMatchObject({ type: "token", keywords: ["cant-block"], xRef: { kind: "stat", ref: "self" } });
+    expect(parse("Artifact — Spacecraft", "During your turn, ~ and creatures you control have hexproof.").statics[0]).toMatchObject({ duringYourTurn: true, grants: ["hexproof"] });
+    expect(parse("Creature — X", "Whenever ~ attacks, you may sacrifice an artifact. If you do, each opponent loses life equal to the mana value of the sacrificed permanent.").triggers[0].unparsed).toEqual([]);
+  });
 });

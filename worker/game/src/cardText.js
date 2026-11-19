@@ -418,7 +418,7 @@ function parseSentence(raw, specs) {
   // Impulse: „Exile the top card of your library. You may play that card this turn.“
   if ((m = lower.match(new RegExp(`^exile the top (card|${N} cards) of your library$`)))) {
     const n = m[1] === "card" ? 1 : num(m[2]);
-    return n === null || n === "X" ? null : [{ type: "exileTop", n }];
+    return n === null ? null : [{ type: "exileTop", n }];
   }
   if (/^(?:until end of turn, )?you may play (?:that card|it|those cards|them|the exiled cards?)(?: this turn)?$/.test(lower)) return [{ type: "playExiled", next: false }];
   if (/^until (?:the )?end of your next turn, you may play (?:that card|it|those cards|them)$/.test(lower)) return [{ type: "playExiled", next: true }];
@@ -810,6 +810,7 @@ function parseSentence(raw, specs) {
     }
     return out;
   }
+  if ((m = lower.match(/^(creatures you control|other creatures you control) get \+x\/\+x until end of turn$/))) return [{ type: "pumpAll", scope: "you", p: "X", th: "X", kws: [] }];
   if ((m = lower.match(/^([a-z]+s) and ([a-z]+s) you control get ([+-]\d+)\/([+-]\d+)(?: and gain ([a-z, ]+))? until end of turn$/))) {
     const kws = (m[5] ?? "").split(/,| and /).map(word => word.trim()).filter(word => KEYWORDS.includes(word));
     return [{ type: "pumpAll", scope: "you", p: Number(m[3]), th: Number(m[4]), kws, anyOf: [m[1].replace(/s$/, ""), m[2].replace(/s$/, "")] }];
@@ -887,6 +888,12 @@ function parseSentence(raw, specs) {
     return [{ type: "pumpAll", scope, p: Number(m[2]), th: Number(m[3]) }];
   }
 
+  if ((m = s.match(new RegExp(`^(?:Its controller |That player |You )?[Cc]reates? ${N} (\\d+)/(\\d+) ([A-Za-z ,]+?) creature tokens? with "this (?:token|creature) can't block[.,]?"$`, "i")))) {
+    const n = num(m[1]);
+    if (n === null) return null;
+    const name = m[4].split(/[ ,]+/).filter(word => word && !["white", "blue", "black", "red", "green", "colorless", "and", "artifact"].includes(word.toLowerCase())).join(" ");
+    return [{ type: "token", n, p: Number(m[2]), th: Number(m[3]), name: name || "Token", keywords: ["cant-block"], ...(/artifact/i.test(m[4]) ? { artifact: true } : {}) }];
+  }
   if ((m = s.match(new RegExp(`^(?:Its controller |That player |You )?[Cc]reates? ${N} (\\d+)/(\\d+) ([A-Za-z ,]+?) creature tokens?(?: with ([a-z ,]+?))?$`, "i")))) {
     const tokenKws = (m[5] ?? "").split(/,| and /).map(word => word.trim()).filter(word => KEYWORDS.includes(word));
     const forWho = /^Its controller /i.test(s) && specs.length > 0 ? { k: "controllerOf", t: 0 } : null;
@@ -919,6 +926,21 @@ function parseSentence(raw, specs) {
   }
   if ((m = s.match(/^[Aa]dd ((?:\{[WUBRGC]\})+)$/))) {
     return [{ type: "mana", symbols: [...m[1].matchAll(/\{([WUBRGC])\}/g)].map(x => x[1]) }];
+  }
+  // Zusammengesetzter Satz „A, then B“: beide Teile müssen verstanden werden
+  if (/, then /i.test(s)) {
+    const mark = specs.length;
+    const parts = s.split(/, then /i);
+    const out = [];
+    for (const part of parts) {
+      const parsed = parseSentence(part, specs);
+      if (!parsed) {
+        specs.length = mark;
+        return null;
+      }
+      out.push(...parsed);
+    }
+    return out;
   }
   return null;
 }
@@ -1699,6 +1721,15 @@ export function parseCardText({ name, typeLine, oracleText }) {
     if (/^creatures your opponents control enter tapped\.?$/i.test(line)) {
       result.oppEnterTapped = true;
       continue;
+    }
+    const duringTurn = line.match(/^during your turn, (~ and )?creatures you control have ([a-z, ]+?)\.?$/i);
+    if (duringTurn) {
+      const grants = duringTurn[2].split(/,| and /).map(word => word.trim().toLowerCase()).filter(Boolean);
+      if (grants.every(word => KEYWORDS.includes(word))) {
+        result.statics.push({ scope: "you", p: 0, th: 0, grants, duringYourTurn: true });
+        if (duringTurn[1]) result.selfGrantsYourTurn = grants;
+        continue;
+      }
     }
     if (/^you may play lands from your graveyard\.?$/i.test(line)) {
       result.landsFromGraveyard = true;

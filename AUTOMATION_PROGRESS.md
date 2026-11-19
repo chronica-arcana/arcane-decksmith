@@ -23,6 +23,7 @@ Startpunkt der autonomen Phase (PR #69): Star Trek/FF 278/545 (51,0 %), alle Dec
 | 4 | Generische Bedingungen (`parseCondition`): Kontrolle von N <Filter>, Leben erhalten, Monarch, Angriff, Handkarten, Friedhof, eigener Zug … | 287 (52,7 %) | 779 (38,8 %) |
 | 5 | Ausrüstung/Aura: Schutz vor Farben, „+N/+N for each …“ (Mengen-Baustein), verliehene Auslöser in Anführungszeichen | 289 (53,0 %) | 782 (39,0 %) |
 | 6 | Typ-Tod-Auslöser, „one or more <Typ> attack“, „enters with X counters“, „another target“ bei Markern, Schaden an bis zu N Zielen, kostenloses Wirken aus Friedhof/Hand/Exil („without paying its mana cost“, danach Exil) | 290 (53,2 %) | 790 (39,4 %) |
+| 7 | „A, then B“ allgemein, +X/+X für alle, „exile the top X“, Spielsteine mit „can't block“, „during your turn … have“, Wert des geopferten Permanents | 297 (54,5 %) | 797 (39,7 %) |
 
 ## Implementierte Bausteine (Auswahl)
 

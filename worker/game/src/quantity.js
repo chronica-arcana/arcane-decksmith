@@ -33,6 +33,10 @@ export function parseQuantity(text, parseSpec) {
   if ((m = t.match(/^(its|~'s|that creature's|that permanent's|that card's|that spell's|that artifact's|the sacrificed creature's|the exiled creature's|the exiled card's|enchanted creature's|equipped creature's) (power|toughness|mana value)$/))) {
     return done({ kind: "stat", ref: REF[m[1]], stat: m[2] === "mana value" ? "mv" : m[2] });
   }
+  if ((m = t.match(/^the (power|toughness|mana value) of (?:it|that card|that creature|the sacrificed (?:permanent|creature|artifact)|the exiled card)$/))) {
+    return done({ kind: "stat", ref: /sacrificed/.test(t) ? "sacrificed" : "it", stat: m[1] === "mana value" ? "mv" : m[1] });
+  }
+  if ((m = t.match(/^the sacrificed (?:permanent|creature|artifact)'s (power|toughness|mana value)$/))) return done({ kind: "stat", ref: "sacrificed", stat: m[1] === "mana value" ? "mv" : m[1] });
   if (/^the number of opponents?(?: you have)?$/.test(t)) return done({ kind: "opponents" });
   if (/^the number of opponents? you attacked this turn$/.test(t)) return done({ kind: "oppAttacked" });
   if (/^the number of cards? in your hand$/.test(t)) return done({ kind: "zone", zone: "hand" });
