@@ -8,7 +8,7 @@
  * bzw. `notes`. Der Spielkern öffnet dafür ein manuelles Fenster, statt etwas Falsches zu automatisieren.
  */
 import { KEYWORDS, parseManaCost, typesOf } from "./cardFacts.js";
-import { attachQuantity, parseForEach, parseQuantity, rewriteEqualTo, usesX } from "./quantity.js";
+import { attachQuantity, parseCondition, parseForEach, parseQuantity, rewriteEqualTo, usesX } from "./quantity.js";
 
 const WORDS = { a: 1, an: 1, one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10, eleven: 11, twelve: 12, thirteen: 13, fourteen: 14, fifteen: 15, sixteen: 16, seventeen: 17, eighteen: 18, nineteen: 19, twenty: 20 };
 const N = "(a|an|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|\\d+|x)";
@@ -452,6 +452,15 @@ function parseSentence(raw, specs) {
       effects.push({ type: "reanimate", t, to: "hand", counters: 0 });
     }
     return effects;
+  }
+  if ((m = s.match(/^(?:then )?if (.+?), (.+)$/i)) && !/^you do$/i.test(m[1])) {
+    const cond = parseCondition(m[1].replace(/\bthis spell\b/i, "~"), phrase => parseTargetSpec(phrase));
+    if (cond) {
+      const mark = specs.length;
+      const inner = parseSentence(m[2], specs);
+      if (inner) return [{ type: "ifCond", cond, effects: inner }];
+      specs.length = mark;
+    }
   }
   if ((m = lower.match(/^(?:then )?if you control (an? [a-z ]+?|a creature with power \d+ or greater|three or more [a-z]+s?), (.+)$/))) {
     let cond = null;

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { parseCardText } from "./cardText.js";
-import { attachQuantity, parseQuantity, rewriteEqualTo, singular } from "./quantity.js";
+import { attachQuantity, parseCondition, parseQuantity, rewriteEqualTo, singular } from "./quantity.js";
 
 const spec = phrase => ({ phrase });
 
@@ -45,5 +45,14 @@ describe("quantity: Mengenangaben", () => {
     const parsed = parse("Creature — X", "At the beginning of your end step, you may sacrifice another creature. When you do, draw a card.");
     expect(parsed.triggers[0].effects.map(effect => effect.type)).toEqual(["may", "ifDid"]);
     expect(parse("Creature — X", "Whenever you sacrifice a creature, return this card from your graveyard to your hand.").notes.length + parse("Sorcery", "Return this card from your graveyard to your hand.").spell.unparsed.length).toBeLessThanOrEqual(1);
+  });
+
+  it("Bedingungen werden erkannt; Unbekanntes bleibt offen", () => {
+    expect(parseCondition("you control three or more artifacts", spec)).toEqual({ kind: "controls", n: 3, spec: { phrase: "target artifact" }, other: false });
+    expect(parseCondition("you gained 7 or more life this turn", spec)).toEqual({ kind: "gainedLife", n: 7 });
+    expect(parseCondition("you're the monarch", spec)).toEqual({ kind: "monarch" });
+    expect(parseCondition("it was kicked", spec)).toBeNull();
+    const parse = (typeLine, oracleText) => parseCardText({ name: "Karte", typeLine, oracleText });
+    expect(parse("Creature — X", "At the beginning of your end step, if you gained life this turn, draw a card.").triggers[0].effects[0]).toMatchObject({ type: "ifCond", cond: { kind: "gainedLife" } });
   });
 });

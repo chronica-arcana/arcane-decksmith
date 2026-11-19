@@ -183,6 +183,7 @@ const LIB = [
   ["tokenlord", "Spielsteinherr", "Creature — Advisor", "{1}", 2, { power: "1", toughness: "1" }, "Creature tokens you control get +1/+1."],
   ["swarmcaller", "Schwarmrufer", "Creature — Wizard", "{1}", 2, { power: "3", toughness: "3" }, "When ~ enters, create X 1/1 colorless Construct artifact creature tokens, where X is ~'s power."],
   ["lifecount", "Lebenszähler", "Sorcery", "{G}", 2, {}, "You gain life equal to the number of creatures you control."],
+  ["lifewatch", "Lebenswächter", "Creature — Cleric", "{1}", 2, { power: "1", toughness: "1" }, "At the beginning of your end step, if you gained life this turn, draw a card."],
   ["convoker", "Einberufer", "Sorcery", "{3}{G}", 2, {}, "Convoke\nDraw a card."],
   ["delver", "Schürfer", "Sorcery", "{4}{G}", 2, {}, "Delve\nDraw a card."],
   ["sculptor", "Bildhauer", "Creature — Vedalken", "{G}", 2, { power: "1", toughness: "1" }, "Artifact spells you cast cost {1} less to cast."],
@@ -2911,6 +2912,19 @@ describe("Neue Mechaniken aus den Commander-Decks", () => {
     const life = game.players.u0.life;
     castAndResolve(game, "u0", "Lebenszähler", random);
     expect(game.players.u0.life).toBe(life + 4); // Schwarmrufer + 3 Spielsteine
+  });
+
+  it("Bedingung „if you gained life this turn“ wird zur Laufzeit geprüft", () => {
+    const { game, random } = started();
+    put(game, "u0", "Lebenswächter", "battlefield");
+    forest(game, "u0", 1);
+    castAndResolve(game, "u0", "Heilung", random);
+    expect(game.players.u0.lifeGained).toBe(4);
+    const hand = game.players.u0.hand.length;
+    game.turn.phase = "main2";
+    for (let i = 0; i < 20 && game.turn.active === "u0" && game.turn.phase !== "end"; i += 1) act(game, game.priority ?? "u0", { type: "pass" }, random);
+    go(game, random);
+    expect(game.players.u0.hand.length).toBeGreaterThanOrEqual(hand + 1);
   });
 
   it("Convoke und Delve bezahlen fehlendes Mana mit Kreaturen bzw. Friedhofskarten", () => {

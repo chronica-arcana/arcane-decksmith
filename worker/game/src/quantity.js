@@ -95,3 +95,38 @@ export function rewriteEqualTo(sentence) {
   }
   return null;
 }
+
+const COUNT = { a: 1, an: 1, one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10 };
+const countOf = word => (/^\d+$/.test(word) ? Number(word) : COUNT[word] ?? null);
+
+/**
+ * Bedingungen („intervening if“): `parseCondition("you control three or more artifacts")`.
+ * Rückgabe: Beschreibung für `evalCondition` in gameLogic.js oder `null` (unbekannt → Satz bleibt unverstanden).
+ */
+export function parseCondition(text, parseSpec) {
+  const t = String(text ?? "").toLowerCase().trim();
+  let m;
+  if ((m = t.match(/^you control (a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)(?: or more)? (.+)$/)) && !/^(commander|your commander)$/.test(m[2])) {
+    const n = countOf(m[1]);
+    const spec = parseSpec(`target ${singular(m[2].replace(/ other than ~$/, ""))}`);
+    return n && spec ? { kind: "controls", n, spec, other: / other than ~$/.test(m[2]) } : null;
+  }
+  if ((m = t.match(/^you control (?:a|your) commander$/))) return { kind: "commander" };
+  if ((m = t.match(/^you don't control an? (.+)$/))) {
+    const spec = parseSpec(`target ${singular(m[1])}`);
+    return spec ? { kind: "controls", n: 1, spec, negate: true } : null;
+  }
+  if (/^you attacked (?:with a creature )?this turn$/.test(t)) return { kind: "attacked" };
+  if ((m = t.match(/^you gained (?:(\d+) or more )?life this turn$/))) return { kind: "gainedLife", n: m[1] ? Number(m[1]) : 1 };
+  if (/^you're the monarch$/.test(t)) return { kind: "monarch" };
+  if (/^~ is tapped$/.test(t)) return { kind: "selfTapped" };
+  if (/^~ is untapped$/.test(t)) return { kind: "selfUntapped" };
+  if (/^an opponent controls more lands than you$/.test(t)) return { kind: "oppMoreLands" };
+  if ((m = t.match(/^you have (\d+) or (more|less) life$/))) return { kind: "life", n: Number(m[1]), op: m[2] === "more" ? "gte" : "lte" };
+  if (/^you have no cards in hand$/.test(t)) return { kind: "emptyHand" };
+  if ((m = t.match(/^there are (\w+) or more cards in your graveyard$/))) return countOf(m[1]) ? { kind: "graveyard", n: countOf(m[1]) } : null;
+  if ((m = t.match(/^(?:~|it|this spell) was cast from exile$/))) return { kind: "castFromExile" };
+  if (/^it's your turn$/.test(t)) return { kind: "yourTurn" };
+  if (/^it's not your turn$/.test(t)) return { kind: "notYourTurn" };
+  return null;
+}

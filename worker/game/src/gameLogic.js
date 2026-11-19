@@ -1818,6 +1818,7 @@ function inflictDamage(game, source, targetId, amount, { combat = false } = {}) 
   if (dealt > 0 && source && hasKeyword(game, source, "lifelink")) {
     game.players[source.owner].life += dealt;
     pushFx(game, { type: "heal", player: source.owner, amount: dealt });
+    noteLifeGain(game, source.owner, dealt);
     fireGlobal(game, "youGainLife", source.owner);
   }
   return dealt;
@@ -2144,6 +2145,17 @@ function openChoice(game, choice) {
   return true;
 }
 
+/** Merkt sich, wie viel Leben ein Spieler in diesem Zug erhalten hat („if you gained life this turn“). */
+function noteLifeGain(game, userId, amount) {
+  const player = game.players[userId];
+  if (!player || amount <= 0) return;
+  if (player.lifeGainTurn !== game.turn.number) {
+    player.lifeGainTurn = game.turn.number;
+    player.lifeGained = 0;
+  }
+  player.lifeGained += amount;
+}
+
 /** Wertet eine Mengenangabe aus (siehe quantity.js). */
 function evalQuantity(game, ctx, q) {
   const me = game.players[ctx.controller];
@@ -2257,7 +2269,10 @@ function runEffect(game, rawEffect, ctx, rest) {
       if (effect.onlyFromExile && !ctx.castInfo?.fromExile) return false;
       for (const id of playersOf(game, effect.who, ctx)) {
         game.players[id].life += effect.n;
-        if (effect.n > 0) fireGlobal(game, "youGainLife", id);
+        if (effect.n > 0) {
+          noteLifeGain(game, id, effect.n);
+          fireGlobal(game, "youGainLife", id);
+        }
         pushFx(game, { type: effect.n >= 0 ? "heal" : "damage", player: id, amount: Math.abs(effect.n) });
         addLog(game, `${game.players[id].name}: Leben ${effect.n > 0 ? "+" : ""}${effect.n} (jetzt ${game.players[id].life}, ${name}).`);
       }
@@ -3176,6 +3191,18 @@ function runEffect(game, rawEffect, ctx, rest) {
       const met =
         (cond.kind === "creaturePower" && mine.some(card => defOf(game, card).types.creature && powerOf(game, card) >= cond.n)) ||
         (cond.kind === "commander" && mine.some(card => card.cmd)) ||
+        (cond.kind === "controls" && (validTargets(game, { ...cond.spec, ctrl: "you" }, ctx.controller, { colors: [], id: ctx.source }).filter(id => !(cond.other && id === ctx.source)).length >= cond.n) !== Boolean(cond.negate)) ||
+        (cond.kind === "attacked" && (game.turn.attackedOpponents?.[ctx.controller]?.length ?? 0) > 0) ||
+        (cond.kind === "gainedLife" && controller.lifeGainTurn === game.turn.number && (controller.lifeGained ?? 0) >= cond.n) ||
+        (cond.kind === "monarch" && game.monarch === ctx.controller) ||
+        (cond.kind === "selfTapped" && sourceCard?.tapped) ||
+        (cond.kind === "oppMoreLands" && game.seats.some(id => id !== ctx.controller && game.players[id].battlefield.filter(c => defOf(game, game.cards[c]).types.land).length > controller.battlefield.filter(c => defOf(game, game.cards[c]).types.land).length)) ||
+        (cond.kind === "life" && (cond.op === "gte" ? controller.life >= cond.n : controller.life <= cond.n)) ||
+        (cond.kind === "emptyHand" && controller.hand.length === 0) ||
+        (cond.kind === "graveyard" && controller.graveyard.length >= cond.n) ||
+        (cond.kind === "castFromExile" && Boolean(ctx.castInfo?.fromExile)) ||
+        (cond.kind === "yourTurn" && game.turn.active === ctx.controller) ||
+        (cond.kind === "notYourTurn" && game.turn.active !== ctx.controller) ||
         (cond.kind === "selfUntapped" && sourceCard && !sourceCard.tapped) ||
         (cond.kind === "counterPutThisTurn" && game.turn.counterPut?.[ctx.controller] === game.turn.number) ||
         (cond.kind === "controlsCount" && mine.filter(card => typeMatches(defOf(game, card), cond.what) || hasSubtype(defOf(game, card), cond.what)).length >= cond.n);
