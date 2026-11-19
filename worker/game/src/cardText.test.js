@@ -391,3 +391,22 @@ describe("cardText: Star Trek/FF Runde 3", () => {
     expect(parse("Instant", "Draw a card for each attacking creature.").spell.effects[0]).toMatchObject({ per: "attacking creature" });
   });
 });
+
+describe("cardText: Kurznamen legendärer Karten und weitere Satzformen", () => {
+  it("„Loran“ steht für „Loran of the Third Path“, „Lieutenant Sulu“ für „Lieutenant Hikaru Sulu“", () => {
+    const loran = parseCardText({ name: "Loran of the Third Path", typeLine: "Legendary Creature — Human Artificer", oracleText: "When Loran enters, destroy up to one target artifact or enchantment." });
+    expect(loran.triggers[0]).toMatchObject({ event: "etb", effects: [{ type: "destroy" }] });
+    const sulu = parseCardText({ name: "Lieutenant Hikaru Sulu", typeLine: "Legendary Creature — Human Soldier", oracleText: "Whenever Lieutenant Sulu becomes tapped, he explores." });
+    expect(sulu.triggers[0].event).toBe("becomesTapped");
+    // nicht legendär: keine Kurzform
+    const plain = parseCardText({ name: "Goblin Guide", typeLine: "Creature — Goblin", oracleText: "Whenever a Goblin you control attacks, draw a card." });
+    expect(plain.triggers[0]?.event).not.toBe("attacks");
+  });
+
+  it("„Then …“, „those creatures get …“, „you may sacrifice it“", () => {
+    const parse = (typeLine, oracleText) => parseCardText({ name: "Karte", typeLine, oracleText });
+    expect(parse("Creature — X", "When ~ enters, draw a card. Then put a +1/+1 counter on ~ for each creature you control.").triggers[0].unparsed).toEqual([]);
+    expect(parse("Creature — X", "Whenever you attack with three or more creatures, those creatures get +1/+1 until end of turn.").triggers[0].effects[0]).toMatchObject({ type: "pumpAll", attackingOnly: true });
+    expect(parse("Artifact", "At the beginning of your end step, you may sacrifice it.").triggers[0].effects[0]).toMatchObject({ type: "may" });
+  });
+});

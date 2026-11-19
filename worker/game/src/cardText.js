@@ -17,10 +17,31 @@ const num = text => (/^\d+$/.test(text) ? Number(text) : String(text).toLowerCas
 const WHO = "(you|target player|target opponent|each opponent|each player|they|that player)";
 
 /** Entfernt Erinnerungstext und ersetzt den Kartennamen durch „~“. */
-export function normalizeText(oracleText, name) {
+const NAME_TITLES = new Set(["the", "lord", "lady", "captain", "lieutenant", "commander", "general", "chief", "sir", "king", "queen", "prince", "princess", "ensign", "doctor", "admiral", "master", "maester", "summon:", "ultimate"]);
+
+/** Kurzformen legendärer Namen, mit denen der Kartentext auf sich selbst verweist („Loran“ für „Loran of the Third Path“). */
+function shortNames(name) {
+  const base = String(name ?? "").split(",")[0].split(" of ")[0].trim();
+  const words = base.split(/\s+/).filter(Boolean);
+  const out = [];
+  if (base && base !== String(name ?? "").split(",")[0].trim() && base.length >= 4) out.push(base);
+  if (words.length >= 2) {
+    out.push(`${words[0]} ${words[words.length - 1]}`);
+    if (!NAME_TITLES.has(words[0].toLowerCase()) && words[0].length >= 4) out.push(words[0]);
+    if (words[words.length - 1].length >= 4 && !NAME_TITLES.has(words[words.length - 1].toLowerCase())) out.push(words[words.length - 1]);
+  }
+  return out;
+}
+
+export function normalizeText(oracleText, name, legendary = false) {
   let text = String(oracleText ?? "").split("//")[0].replace(/\([^)]*\)/g, "").replace(/[\u2018\u2019]/g, "'");
   const names = [...new Set([name, String(name ?? "").split(",")[0]])].filter(Boolean).sort((a, b) => b.length - a.length);
   for (const item of names) text = text.split(item).join("~");
+  if (legendary) {
+    for (const item of shortNames(name).sort((a, b) => b.length - a.length)) {
+      text = text.replace(new RegExp(`\\b${item.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b(?=('s|\\s+(?:enters|dies|attacks|blocks|deals|gets|gains|has|can't|becomes|is|was|explores|and|or)\\b|[.,]))`, "g"), "~");
+    }
+  }
   text = text.replace(/(choose a creature type\.)[ \t]+/gi, "$1\n");
   text = text.replace(/\bAs it enters\b/g, "As ~ enters").replace(/\. (?=As ~ enters)/g, ".\n");
   text = text.replace(/\bthis (creature|permanent|artifact|enchantment|land|planeswalker|spell|equipment|aura|vehicle|spacecraft|saga|planet|card)\b/gi, "~");
@@ -186,6 +207,10 @@ function parseSentence(raw, specs) {
   const lower = s.toLowerCase().replace(/^it deals/, "~ deals");
   let m;
 
+  if (/^then /i.test(s) && !/^then (if|shuffle)\b/i.test(s)) {
+    const inner = parseSentence(s.slice(5), specs);
+    if (inner) return inner;
+  }
   // Mengenangaben: „…, where X is …“ und „… equal to …“ werden in die X-Form gebracht und berechenbar gemacht.
   if ((m = s.match(/^(.+?),? where x is (.+)$/i)) && !/where x is .*where x is/i.test(s)) {
     const quantity = parseQuantity(m[2], phrase => parseTargetSpec(phrase));
@@ -611,6 +636,15 @@ function parseSentence(raw, specs) {
   }
   if (/^you may cast (?:that card|it|the exiled card|that spell|those cards|one of those cards) without paying its mana cost$/.test(lower)) return [{ type: "freeCastLast" }];
   if (/^if that spell would be put into (?:your|a|its owner's) graveyard, exile it instead$/.test(lower)) return [{ type: "freeCastExile" }];
+  if (lower === "you may sacrifice it" || lower === "you may sacrifice ~") return [{ type: "may", effects: [{ type: "sacrificeSelf" }] }];
+  if ((m = lower.match(/^you may put up to (two|three) ([a-z]+) cards from among them into your hand$/))) return [{ type: "lookTake", what: m[2], count: num(m[1]), optional: true }];
+  if ((m = lower.match(/^those creatures get ([+-]\d+)\/([+-]\d+) until end of turn$/))) return [{ type: "pumpAll", scope: "you", p: Number(m[1]), th: Number(m[2]), kws: [], attackingOnly: true }];
+  if ((m = lower.match(/^you may cast (target instant card) from your graveyard without paying its mana cost$/))) {
+    const t = addTarget(specs, "target instant or sorcery card from your graveyard");
+    if (t === null) return null;
+    specs[t] = { ...specs[t], onlyInstant: true };
+    return [{ type: "freeCast", t }];
+  }
   if (/^you may choose new targets for (the|that|target) (cop(y|ies)|spell or ability)$/.test(lower)) return [{ type: "noop" }];
   if ((m = lower.match(new RegExp(`^you may have (?:it|~) deal ${N} damage to each creature$`)))) {
     const n = num(m[1]);
@@ -639,7 +673,7 @@ function parseSentence(raw, specs) {
     const t = addTarget(specs, m[1]);
     return t === null ? null : [{ type: "explore", t }];
   }
-  if ((m = lower.match(/^(~|it|that creature) explores$/))) return [{ type: "explore", who: m[1] === "~" ? "self" : "subject" }];
+  if ((m = lower.match(/^(~|it|he|she|that creature) explores$/))) return [{ type: "explore", who: ["~", "he", "she"].includes(m[1]) ? "self" : "subject" }];
   if (/^(?:that creature|it|those creatures) doesn't untap during (?:its|their) controller's next untap step$/.test(lower)) return [{ type: "freeze", t: specs.length > 0 ? 0 : null }];
   if (lower === "untap that creature" || lower === "untap it") return [{ type: "untapLast" }];
   if (/^(?:it|that creature) gains haste until end of turn$/.test(lower)) return [{ type: "hasteLast" }];
@@ -1320,6 +1354,7 @@ function triggerEvent(word, condition) {
   if (/^an opponent casts a creature spell$/.test(condition)) return { event: "castCreature", scope: { owner: "opp", another: false } };
   if (/^~ deals combat damage to a player or planeswalker$/.test(condition)) return { event: "dealsCombatDamage" };
   if (/^a legendary creature you control enters( the battlefield)?$/.test(condition)) return { event: "creatureEnters", scope: { owner: "you", another: false, legendary: true } };
+  if (/^~ becomes tapped$/.test(condition)) return { event: "becomesTapped" };
   if (/^~ mutates$/.test(condition)) return { event: "mutates" };
   if (/^~ dies$/.test(condition) || /^~ is put into a graveyard from the battlefield$/.test(condition)) return { event: "dies" };
   if ((m = condition.match(/^~ or another (nontoken )?creature you control dies$/))) return { event: "creatureDies", scope: { owner: "you", another: false, ...(m[1] ? { nontoken: true } : {}) } };
@@ -1391,7 +1426,7 @@ const stripPrefix = line => line.replace(/^[•*]\s*/, "").replace(/^[A-Z][^—.
  */
 export function parseCardText({ name, typeLine, oracleText }) {
   const types = typesOf(typeLine);
-  let rawLines = normalizeText(oracleText, name);
+  let rawLines = normalizeText(oracleText, name, /\bLegendary\b/.test(typeLine ?? ""));
   // Raumschiffe: Zeilen „N+ | …“ gehören zu Ladungsstufen; sie werden getrennt ausgewertet und mit Schwelle versehen.
   const tiers = [];
   let stationAt = null;

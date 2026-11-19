@@ -1,9 +1,9 @@
 {
-  "measuredAt": "2026-11-19T10:45:51.074Z",
+  "measuredAt": "2026-11-19T10:48:37.795Z",
   "focus": {
     "cards": 545,
-    "automated": 296,
-    "rate": 54.3,
+    "automated": 303,
+    "rate": 55.6,
     "decks": [
       {
         "name": "FIC Counter Blitz (FINAL FANTASY X)",
@@ -15,15 +15,15 @@
       },
       {
         "name": "FIC Revival Trance (FINAL FANTASY VI)",
-        "rate": 60
+        "rate": 63
       },
       {
         "name": "FIC Scions & Spellcraft (FINAL FANTASY XIV)",
-        "rate": 60
+        "rate": 61
       },
       {
         "name": "TRC Federation Fleet",
-        "rate": 69
+        "rate": 70
       },
       {
         "name": "TRC Klingon Fury",
@@ -31,17 +31,17 @@
       },
       {
         "name": "TRC Landing Party",
-        "rate": 70
+        "rate": 71
       },
       {
         "name": "TRC We Are the Borg",
-        "rate": 61
+        "rate": 63
       }
     ]
   },
   "all": {
     "cards": 2006,
-    "automated": 797,
-    "rate": 39.7
+    "automated": 810,
+    "rate": 40.4
   }
 }

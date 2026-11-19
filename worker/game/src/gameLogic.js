@@ -1611,7 +1611,7 @@ function validTargets(game, spec, controller, src = { colors: [], id: null }) {
     case "gyInstSorc":
       return game.players[controller].graveyard.filter(id => {
         const def = defOf(game, game.cards[id]);
-        return (def.types.instant || def.types.sorcery) && !(spec.mvMax !== undefined && (def.manaValue ?? 0) > spec.mvMax);
+        return (spec.onlyInstant ? def.types.instant : def.types.instant || def.types.sorcery) && !(spec.mvMax !== undefined && (def.manaValue ?? 0) > spec.mvMax);
       });
     case "gyCreature":
     case "gyArtifact":
@@ -3013,6 +3013,7 @@ function runEffect(game, rawEffect, ctx, rest) {
         for (const id of game.players[userId].battlefield) {
           const c = game.cards[id];
           if (effect.anyOf && !effect.anyOf.some(word => hasSubtype(defOf(game, c), word))) continue;
+          if (effect.attackingOnly && !game.combat?.attackers?.some(attacker => attacker.id === c.id)) continue;
           if (defOf(game, c).types.creature) {
             c.tp = (c.tp ?? 0) + effect.p;
             c.tt = (c.tt ?? 0) + effect.th;
@@ -4946,8 +4947,14 @@ function activateAction(game, userId, action) {
     for (const color of Object.keys(plan.poolUsed)) player.pool[color] -= plan.poolUsed[color];
     for (const color of Object.keys(plan.poolAdd)) player.pool[color] += plan.poolAdd[color];
   }
-  if (ability.cost.tap) card.tapped = true;
-  for (const id of crewed) game.cards[id].tapped = true;
+  if (ability.cost.tap) {
+    card.tapped = true;
+    fireTriggers(game, card, "becomesTapped");
+  }
+  for (const id of crewed) {
+    game.cards[id].tapped = true;
+    fireTriggers(game, game.cards[id], "becomesTapped");
+  }
   if (crewed.length > 0) addLog(game, `${player.name} tappt zur Besatzung: ${crewed.map(id => nameOf(game, id)).join(", ")}.`);
   applyPay(game, userId, extraPay.picks, def.name, card.id);
   if (ability.cost.sacrifice) {
@@ -5057,7 +5064,10 @@ function declareAttackersAction(game, userId, action, random, now) {
   }
   for (const attacker of attackers) {
     const card = game.cards[attacker.id];
-    if (!hasKeyword(game, card, "vigilance")) card.tapped = true;
+    if (!hasKeyword(game, card, "vigilance")) {
+      card.tapped = true;
+      fireTriggers(game, card, "becomesTapped");
+    }
     fireTriggers(game, card, "attacks");
     fireGlobal(game, "creatureAttacks", card);
     for (const other of Object.values(game.cards)) {
