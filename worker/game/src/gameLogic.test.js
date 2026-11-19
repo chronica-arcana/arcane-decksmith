@@ -181,6 +181,8 @@ const LIB = [
   ["oaka", "Händler", "Creature — Merchant", "{1}", 2, { power: "1", toughness: "1" }, "{T}, Remove a counter from a nonland permanent you control: Draw a card."],
   ["tome", "Sagenbuch", "Artifact", "{1}", 2, {}, "~ enters with a page counter on it.\nWhenever a creature you control attacks, put a page counter on ~."],
   ["tokenlord", "Spielsteinherr", "Creature — Advisor", "{1}", 2, { power: "1", toughness: "1" }, "Creature tokens you control get +1/+1."],
+  ["swarmcaller", "Schwarmrufer", "Creature — Wizard", "{1}", 2, { power: "3", toughness: "3" }, "When ~ enters, create X 1/1 colorless Construct artifact creature tokens, where X is ~'s power."],
+  ["lifecount", "Lebenszähler", "Sorcery", "{G}", 2, {}, "You gain life equal to the number of creatures you control."],
   ["convoker", "Einberufer", "Sorcery", "{3}{G}", 2, {}, "Convoke\nDraw a card."],
   ["delver", "Schürfer", "Sorcery", "{4}{G}", 2, {}, "Delve\nDraw a card."],
   ["sculptor", "Bildhauer", "Creature — Vedalken", "{G}", 2, { power: "1", toughness: "1" }, "Artifact spells you cast cost {1} less to cast."],
@@ -2898,6 +2900,17 @@ describe("Neue Mechaniken aus den Commander-Decks", () => {
     castAndResolve(g2, "u0", "Koboldsturm", r2);
     const goblin = g2.players.u0.battlefield.find(id => g2.cards[id].token);
     expect(view(g2, "u0").players[0].battlefield.find(c => c.id === goblin).power).toBe(2);
+  });
+
+  it("Mengenangaben: „where X is ~'s power“ und „equal to the number of creatures you control“", () => {
+    const { game, random } = started();
+    forest(game, "u0", 3);
+    castAndResolve(game, "u0", "Schwarmrufer", random);
+    for (let i = 0; i < 4 && game.stack.length > 0; i += 1) act(game, game.priority, { type: "pass" }, random);
+    expect(game.players.u0.battlefield.filter(id => game.cards[id].token)).toHaveLength(3);
+    const life = game.players.u0.life;
+    castAndResolve(game, "u0", "Lebenszähler", random);
+    expect(game.players.u0.life).toBe(life + 4); // Schwarmrufer + 3 Spielsteine
   });
 
   it("Convoke und Delve bezahlen fehlendes Mana mit Kreaturen bzw. Friedhofskarten", () => {

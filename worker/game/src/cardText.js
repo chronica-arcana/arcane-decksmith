@@ -8,6 +8,7 @@
  * bzw. `notes`. Der Spielkern öffnet dafür ein manuelles Fenster, statt etwas Falsches zu automatisieren.
  */
 import { KEYWORDS, parseManaCost, typesOf } from "./cardFacts.js";
+import { attachQuantity, parseQuantity, rewriteEqualTo, usesX } from "./quantity.js";
 
 const WORDS = { a: 1, an: 1, one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10, eleven: 11, twelve: 12, thirteen: 13, fourteen: 14, fifteen: 15, sixteen: 16, seventeen: 17, eighteen: 18, nineteen: 19, twenty: 20 };
 const N = "(a|an|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|\\d+|x)";
@@ -183,6 +184,25 @@ function parseSentence(raw, specs) {
   const s = raw.trim().replace(/\.$/, "");
   const lower = s.toLowerCase().replace(/^it deals/, "~ deals");
   let m;
+
+  // Mengenangaben: „…, where X is …“ und „… equal to …“ werden in die X-Form gebracht und berechenbar gemacht.
+  if ((m = s.match(/^(.+?),? where x is (.+)$/i)) && !/where x is .*where x is/i.test(s)) {
+    const quantity = parseQuantity(m[2], phrase => parseTargetSpec(phrase));
+    const mark = specs.length;
+    const inner = quantity ? parseSentence(m[1], specs) : null;
+    if (inner && usesX(inner)) return attachQuantity(inner, quantity);
+    specs.length = mark; // sonst: die bestehenden Satzregeln versuchen es weiter
+  }
+  if (/equal to /i.test(s) && !/\bx\b/i.test(s)) {
+    const rewritten = rewriteEqualTo(s);
+    const quantity = rewritten ? parseQuantity(rewritten.quantity, phrase => parseTargetSpec(phrase)) : null;
+    if (quantity) {
+      const mark = specs.length;
+      const inner = parseSentence(rewritten.text, specs);
+      if (inner && usesX(inner)) return attachQuantity(inner, quantity);
+      specs.length = mark;
+    }
+  }
 
   if ((m = lower.match(/^return an? (permanent|creature|artifact|enchantment) you control to its owner's hand$/))) return [{ type: "bounceOwn", what: m[1] }];
   if ((m = lower.match(/^(tap or untap) (target permanent|target creature|target artifact|target land)$/))) {
@@ -806,17 +826,18 @@ function parseSentence(raw, specs) {
     const t = addTarget(specs, m[3]);
     return t === null ? null : [{ type: "counters", n, kind: m[2], t }];
   }
-  if ((m = lower.match(/^(~|target creature(?: you control| an opponent controls)?|another target creature(?: you control)?) gets ([+-]\d+)\/([+-]\d+) until end of turn$/))) {
-    if (m[1] === "~") return [{ type: "pump", p: Number(m[2]), th: Number(m[3]), self: true }];
+  if ((m = lower.match(/^(~|target creature(?: you control| an opponent controls)?|another target creature(?: you control)?) gets ([+-]\d+|[+-]x)\/([+-]\d+|[+-]x) until end of turn$/))) {
+    const value = v => (/x$/.test(v) ? (v.startsWith("-") ? "-X" : "X") : Number(v));
+    if (m[1] === "~") return [{ type: "pump", p: value(m[2]), th: value(m[3]), self: true }];
     const t = addTarget(specs, m[1]);
-    return t === null ? null : [{ type: "pump", p: Number(m[2]), th: Number(m[3]), t }];
+    return t === null ? null : [{ type: "pump", p: value(m[2]), th: value(m[3]), t }];
   }
   if ((m = lower.match(/^(creatures you control|creatures your opponents control|all creatures) get ([+-]\d+)\/([+-]\d+) until end of turn$/))) {
     const scope = m[1] === "creatures you control" ? "you" : m[1] === "all creatures" ? "all" : "opp";
     return [{ type: "pumpAll", scope, p: Number(m[2]), th: Number(m[3]) }];
   }
 
-  if ((m = s.match(new RegExp(`^(?:Its controller |That player |You )?[Cc]reates? ${N} (\\d+)/(\\d+) ([A-Za-z ,]+?) creature tokens?(?: with ([a-z ,]+?))?$`)))) {
+  if ((m = s.match(new RegExp(`^(?:Its controller |That player |You )?[Cc]reates? ${N} (\\d+)/(\\d+) ([A-Za-z ,]+?) creature tokens?(?: with ([a-z ,]+?))?$`, "i")))) {
     const tokenKws = (m[5] ?? "").split(/,| and /).map(word => word.trim()).filter(word => KEYWORDS.includes(word));
     const forWho = /^Its controller /i.test(s) && specs.length > 0 ? { k: "controllerOf", t: 0 } : null;
     const n = num(m[1]);

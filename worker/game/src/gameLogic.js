@@ -760,6 +760,7 @@ function startTurn(game, userId, { skipDraw = false } = {}) {
   game.turn.drew = false;
   game.turn.fog = false;
   game.turn.attackedWith = 0;
+  game.turn.attackedOpponents = {};
   game.turn.extraLands = 0;
   game.turn.manualStart = player.autoStart === false && !skipDraw;
   player.turnsTaken = (player.turnsTaken ?? 0) + 1;
@@ -2143,6 +2144,51 @@ function openChoice(game, choice) {
   return true;
 }
 
+/** Wertet eine Mengenangabe aus (siehe quantity.js). */
+function evalQuantity(game, ctx, q) {
+  const me = game.players[ctx.controller];
+  const source = ctx.source ? game.cards[ctx.source] : null;
+  const itCard = () => (ctx.subjectCard && game.cards[ctx.subjectCard]) || (ctx.targets?.[0] && game.cards[ctx.targets[0]]) || source;
+  const statOf = (card, stat, snapId) => {
+    const snap = snapId ? ctx.snap?.[snapId] : null;
+    if (!card) return snap ? snap[stat] ?? 0 : 0;
+    const def = defOf(game, card);
+    if (stat === "mv") return def.manaValue ?? snap?.mv ?? 0;
+    if (onBattlefield(game, card.id) && def.types.creature) return stat === "power" ? powerOf(game, card) : toughnessOf(game, card);
+    return snap?.[stat] ?? (stat === "power" ? def.power ?? 0 : def.toughness ?? 0);
+  };
+  let value = 0;
+  switch (q.kind) {
+    case "stat": {
+      const card = q.ref === "self" ? source : q.ref === "attached" ? (source?.attachedTo ? game.cards[source.attachedTo] : null) : itCard();
+      value = statOf(card, q.stat, card?.id);
+      break;
+    }
+    case "opponents": value = alive(game).filter(id => id !== ctx.controller).length; break;
+    case "oppAttacked": value = game.turn.attackedOpponents?.[ctx.controller]?.length ?? 0; break;
+    case "zone": value = (q.zone === "hand" ? me.hand : me.graveyard).filter(id => !q.type || (q.type === "instant and sorcery" ? defOf(game, game.cards[id]).types.instant || defOf(game, game.cards[id]).types.sorcery : typeMatches(defOf(game, game.cards[id]), q.type))).length; break;
+    case "counters": {
+      const card = q.ref === "self" ? source : itCard();
+      value = card ? (q.counter === "any" ? Object.values(card.counters).reduce((a, b) => a + b, 0) : card.counters[q.counter] ?? 0) : 0;
+      break;
+    }
+    case "greatest": {
+      const ids = me.battlefield.filter(id => typeMatches(defOf(game, game.cards[id]), q.what) && !(q.other && id === ctx.source));
+      value = Math.max(0, ...ids.map(id => statOf(game.cards[id], q.stat)));
+      break;
+    }
+    case "distinctLands": value = new Set(me.battlefield.filter(id => defOf(game, game.cards[id]).types.land).map(id => defOf(game, game.cards[id]).name)).size; break;
+    case "attacking": value = (game.combat?.attackers ?? []).filter(attacker => game.cards[attacker.id]?.owner === ctx.controller).length; break;
+    case "count": {
+      const owners = q.who === "you" ? [ctx.controller] : q.who === "opp" ? game.seats.filter(id => id !== ctx.controller) : q.who === "subject" ? [ctx.subject ?? game.cards[ctx.targets?.[0]]?.owner ?? ctx.targets?.[0]].filter(Boolean) : game.seats;
+      value = validTargets(game, { ...q.spec, ctrl: undefined }, ctx.controller, { colors: [], id: ctx.source }).filter(id => game.cards[id] && owners.includes(game.cards[id].owner)).length;
+      break;
+    }
+    default: value = 0;
+  }
+  return Math.max(0, value * (q.mult ?? 1));
+}
+
 /** Anzahl für „… for each …“. */
 function perCount(game, ctx, per) {
   const mine = game.players[ctx.controller];
@@ -2172,7 +2218,16 @@ function perCount(game, ctx, per) {
 }
 
 function runEffect(game, rawEffect, ctx, rest) {
-  // X wird mit dem beim Wirken gewählten Wert ersetzt.
+  // X: berechnete Menge („where X is …“) oder der beim Wirken gewählte Wert.
+  if (rawEffect.xRef) {
+    const value = evalQuantity(game, ctx, rawEffect.xRef);
+    const fill = v => (v === "X" ? value : v === "-X" ? -value : v);
+    rawEffect = { ...rawEffect, n: rawEffect.n === "X" ? value * (rawEffect.negate ? -1 : 1) : fill(rawEffect.n), p: fill(rawEffect.p), th: fill(rawEffect.th), xRef: undefined };
+  } else if (rawEffect.p === "X" || rawEffect.th === "X" || rawEffect.p === "-X" || rawEffect.th === "-X") {
+    const value = Math.max(0, ctx.x ?? 0);
+    const fill = v => (v === "X" ? value : v === "-X" ? -value : v);
+    rawEffect = { ...rawEffect, p: fill(rawEffect.p), th: fill(rawEffect.th) };
+  }
   let effect = rawEffect.n === "X" ? { ...rawEffect, n: Math.max(0, ctx.x ?? 0) * (rawEffect.negate ? -1 : 1) } : rawEffect;
   if (effect.per) effect = { ...effect, n: effect.n * perCount(game, ctx, effect.per) };
   const ref = effect.xFrom ?? effect.nFrom;
@@ -4883,6 +4938,7 @@ function declareAttackersAction(game, userId, action, random, now) {
   }
   game.combat = { attackers, blocks: [], done: [], phaseWaiting: true };
   game.turn.attackedWith = attackers.length;
+  game.turn.attackedOpponents = { ...(game.turn.attackedOpponents ?? {}), [userId]: [...new Set(attackers.map(attacker => attackTargetOwner(game, attacker.target)).filter(Boolean))] };
   fireGlobal(game, "youAttack", userId); // „Whenever you attack“ (einmal je Angriff)
   game.turn.phase = "blockers";
   game.priority = null;
