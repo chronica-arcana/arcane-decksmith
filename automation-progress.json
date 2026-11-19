@@ -1,9 +1,9 @@
 {
-  "measuredAt": "2026-11-19T11:30:44.486Z",
+  "measuredAt": "2026-11-19T11:35:24.633Z",
   "focus": {
     "cards": 545,
-    "automated": 321,
-    "rate": 58.9,
+    "automated": 325,
+    "rate": 59.6,
     "decks": [
       {
         "name": "FIC Counter Blitz (FINAL FANTASY X)",
@@ -23,11 +23,11 @@
       },
       {
         "name": "TRC Federation Fleet",
-        "rate": 75
+        "rate": 77
       },
       {
         "name": "TRC Klingon Fury",
-        "rate": 66
+        "rate": 68
       },
       {
         "name": "TRC Landing Party",
@@ -41,7 +41,7 @@
   },
   "all": {
     "cards": 2006,
-    "automated": 884,
-    "rate": 44.1
+    "automated": 894,
+    "rate": 44.6
   }
 }

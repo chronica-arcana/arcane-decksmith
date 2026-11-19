@@ -1509,6 +1509,7 @@ function dealCombatDamage(game, now) {
         fireGlobal(game, "creatureDealsCombatDamage", source);
         fireGlobal(game, "creaturesDealDamage", source); // je Auslöser höchstens einmal pro Kampfschaden (siehe fireGlobal)
         fireTriggers(game, source, "dealsCombatDamage", hit.player);
+        for (const item of game.triggerQueue) if (item.source === source.id && item.trigger.event === "dealsCombatDamage" && item.damage === undefined) item.damage = dealt; // „that much damage“
         for (const other of Object.values(game.cards)) {
           if (other.attachedTo !== source.id || !onBattlefield(game, other.id)) continue;
           for (const trigger of defOf(game, other).rules?.triggers ?? []) {
@@ -2084,7 +2085,12 @@ function fireTriggers(game, card, event, subject) {
   for (const trigger of def.rules?.triggers ?? []) {
     if (trigger.event === event && tierOn(card, trigger) && onceAllowed(game, card, trigger)) game.triggerQueue.push({ controller: card.owner, source: card.id, sourceName: def.name, trigger, subject });
   }
+  // Verliehenes Melee („Creatures you control have melee“): Auslöser beim Angriff, sofern die Karte es nicht selbst hat
+  if (event === "attacks" && !(def.rules?.triggers ?? []).some(trigger => trigger.text === "Melee") && hasKeyword(game, card, "melee")) {
+    game.triggerQueue.push({ controller: card.owner, source: card.id, sourceName: def.name, trigger: MELEE_TRIGGER, subject });
+  }
 }
+const MELEE_TRIGGER = { event: "attacks", text: "Melee", effects: [{ type: "melee" }], specs: [], unparsed: [], summary: "Melee: +1/+1 für jeden angegriffenen Gegner." };
 
 function pushAbility(game, item) {
   if (game.stack.length >= MAX_STACK) return;
@@ -2581,6 +2587,8 @@ function runEffect(game, rawEffect, ctx, rest) {
     case "damage": {
       const source = sourceCard ?? null;
       const to = effect.to;
+      if (effect.nFromDamage) effect = { ...effect, n: Math.max(0, ctx.damage ?? 0) };
+      if (to.k === "eachOtherOpp") for (const id of alive(game).filter(p => p !== ctx.controller && p !== ctx.subject)) dealDamage(game, source, id, effect.n);
       if (to.k === "target") dealDamage(game, source, ctx.targets[to.t], effect.n);
       else if (to.k === "you") dealDamage(game, source, ctx.controller, effect.n);
       else if (to.k === "eachOpp") for (const id of alive(game).filter(p => p !== ctx.controller)) dealDamage(game, source, id, effect.n);
@@ -3310,6 +3318,12 @@ function runEffect(game, rawEffect, ctx, rest) {
         const tokenId = createToken(game, effect.forWho ? playersOf(game, effect.forWho, ctx)[0] ?? ctx.controller : ctx.controller, { name: effect.name, power: effect.p, toughness: effect.th, artifact: effect.artifact, keywords: effect.keywords ?? [] });
         if (tokenId) {
           made += 1;
+          if (effect.tapped && game.cards[tokenId]) game.cards[tokenId].tapped = true;
+          if (effect.attacking && game.combat && game.cards[tokenId]) {
+            // greift denselben Spieler an wie die Quelle, sonst den ersten Gegner (Regel 508.4: wird nicht „angreifend erklärt“)
+            const target = game.combat.attackers.find(attacker => attacker.id === ctx.source)?.target ?? alive(game).find(id => id !== game.cards[tokenId].owner);
+            if (target) game.combat.attackers.push({ id: tokenId, target });
+          }
           ctx.lastToken = tokenId;
           ctx.madeTokens = [...(ctx.madeTokens ?? []), tokenId];
         }

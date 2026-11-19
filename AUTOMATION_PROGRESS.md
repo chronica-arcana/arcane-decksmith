@@ -34,6 +34,7 @@ Startpunkt der autonomen Phase (PR #69): Star Trek/FF 278/545 (51,0 %), alle Dec
 | 15 | Allgemeine Dauereffekte „<Filter> you control get/have …“ (Farbe, Marker, Schlüsselwort, getappt; auch gegnerische); „up to N target …“ für beliebige Ein-Ziel-Sätze; „tap/untap all <Filter>“; „target attacking creature gains …“; Korrektur: Farben/„tapped“ wurden als Kreaturtyp gelesen | 320 (58,7 %) | 871 (43,4 %) |
 | 16 | Gruppen bis Zugende („<Filter> you control get/gain … until end of turn“), Spielstein-Filter („creature tokens“, „nontoken“), Wirk-Auslöser mit Filter (Typ, Nicht-Typ, Manawert, {X}, mehrfarbig, legendär), „up to N“ auch für Friedhofskarten | 321 (58,9 %) | 879 (43,8 %) |
 | 17 | Phasen-Auslöser: erste/zweite/jede Hauptphase, „each combat“, „combat on each opponent's turn“, „each player's/opponent's end step/upkeep“, eigener Ziehschritt; „one or more <Filter> you control attack“; Eigenschaftswörter vor Kreaturtypen („nontoken Vampires“, „legendary Dragon“) | 321 (58,9 %) | 884 (44,1 %) |
+| 18 | Spielsteine „tapped (and attacking)“ (greifen das Ziel der Quelle an), vorangestelltes „For each <Menge>, …“, verliehenes Melee („Creatures you control have melee“), „it deals that much damage to each other opponent“ mit Kampfschaden-Menge, Auslöser „deals combat damage to an opponent“ | 325 (59,6 %) | 894 (44,6 %) |
 
 ## Implementierte Bausteine (Auswahl)
 

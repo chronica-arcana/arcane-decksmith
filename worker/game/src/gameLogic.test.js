@@ -241,6 +241,10 @@ const LIB = [
   ["bigcaster", "Großzauberer", "Enchantment", "{G}", 2, {}, "Whenever you cast a noncreature spell with mana value 3 or greater, you gain 2 life."],
   ["bigspell", "Großer Ruf", "Sorcery", "{2}{G}", 2, { manaValue: 3 }, "Draw a card."],
   ["secondmain", "Nachmittagsruhe", "Enchantment", "{G}", 2, {}, "At the beginning of your second main phase, you gain 3 life."],
+  ["warcry", "Kriegsruf", "Creature — Warrior", "{G}", 2, { power: "2", toughness: "2" }, "Whenever Kriegsruf attacks, create a tapped and attacking 2/1 red Klingon Warrior creature token with haste."],
+  ["meleebanner", "Ruhmesbanner", "Enchantment", "{G}", 2, {}, "Creatures you control have melee."],
+  ["splash", "Streuschiff", "Creature — Ship", "{G}", 2, { power: "3", toughness: "3" }, "Whenever Streuschiff deals combat damage to an opponent, it deals that much damage to each other opponent."],
+  ["foreach", "Volksheer", "Sorcery", "{G}", 2, {}, "For each opponent, create a 1/1 white Soldier creature token."],
 ];
 const facts = new Map();
 
@@ -1396,6 +1400,44 @@ describe("Bedingungen, Modi, X und Cycling", () => {
     expect(game.turn.phase).toBe("main2");
     for (let i = 0; i < 4 && game.stack.length > 0; i += 1) act(game, game.priority, { type: "pass" }, random);
     expect(game.players.u0.life).toBe(life + 3);
+  });
+
+  it("Spielstein „tapped and attacking“, verliehenes Melee, „that much damage to each other opponent“ (3 Spieler)", () => {
+    const { game, random } = started("standard", 3);
+    put(game, "u0", "Ruhmesbanner", "battlefield");
+    const war = put(game, "u0", "Kriegsruf", "battlefield");
+    const ship = put(game, "u0", "Streuschiff", "battlefield");
+    game.cards[war].sinceSeq = -1;
+    game.cards[ship].sinceSeq = -1;
+    game.turn.phase = "attackers";
+    game.priority = "u0";
+    expect(act(game, "u0", { type: "declareAttackers", attackers: [{ id: war, target: "u1" }, { id: ship, target: "u2" }] }, random).ok).toBe(true);
+    for (let i = 0; i < 8 && (game.stack.length > 0 || game.triggerQueue?.length); i += 1) act(game, game.priority, { type: "pass" }, random);
+    const token = game.combat.attackers.find(a => game.cards[a.id]?.token);
+    expect(token).toMatchObject({ target: "u1" });
+    expect(game.cards[token.id].tapped).toBe(true);
+    // Melee: zwei Gegner angegriffen → +2/+2
+    expect(view(game, "u0").players.flatMap(p => p.battlefield).find(c => c.id === war).power).toBe(4);
+    const life1 = game.players.u1.life;
+    const life2 = game.players.u2.life;
+    for (let i = 0; i < 20 && game.turn.phase !== "main2"; i += 1) {
+      if (game.turn.phase === "blockers" && !game.priority) {
+        for (const uid of ["u1", "u2"]) act(game, uid, { type: "declareBlockers", blocks: [] }, random);
+        continue;
+      }
+      act(game, game.priority, { type: "pass" }, random);
+    }
+    for (let i = 0; i < 6 && game.stack.length > 0; i += 1) act(game, game.priority, { type: "pass" }, random);
+    // Streuschiff (3 + 2 Melee = 5) trifft u2, dann 5 an jeden anderen Gegner (u1); u1 bekommt außerdem Kriegsruf 4 + Token 2
+    expect(game.players.u2.life).toBe(life2 - 5);
+    expect(game.players.u1.life).toBe(life1 - 4 - 2 - 5);
+  });
+
+  it("„For each opponent, create …“", () => {
+    const { game, random } = started("standard", 3);
+    forest(game, "u0", 1);
+    castAndResolve(game, "u0", "Volksheer", random);
+    expect(game.players.u0.battlefield.filter(id => game.cards[id].token).length).toBe(2);
   });
 
   it("Goad: aufgestachelte Kreatur muss angreifen, nicht den Aufstachler; endet mit dessen nächstem Zug", () => {

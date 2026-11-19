@@ -494,6 +494,16 @@ function parseSentence(raw, specs) {
     const n = num(m[1]);
     return n === null || n === "X" ? null : [{ type: "counters", n, kind: m[2], self: true }];
   }
+  // Vorangestelltes „For each <Filter>, …“
+  if ((m = s.match(/^for each ([^,]+), (.+)$/i)) && !/^for each (?:of|player|opponent,? (?:you may|that player))\b/i.test(s)) {
+    const quantity = parseForEach(m[1], phrase => parseTargetSpec(phrase));
+    if (quantity) {
+      const mark = specs.length;
+      const inner = parseSentence(m[2], specs);
+      if (inner && inner.length > 0 && inner.every(effect => typeof effect.n === "number" && effect.n > 0)) return inner.map(effect => ({ ...effect, perQ: quantity }));
+      specs.length = mark;
+    }
+  }
   // Generisches „… for each <Filter>“ (alles, was der Mengen-Baustein zählen kann)
   if ((m = s.match(/^(.+?) for each (.+)$/i)) && !/^(creature you control|land you control|artifact you control|creature your opponents control|attacking creature|creature|land|artifact|card in your hand|opponent)$/i.test(m[2])) {
     const quantity = parseForEach(m[2], phrase => parseTargetSpec(phrase));
@@ -841,6 +851,7 @@ function parseSentence(raw, specs) {
   if ((m = lower.match(new RegExp(`^(?:you )?scry ${N}$`)))) return num(m[1]) !== null ? [{ type: "scry", n: num(m[1]) }] : null;
   if ((m = lower.match(new RegExp(`^surveil ${N}$`)))) return num(m[1]) !== null ? [{ type: "surveil", n: num(m[1]) }] : null;
 
+  if (/^(?:it|~) deals that much damage to each other opponent$/.test(lower)) return [{ type: "damage", n: 0, nFromDamage: true, to: { k: "eachOtherOpp" } }];
   if ((m = lower.match(/^~ deals ([0-9]+) damage to each creature with flying and each player$/))) return [{ type: "damage", n: Number(m[1]), to: { k: "flyingAndPlayers" } }];
   if (lower === "~ deals x damage to each creature, where x is the number of creatures on the battlefield") return [{ type: "damage", n: 1, per: "creature", to: { k: "eachCreature" } }];
   if ((m = lower.match(/^~ deals ([0-9]+) damage to each creature and each player$/))) return [{ type: "damage", n: Number(m[1]), to: { k: "everything" } }];
@@ -1054,7 +1065,9 @@ function parseSentence(raw, specs) {
     const name = m[4].split(/[ ,]+/).filter(word => word && !["white", "blue", "black", "red", "green", "colorless", "and", "artifact"].includes(word.toLowerCase())).join(" ");
     return [{ type: "token", n, p: Number(m[2]), th: Number(m[3]), name: name || "Token", keywords: ["cant-block"], ...(/artifact/i.test(m[4]) ? { artifact: true } : {}) }];
   }
-  if ((m = s.match(new RegExp(`^(?:Its controller |That player |You )?[Cc]reates? ${N} (\\d+)/(\\d+) ([A-Za-z ,]+?) creature tokens?(?: with ([a-z ,]+?))?$`, "i")))) {
+  if ((m = s.match(new RegExp(`^(?:Its controller |That player |You )?[Cc]reates? ${N} (?:(tapped and attacking|tapped) )?(\\d+)/(\\d+) ([A-Za-z ,]+?) creature tokens?(?: with ([a-z ,]+?))?$`, "i")))) {
+    const entry = m[2] ? (/attacking/i.test(m[2]) ? { tapped: true, attacking: true } : { tapped: true }) : {};
+    m = [m[0], m[1], m[3], m[4], m[5], m[6]];
     const tokenKws = (m[5] ?? "").split(/,| and /).map(word => word.trim()).filter(word => KEYWORDS.includes(word));
     const forWho = /^Its controller /i.test(s) && specs.length > 0 ? { k: "controllerOf", t: 0 } : null;
     const n = num(m[1]);
@@ -1065,7 +1078,7 @@ function parseSentence(raw, specs) {
       .split(/[ ,]+/)
       .filter(word => word && !colors.has(word.toLowerCase()))
       .join(" ");
-    return [{ type: "token", n, p: Number(m[2]), th: Number(m[3]), name: name || "Token", ...(artifact ? { artifact: true } : {}), ...(forWho ? { forWho } : {}), ...(tokenKws.length ? { keywords: tokenKws } : {}) }];
+    return [{ type: "token", n, p: Number(m[2]), th: Number(m[3]), name: name || "Token", ...(artifact ? { artifact: true } : {}), ...(forWho ? { forWho } : {}), ...(tokenKws.length ? { keywords: tokenKws } : {}), ...entry }];
   }
 
   // Tutor: beliebige Karte (oder Kartentyp) auf die Hand oder oben auf die Bibliothek
@@ -1211,7 +1224,7 @@ function describeBase(effect) {
     case "discard": return `${who} wirft ${effect.n} ${plural(effect.n, "Karte", "Karten")} ab.`;
     case "scry": return `Wühlen ${effect.n}.`;
     case "surveil": return `Überwachen ${effect.n}.`;
-    case "damage": return `${effect.n} Schaden an ${{ target: "das Ziel", eachOpp: "jeden Gegner", each: "jeden Spieler", eachCreature: "jede Kreatur", eachOppCreature: "jede gegnerische Kreatur" }[effect.to.k]}.`;
+    case "damage": return `${effect.nFromDamage ? "Ebenso viel" : effect.n} Schaden an ${{ target: "das Ziel", eachOpp: "jeden Gegner", eachOtherOpp: "jeden anderen Gegner", each: "jeden Spieler", eachCreature: "jede Kreatur", eachOppCreature: "jede gegnerische Kreatur" }[effect.to.k] ?? "die Betroffenen"}.`;
     case "destroy": return "Zerstört das Ziel.";
     case "tuckSelf": return "Kommt unter die Bibliothek ihres Besitzers.";
     case "tapEach": return effect.untap ? "Enttappt alle passenden Permanents." : "Tappt alle passenden Permanents.";
@@ -1511,7 +1524,7 @@ function triggerEvent(word, condition) {
   if ((m = condition.match(/^you attack with one or more ([a-z]+)$/))) return { event: "youAttack", attackerSubtype: m[1].replace(/s$/, ""), scope: { owner: "you", another: false } };
   if (/^~ or another creature dies$/.test(condition)) return { event: "creatureDies", scope: { owner: "any", another: false } };
   if (/^equipped creature dies$/.test(condition)) return { event: "equippedDies" };
-  if (/^~ deals combat damage to a player$/.test(condition)) return { event: "dealsCombatDamage" };
+  if (/^~ deals combat damage to (?:a player|an opponent)$/.test(condition)) return { event: "dealsCombatDamage" };
   if (/^equipped creature deals combat damage to a player$/.test(condition)) return { event: "equippedDealsCombatDamage" };
   if (word === "At" && /^the beginning of combat on your turn$/.test(condition)) return { event: "beginCombat", scope: { owner: "you", another: false } };
   if (/^you gain life$/.test(condition)) return { event: "youGainLife", scope: { owner: "you", another: false } };
