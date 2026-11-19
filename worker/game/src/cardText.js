@@ -1522,6 +1522,7 @@ function triggerEvent(word, condition) {
   if (/^~ becomes tapped$/.test(condition)) return { event: "becomesTapped" };
   if (/^~ mutates$/.test(condition)) return { event: "mutates" };
   if (/^~ dies$/.test(condition) || /^~ is put into a graveyard from the battlefield$/.test(condition)) return { event: "dies" };
+  if (/^~ leaves the battlefield$/.test(condition)) return { event: "leaves" };
   if ((m = condition.match(/^~ or another (nontoken )?creature you control dies$/))) return { event: "creatureDies", scope: { owner: "you", another: false, ...(m[1] ? { nontoken: true } : {}) } };
   if ((m = condition.match(/^~ or another (nontoken )?([a-z]+) (?:creature )?you control dies$/)) && !["creature"].includes(m[2])) return { event: "creatureDies", scope: { owner: "you", another: false, subtype: m[2], ...(m[1] ? { nontoken: true } : {}) } };
   if ((m = condition.match(/^one or more (?:other )?creatures you control attack$/))) return { event: "youAttack", scope: { owner: "you", another: false } };
@@ -2409,7 +2410,7 @@ export function parseCardText({ name, typeLine, oracleText }) {
           ? [triggerEvent(trigger[1], "~ attacks"), triggerEvent(trigger[1], "~ blocks")]
           : [triggerEvent(trigger[1], condition)];
       if (events.every(Boolean)) {
-        const selfEvent = events.every(event => ["etb", "attacks", "blocks", "dealsCombatDamage", "dies", "dealtDamage", "selfCounter"].includes(event.event));
+        const selfEvent = events.every(event => ["etb", "attacks", "blocks", "dealsCombatDamage", "dies", "leaves", "dealtDamage", "selfCounter"].includes(event.event));
         const effectText = selfEvent ? trigger[3].replace(/\b(on|it deals|returns?|gets?) it\b/g, match => match.replace(/\bit\b/, "~")) : trigger[3];
         const parsed = parseEffectText(effectText);
         if (parsed.specs.length <= 3) {

@@ -36,6 +36,7 @@ Startpunkt der autonomen Phase (PR #69): Star Trek/FF 278/545 (51,0 %), alle Dec
 | 17 | Phasen-Auslöser: erste/zweite/jede Hauptphase, „each combat“, „combat on each opponent's turn“, „each player's/opponent's end step/upkeep“, eigener Ziehschritt; „one or more <Filter> you control attack“; Eigenschaftswörter vor Kreaturtypen („nontoken Vampires“, „legendary Dragon“) | 321 (58,9 %) | 884 (44,1 %) |
 | 18 | Spielsteine „tapped (and attacking)“ (greifen das Ziel der Quelle an), vorangestelltes „For each <Menge>, …“, verliehenes Melee („Creatures you control have melee“), „it deals that much damage to each other opponent“ mit Kampfschaden-Menge, Auslöser „deals combat damage to an opponent“ | 325 (59,6 %) | 894 (44,6 %) |
 | 19 | Zusatzkosten „pay N life“/„pay X life“ (X wählbar, Leben bis 0 zahlbar – Regelkorrektur), Tap-Kosten mit beliebigem Filter („Tap an untapped legendary creature/Cleric you control“), „put a creature card with mana value N or less from your hand onto the battlefield“ | 328 (60,2 %) | 900 (44,9 %) |
+| 20 | Auslöser „When ~ leaves the battlefield“ (Exil, Hand, Bibliothek, Friedhof) | 328 (60,2 %) | 903 (45,0 %) |
 
 ## Implementierte Bausteine (Auswahl)
 

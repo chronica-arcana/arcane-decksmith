@@ -247,6 +247,7 @@ const LIB = [
   ["foreach", "Volksheer", "Sorcery", "{G}", 2, {}, "For each opponent, create a 1/1 white Soldier creature token."],
   ["deluge", "Giftflut", "Sorcery", "{G}", 2, {}, "As an additional cost to cast this spell, pay X life.\nAll creatures get -X/-X until end of turn."],
   ["relic", "Ahnenrelikt", "Artifact", "{G}", 2, {}, "Tap an untapped Bear you control: You gain 1 life."],
+  ["leaver", "Abschiedsgeist", "Creature — Spirit", "{G}", 2, { power: "1", toughness: "1" }, "When Abschiedsgeist leaves the battlefield, you gain 4 life."],
 ];
 const facts = new Map();
 
@@ -1453,6 +1454,24 @@ describe("Bedingungen, Modi, X und Cycling", () => {
     expect(abilities[0].pays[0].options).toEqual([bear2]); // nur Bären, auch beschwörungsmüde
     expect(act(game, "u0", { type: "activate", id: relic, index: 0, pay: [bear2] }, random).ok).toBe(true);
     expect(game.cards[bear2].tapped).toBe(true);
+  });
+
+  it("„When ~ leaves the battlefield“: löst beim Exilieren und beim Sterben aus", () => {
+    const { game, random } = started();
+    put(game, "u0", "Mountain", "battlefield");
+    const spirit = put(game, "u0", "Abschiedsgeist", "battlefield");
+    const life = game.players.u0.life;
+    game.players.u0.hand = [];
+    castAndResolve(game, "u0", "Schwerter", random, [spirit]);
+    for (let i = 0; i < 6 && game.stack.length > 0; i += 1) act(game, game.priority, { type: "pass" }, random);
+    expect(game.players.u0.exile).toContain(spirit);
+    expect(game.players.u0.life).toBe(life + 1 + 4); // Schwerter: +1 (Stärke), Abschied: +4
+    const second = put(game, "u0", "Abschiedsgeist", "battlefield");
+    game.cards[second].damage = 5;
+    act(game, "u0", { type: "pass" }, random);
+    for (let i = 0; i < 6 && game.stack.length > 0; i += 1) act(game, game.priority, { type: "pass" }, random);
+    expect(game.players.u0.graveyard).toContain(second);
+    expect(game.players.u0.life).toBe(life + 1 + 4 + 4);
   });
 
   it("„For each opponent, create …“", () => {

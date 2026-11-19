@@ -705,6 +705,7 @@ function toGraveyard(game, card, from = "battlefield") {
       }
     }
     fireTriggers(game, card, "dies");
+    fireTriggers(game, card, "leaves");
     if (defOf(game, card).types.creature) fireGlobal(game, "creatureDies", card);
   }
   const parts = from === "battlefield" ? splitMutated(game, card) : [];
@@ -1999,7 +2000,10 @@ function destroyCard(game, card) {
 }
 
 function leaveTo(game, card, zone) {
-  if (onBattlefield(game, card.id)) releaseExiled(game, card);
+  if (onBattlefield(game, card.id)) {
+    releaseExiled(game, card);
+    if (game.phase === "playing") fireTriggers(game, card, "leaves"); // „When ~ leaves the battlefield“
+  }
   const holder = game.players[card.owner];
   const owner = game.players[card.origOwner ?? card.owner];
   const parts = onBattlefield(game, card.id) ? splitMutated(game, card) : [];
