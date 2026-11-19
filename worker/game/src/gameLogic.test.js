@@ -230,6 +230,10 @@ const LIB = [
   ["twomodes", "Doppelwahl", "Sorcery", "{G}", 2, {}, "Choose two —\n• Doppelwahl deals 2 damage to any target.\n• You gain 5 life.\n• Draw a card."],
   ["cmdboth", "Kommandowahl", "Instant", "{G}", 2, {}, "Choose one. If you control a commander as you cast this spell, you may choose both instead.\n• You gain 4 life.\n• Draw a card."],
   ["twotrig", "Zweifachwesen", "Creature — Giant", "{1}", 2, { power: "2", toughness: "2" }, "When ~ enters, choose two —\n• You gain 3 life.\n• Draw a card.\n• Zweifachwesen deals 1 damage to any target."],
+  ["countlord", "Zählfürst", "Creature — Elf", "{G}", 2, { power: "1", toughness: "1" }, "Zählfürst gets +1/+1 for each creature card in your graveyard."],
+  ["mourner", "Markentrauer", "Enchantment", "{G}", 2, {}, "Whenever a creature you control with a +1/+1 counter on it dies, draw a card."],
+  ["skyherald", "Himmelsherold", "Enchantment", "{G}", 2, {}, "Whenever a creature you control with flying enters, it gains haste until end of turn."],
+  ["overseer", "Metallaufseher", "Creature — Construct", "{G}", 2, { power: "1", toughness: "1" }, "When Metallaufseher enters, put a +1/+1 counter on each other creature you control that entered this turn."],
 ];
 const facts = new Map();
 
@@ -1287,6 +1291,48 @@ describe("Bedingungen, Modi, X und Cycling", () => {
     for (let i = 0; i < 4 && game.stack.length > 0; i += 1) act(game, game.priority, { type: "pass" }, random);
     expect(game.players.u0.life).toBe(life + 3);
     expect(game.players.u0.hand.length).toBe(hand + 1);
+  });
+
+  it("Dauereffekt „~ gets +1/+1 for each creature card in your graveyard“", () => {
+    const { game } = started();
+    const lord = put(game, "u0", "Zählfürst", "battlefield");
+    const power = () => view(game, "u0").players[0].battlefield.find(c => c.id === lord).power;
+    game.players.u0.graveyard = [];
+    expect(power()).toBe(1);
+    put(game, "u0", "Bär", "graveyard");
+    put(game, "u0", "Falke", "graveyard");
+    expect(power()).toBe(3);
+  });
+
+  it("Gefilterte Auslöser: „a creature you control with a +1/+1 counter on it dies“ / „with flying enters, it gains haste“", () => {
+    const { game, random } = started();
+    forest(game, "u0", 3);
+    put(game, "u0", "Markentrauer", "battlefield");
+    put(game, "u0", "Himmelsherold", "battlefield");
+    game.players.u0.hand = [];
+    const plain = put(game, "u0", "Bär", "battlefield");
+    const marked = put(game, "u0", "Bär", "battlefield");
+    game.cards[marked].counters["+1/+1"] = 1;
+    game.cards[plain].damage = 5;
+    game.cards[marked].damage = 5;
+    const hawk = castAndResolve(game, "u0", "Falke", random);
+    for (let i = 0; i < 6 && game.stack.length > 0; i += 1) act(game, game.priority, { type: "pass" }, random);
+    expect(game.players.u0.graveyard).toContain(marked);
+    expect(game.players.u0.hand.length).toBe(1); // nur die Kreatur mit Marke löst aus
+    expect(view(game, "u0").players[0].battlefield.find(c => c.id === hawk).sick).toBe(false); // Eile durch den Herold
+  });
+
+  it("„put a +1/+1 counter on each other creature you control that entered this turn“", () => {
+    const { game, random } = started();
+    forest(game, "u0", 3);
+    const old = put(game, "u0", "Bär", "battlefield");
+    game.cards[old].sinceSeq = -1;
+    const fresh = castAndResolve(game, "u0", "Bär", random);
+    const overseer = castAndResolve(game, "u0", "Metallaufseher", random);
+    for (let i = 0; i < 6 && game.stack.length > 0; i += 1) act(game, game.priority, { type: "pass" }, random);
+    expect(game.cards[fresh].counters["+1/+1"]).toBe(1);
+    expect(game.cards[old].counters["+1/+1"] ?? 0).toBe(0);
+    expect(game.cards[overseer].counters["+1/+1"] ?? 0).toBe(0);
   });
 
   it("X-Zauber: der gewählte Wert bestimmt die Menge", () => {

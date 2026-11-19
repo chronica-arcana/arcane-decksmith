@@ -37,7 +37,7 @@ describe("cardText: Zauber", () => {
   });
 
   it("alles Unverstandene bleibt unausgeführt und wird gemeldet", () => {
-    expect(spell("Doom Blade", "Instant", "Destroy target creature with a +1/+1 counter on it.")).toMatchObject({ effects: [], unparsed: ["Destroy target creature with a +1/+1 counter on it"] });
+    expect(spell("Doom Blade", "Instant", "Destroy target creature that was dealt damage this turn.")).toMatchObject({ effects: [], unparsed: ["Destroy target creature that was dealt damage this turn"] });
     expect(spell("Wahl", "Instant", "Choose one or both —\n• Counter target spell.\n• Draw a card.").unparsed).toHaveLength(1);
     const mixed = spell("Mix", "Sorcery", "Draw a card. Exile all cards from each graveyard.");
     expect(mixed.effects).toHaveLength(1);
@@ -255,6 +255,16 @@ describe("cardText: weitere Lücken (Kopieren, Skulk, Stufen, Einzelzeilen)", ()
     expect(parse("Creature — X", "Whenever ~ or another creature you control dies, draw a card.").triggers[0]).toMatchObject({ event: "creatureDies", scope: { owner: "you", another: false } });
     expect(parse("Creature — X", "Whenever you cast your second spell each turn, draw a card.").triggers[0].event).toBe("castSecond");
     expect(parse("Artifact — Equipment", "Whenever equipped creature attacks, you scry 2.").triggers[0]).toMatchObject({ event: "attachedAttacks", effects: [{ type: "scry", n: 2 }] });
+  });
+
+  it("Filter wie Zielangaben: Marker, „without“, „that entered this turn“; allgemeine Auslöser und Marker auf „each …“", () => {
+    expect(parse("Enchantment", "Whenever a creature you control with a +1/+1 counter on it dies, draw a card.").triggers[0]).toMatchObject({ event: "creatureDies", scope: { owner: "you", spec: { kind: "creature", counter: "+1/+1" } } });
+    expect(parse("Enchantment", "Whenever a creature you control without flying dies, draw a card.").triggers[0].scope.spec).toMatchObject({ noKeyword: "flying" });
+    expect(parse("Enchantment", "Whenever a green creature you control enters, draw a card.").triggers[0]).toMatchObject({ event: "creatureEnters", scope: { owner: "you", spec: { colors: ["G"] } } });
+    expect(parse("Enchantment", "Whenever an artifact creature an opponent controls attacks, draw a card.").triggers[0]).toMatchObject({ event: "creatureAttacks", scope: { owner: "opp" } });
+    expect(parse("Enchantment", "Whenever an artifact you control attacks, draw a card.").triggers).toEqual([]); // „attacks“ nur für Kreaturen
+    expect(parse("Sorcery", "Put a +1/+1 counter on each artifact creature you control.").spell.effects[0]).toMatchObject({ type: "countersEach", spec: { types: ["artifact"], ctrl: "you" } });
+    expect(parse("Creature — Elf", "~ gets +1/+0 for each artifact you control.").statics[0]).toMatchObject({ scope: "self", perQ: { p: 1, th: 0 } });
   });
 
   it("Mehrfach-Modi: „Choose two“, „one or more“, „both“ mit Kommandant, modaler Auslöser mit zwei Modi", () => {

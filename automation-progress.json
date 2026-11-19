@@ -1,5 +1,5 @@
 {
-  "measuredAt": "2026-11-19T11:06:13.409Z",
+  "measuredAt": "2026-11-19T11:12:03.207Z",
   "focus": {
     "cards": 545,
     "automated": 317,
@@ -41,7 +41,7 @@
   },
   "all": {
     "cards": 2006,
-    "automated": 841,
-    "rate": 41.9
+    "automated": 861,
+    "rate": 42.9
   }
 }

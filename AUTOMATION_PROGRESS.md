@@ -29,6 +29,7 @@ Startpunkt der autonomen Phase (PR #69): Star Trek/FF 278/545 (51,0 %), alle Dec
 | 10 | Bedingungen als Baustein auch für Dauereffekte und Kosten (`evalCondition`): „can't be blocked if …“, „as long as …, ~ has …“, „costs {N} less if …“; „you've cast two or more noncreature spells“; „all nonartifact creatures get -X/-X“; Monstrosity X; „search for up to X“ | 313 (57,4 %) | 831 (41,4 %) |
 | 11 | Kopie-Baustein: Spielstein-Kopien mit Ausnahmen („isn't legendary“, „has haste“, „4/4 black Zombie“ …), Klone beim Ins-Spiel-Kommen; Spielsteine lösen jetzt „enters“-Auslöser aus (Regelkorrektur) | 315 (57,8 %) | 837 (41,7 %) |
 | 12 | Mehrfach-Modi: „Choose two / three / one or more“, „you may choose both instead“ mit Kommandant; modale Auslöser mit zwei Modi; Ziele der gewählten Modi werden verkettet; Client-Mehrfachauswahl | 317 (58,2 %) | 841 (41,9 %) |
+| 13 | Filter wie Zielangaben (Marker „with a +1/+1 counter on it“, „without flying“, „that entered this turn“); allgemeine Auslöser „Whenever a <Filter> enters/dies/attacks/deals combat damage“; „~ gets +1/+1 for each …“ als Dauereffekt; Marker auf „each <Filter>“ | 317 (58,2 %) | 861 (42,9 %) |
 
 ## Implementierte Bausteine (Auswahl)
 

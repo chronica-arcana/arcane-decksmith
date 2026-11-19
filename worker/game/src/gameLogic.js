@@ -108,6 +108,7 @@ function hasSubtype(def, word) {
   return [w, w.replace(/s$/, ""), w.replace(/ves$/, "f"), w.replace(/ves$/, "fe"), w.replace(/ies$/, "y"), w.replace(/men$/, "man")].some(candidate => types.includes(candidate));
 }
 
+let staticDepth = 0;
 /** Dauereffekte wie „Creatures you control get +1/+1“ (Boni und Schlüsselwörter), die auf diese Karte wirken. */
 function staticEffects(game, card) {
   const result = { p: 0, th: 0, grants: [], revokes: [] };
@@ -118,7 +119,8 @@ function staticEffects(game, card) {
       for (const effect of defOf(game, source).rules?.statics ?? []) {
         if (!tierOn(source, { minCharge: effect.minCharge })) continue;
         const applies =
-          effect.scope === "you" ? source.owner === card.owner
+          effect.scope === "self" ? source.id === card.id
+          : effect.scope === "you" ? source.owner === card.owner
           : effect.scope === "youOther" ? source.owner === card.owner && source.id !== card.id
           : effect.scope === "opp" ? source.owner !== card.owner
           : true;
@@ -134,6 +136,17 @@ function staticEffects(game, card) {
         if (effect.chosen && !(source.chosenType && hasSubtype(defOf(game, card), source.chosenType))) continue;
         result.p += effect.p;
         result.th += effect.th;
+        if (effect.perQ && staticDepth === 0) {
+          // „gets +1/+1 for each …“: zählt mit gesperrter Rekursion (Zählfilter können Stärke abfragen)
+          staticDepth += 1;
+          try {
+            const n = evalQuantity(game, { controller: source.owner, source: source.id, targets: [] }, effect.perQ.q);
+            result.p += effect.perQ.p * n;
+            result.th += effect.perQ.th * n;
+          } finally {
+            staticDepth -= 1;
+          }
+        }
         result.grants.push(...effect.grants);
       }
     }
@@ -225,6 +238,7 @@ function onceAllowed(game, source, trigger) {
 function lastCards(ctx) {
   if ((ctx.madeTokens ?? []).length > 0) return ctx.madeTokens;
   if (ctx.lastControlled) return [ctx.lastControlled];
+  if (ctx.subjectCard) return [ctx.subjectCard]; // „Whenever a creature … enters, it gains haste“
   return [];
 }
 
@@ -1588,10 +1602,21 @@ function typeMatches(def, what) {
 }
 
 /** Zusätzliche Bedingungen einer Zielangabe („nonblack“, „tapped“, „an opponent controls“, „with power 4 or greater“ …). */
+/** Passt das auslösende Permanent zum Filter eines allgemeinen Auslösers (Typ der Zielangabe plus Filter)? */
+function subjectMatches(game, card, spec, source) {
+  const types = defOf(game, card).types;
+  const kind = spec.kind === "myCreature" ? "creature" : spec.kind;
+  if (kind !== "permanent" && !types[kind]) return false;
+  return passesSpecFilter(game, card.id, spec, source.owner, source);
+}
+
 function passesSpecFilter(game, id, spec, controller, src) {
   const card = game.cards[id];
   const def = defOf(game, card);
   if (spec.another && src?.id === id) return false;
+  if (spec.counter && !(spec.counter === "any" ? Object.values(card.counters ?? {}).some(value => value > 0) : (card.counters?.[spec.counter] ?? 0) > 0)) return false;
+  if (spec.noKeyword && hasKeyword(game, card, spec.noKeyword)) return false;
+  if (spec.enteredThisTurn && !(card.sinceSeq > (game.players[game.turn.active]?.turnStartSeq ?? 0))) return false;
   if (spec.subtypes && !spec.subtypes.some(word => hasSubtype(def, word))) return false;
   if (spec.ctrl === "opp" && card.owner === controller) return false;
   if (spec.ctrl === "subject" && card.owner !== src?.subject) return false;
@@ -1976,6 +2001,7 @@ function fireGlobal(game, event, subject) {
         if (scope.permType && (typeof subject === "string" || !(scope.permType in defOf(game, subject).types ? defOf(game, subject).types[scope.permType] : hasSubtype(defOf(game, subject), scope.permType)))) continue;
         if (scope.anyOf && (typeof subject === "string" || !scope.anyOf.some(word => hasSubtype(defOf(game, subject), word)))) continue;
         if (scope.commander && (typeof subject === "string" || !subject.cmd)) continue;
+        if (scope.spec && (typeof subject === "string" || !subjectMatches(game, subject, scope.spec, source))) continue;
         if (scope.legendary && (typeof subject === "string" || !defOf(game, subject).types.legendary)) continue;
         if (trigger.kinds && (typeof subject === "string" || !trigger.kinds.some(kind => defOf(game, subject).types[kind]))) continue;
         if (scope.minPower !== undefined && (typeof subject === "string" || powerOf(game, subject) < scope.minPower)) continue;
@@ -2756,6 +2782,22 @@ function runEffect(game, rawEffect, ctx, rest) {
     case "ifCounterThisTurn": {
       if (sourceCard?.counterTurn !== game.turn.number) return false;
       for (let i = 0; i < effect.effects.length; i += 1) if (runEffect(game, effect.effects[i], ctx, [...effect.effects.slice(i + 1), ...rest])) return true;
+      return false;
+    }
+    case "countersEach": {
+      const holders = game.seats.map(id => game.players[id]);
+      const hits = holders.flatMap(holder => [...holder.battlefield]).filter(id => {
+        const c = game.cards[id];
+        if (effect.spec.kind === "myCreature" && c.owner !== ctx.controller) return false;
+        return subjectMatches(game, c, effect.spec, sourceCard ?? { owner: ctx.controller, id: ctx.source });
+      });
+      for (const id of hits) {
+        const c = game.cards[id];
+        c.counters[effect.kind] = Math.min(MAX_COUNTERS, (c.counters[effect.kind] ?? 0) + counterAmount(game, c, effect.kind, effect.n));
+        fireCountersPut(game, c, effect.kind);
+        c.counterTurn = game.turn.number;
+      }
+      addLog(game, `${hits.length} Permanent(s) erhalten ${effect.n}× ${effect.kind} (${name}).`);
       return false;
     }
     case "countersAll": {
