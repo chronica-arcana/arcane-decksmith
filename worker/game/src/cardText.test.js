@@ -267,6 +267,16 @@ describe("cardText: weitere Lücken (Kopieren, Skulk, Stufen, Einzelzeilen)", ()
     expect(parse("Creature — Elf", "~ gets +1/+0 for each artifact you control.").statics[0]).toMatchObject({ scope: "self", perQ: { p: 1, th: 0 } });
   });
 
+  it("Goad-Sätze", () => {
+    expect(parse("Instant", "Goad target creature.").spell.effects).toEqual([{ type: "goad", t: 0 }]);
+    expect(parse("Sorcery", "Goad all creatures you don't control.").spell.effects).toEqual([{ type: "goad", all: true }]);
+    expect(parse("Sorcery", "Goad each creature target player controls.").spell.effects).toEqual([{ type: "goad", eachOfTarget: 0 }]);
+    const two = parse("Sorcery", "Goad up to two target creatures.").spell;
+    expect(two.effects).toHaveLength(2);
+    expect(two.specs.every(spec => spec.optional)).toBe(true);
+    expect(parse("Sorcery", "Goad up to X target creatures.").spell.unparsed).toHaveLength(1);
+  });
+
   it("Mehrfach-Modi: „Choose two“, „one or more“, „both“ mit Kommandant, modaler Auslöser mit zwei Modi", () => {
     expect(parse("Sorcery", "Choose two —\n• Draw a card.\n• You gain 3 life.\n• Scry 2.").spell.modeCount).toEqual({ min: 2, max: 2 });
     expect(parse("Sorcery", "Choose one or more —\n• Draw a card.\n• You gain 3 life.").spell.modeCount).toEqual({ min: 1, max: 2 });

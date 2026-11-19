@@ -195,7 +195,14 @@ export default function ActionBar(props: ActionBarProps) {
             type="button"
             className="primary"
             onClick={() => {
-              act({ type: "declareAttackers", attackers: props.attackPick.map(id => ({ id, target: props.target })) });
+              // Aufgestachelte Kreaturen greifen, wenn möglich, nicht den aufstachelnden Spieler an
+              const goadTarget = (id: string) => {
+                const goaders = props.me.battlefield.find(card => card.id === id)?.goadedBy ?? [];
+                const targetOwner = props.livingOpponents.find(player => player.userId === props.target) ? props.target : null;
+                if (!targetOwner || !goaders.includes(targetOwner)) return props.target;
+                return props.livingOpponents.find(player => !goaders.includes(player.userId))?.userId ?? props.target;
+              };
+              act({ type: "declareAttackers", attackers: props.attackPick.map(id => ({ id, target: goadTarget(id) })) });
               props.clearAttackPick();
             }}
           >

@@ -202,7 +202,8 @@ const keywordsOfCard = (game, card) => {
   const base = [...(def.keywords ?? []), ...condGrants, ...(def.rules?.selfGrants ?? []), ...(def.rules?.selfGrantsYourTurn && game.turn?.active === card.owner ? def.rules.selfGrantsYourTurn : []), ...(def.rules?.tiers ?? []).filter(tier => tierOn(card, { minCharge: tier.n })).flatMap(tier => tier.kws)];
   const effects = staticEffects(game, card);
   const counterKeywords = Object.keys(card.counters ?? {}).filter(kind => card.counters[kind] > 0 && KEYWORD_COUNTERS.has(kind));
-  const grants = [...effects.grants, ...(card.tk ?? []), ...counterKeywords];
+  const goaded = (card.goadedBy ?? []).length > 0 ? ["must-attack", "goaded"] : [];
+  const grants = [...effects.grants, ...(card.tk ?? []), ...counterKeywords, ...goaded];
   const all = grants.length > 0 ? [...base, ...grants] : base;
   return effects.revokes.length > 0 ? all.filter(keyword => !effects.revokes.includes(keyword)) : all;
 };
@@ -459,6 +460,7 @@ function resetCardState(card) {
   card.deathtouched = false;
   card.attachedTo = null;
   card.tk = [];
+  card.goadedBy = [];
   card.owner = card.origOwner ?? card.owner;
   card.stolenUntilEot = false;
   card.chosenType = null;
@@ -816,6 +818,8 @@ function startTurn(game, userId, { skipDraw = false } = {}) {
   game.combat = null;
   game.pendingDiscard = null;
   player.turnStartSeq = tick(game);
+  // Goad endet, wenn der nächste Zug des aufstachelnden Spielers beginnt
+  for (const card of Object.values(game.cards)) if (card.goadedBy?.includes(userId)) card.goadedBy = card.goadedBy.filter(id => id !== userId);
   clearPools(game);
   game.priority = userId;
   game.passed = [];
@@ -2784,6 +2788,22 @@ function runEffect(game, rawEffect, ctx, rest) {
       for (let i = 0; i < effect.effects.length; i += 1) if (runEffect(game, effect.effects[i], ctx, [...effect.effects.slice(i + 1), ...rest])) return true;
       return false;
     }
+    case "goad": {
+      const ids = effect.all
+        ? game.seats.filter(id => id !== ctx.controller).flatMap(id => game.players[id].battlefield).filter(id => defOf(game, game.cards[id]).types.creature)
+        : effect.eachOfTarget !== undefined
+          ? (game.players[ctx.targets[effect.eachOfTarget]]?.battlefield ?? []).filter(id => defOf(game, game.cards[id]).types.creature)
+          : effect.subjectCard
+            ? [ctx.subjectCard].filter(Boolean)
+            : [ctx.targets[effect.t]].filter(Boolean);
+      for (const id of ids) {
+        const card = game.cards[id];
+        if (!card || !onBattlefield(game, id)) continue;
+        card.goadedBy = [...new Set([...(card.goadedBy ?? []), ctx.controller])];
+      }
+      addLog(game, `${name}: ${ids.length} Kreatur(en) aufgestachelt.`);
+      return false;
+    }
     case "countersEach": {
       const holders = game.seats.map(id => game.players[id]);
       const hits = holders.flatMap(holder => [...holder.battlefield]).filter(id => {
@@ -4293,6 +4313,7 @@ function cardView(game, id, viewerId, { hideFace = false } = {}) {
     damage: card.damage,
     sick: isSick(game, card),
     cmd: Boolean(card.cmd),
+    ...((card.goadedBy ?? []).length > 0 ? { goaded: true, goadedBy: card.goadedBy } : {}),
     kind: def.types.land ? "land" : def.types.creature ? "creature" : "other",
     chosenType: card.chosenType ?? null,
     attachedTo: card.attachedTo ?? null,
@@ -4736,6 +4757,10 @@ function handleAction(game, userId, action, random, now) {
       if (game.priority !== userId) return fail("Du hast gerade keine Priorität.");
       if (game.turn.phase === "draw" && game.turn.active === userId && !game.turn.drawn && !game.turn.drawBlocked && game.stack.length === 0) {
         return fail("Ziehe zuerst eine Karte: Klicke auf deine Bibliothek.");
+      }
+      if (game.turn.phase === "attackers" && game.turn.active === userId && !game.combat && game.stack.length === 0) {
+        const forced = forcedAttackers(game, userId);
+        if (forced.length > 0) return fail(`${nameOf(game, forced[0])} muss angreifen, wenn möglich.`);
       }
       game.passed.push(userId);
       settle(game, random, now);
@@ -5224,6 +5249,17 @@ function activateAction(game, userId, action) {
   return ok();
 }
 
+/** Kreaturen, die angreifen müssen, wenn sie können („attacks each combat if able“, Goad). */
+function forcedAttackers(game, userId) {
+  // Kostet ein Angriff etwas (Ghostly Prison …), besteht keine Pflicht, die Kosten zu zahlen (Regel 508.1d).
+  if (game.seats.some(seat => seat !== userId && game.players[seat].battlefield.some(id => defOf(game, game.cards[id]).rules?.attackTax))) return [];
+  return game.players[userId].battlefield.filter(id => {
+    const c = game.cards[id];
+    if (!defOf(game, c).types.creature || c.tapped || c.faceDown || isSick(game, c)) return false;
+    return hasKeyword(game, c, "must-attack") && !hasKeyword(game, c, "defender") && !hasKeyword(game, c, "cant-attack");
+  });
+}
+
 function declareAttackersAction(game, userId, action, random, now) {
   if (game.turn.active !== userId) return fail("Du bist nicht am Zug.");
   if (game.turn.phase !== "attackers") return fail("Angreifer bestimmst du im Angriffsschritt.");
@@ -5248,15 +5284,12 @@ function declareAttackersAction(game, userId, action, random, now) {
     const walker = game.cards[target];
     const walkerOk = walker && onBattlefield(game, target) && defOf(game, walker).types.planeswalker && opponents.includes(walker.owner);
     if (!opponents.includes(target) && !walkerOk) return fail("Wähle für jeden Angreifer einen Gegner oder einen gegnerischen Planeswalker.");
+    const goaders = card.goadedBy ?? [];
+    if (goaders.includes(attackTargetOwner(game, target)) && opponents.some(id => !goaders.includes(id))) return fail(`${def.name} ist aufgestachelt und muss einen anderen Spieler angreifen.`);
     attackers.push({ id: entry.id, target });
   }
-  for (const id of game.players[userId].battlefield) {
-    const c = game.cards[id];
-    if (!defOf(game, c).types.creature || c.tapped || c.faceDown || isSick(game, c)) continue;
-    if (hasKeyword(game, c, "must-attack") && !hasKeyword(game, c, "defender") && !hasKeyword(game, c, "cant-attack") && !attackers.some(a => a.id === id)) {
-      return fail(`${nameOf(game, id)} muss angreifen, wenn möglich.`);
-    }
-  }
+  const missing = forcedAttackers(game, userId).find(id => !attackers.some(a => a.id === id));
+  if (missing) return fail(`${nameOf(game, missing)} muss angreifen, wenn möglich.`);
   if (attackers.length === 0) {
     addLog(game, `${game.players[userId].name} greift nicht an.`);
     enterPhase(game, "main2");

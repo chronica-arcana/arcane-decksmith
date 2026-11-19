@@ -234,6 +234,8 @@ const LIB = [
   ["mourner", "Markentrauer", "Enchantment", "{G}", 2, {}, "Whenever a creature you control with a +1/+1 counter on it dies, draw a card."],
   ["skyherald", "Himmelsherold", "Enchantment", "{G}", 2, {}, "Whenever a creature you control with flying enters, it gains haste until end of turn."],
   ["overseer", "Metallaufseher", "Creature — Construct", "{G}", 2, { power: "1", toughness: "1" }, "When Metallaufseher enters, put a +1/+1 counter on each other creature you control that entered this turn."],
+  ["goader", "Hetzruf", "Instant", "{G}", 2, {}, "Goad target creature."],
+  ["goadall", "Aufruhr", "Sorcery", "{G}", 2, {}, "Goad all creatures you don't control."],
 ];
 const facts = new Map();
 
@@ -1037,12 +1039,25 @@ describe("Dauertest: das Spiel bleibt nie stehen", () => {
       const blocks = blockers.length && attackers.length && random() < 0.5 ? [{ blocker: blockers[0].id, attacker: attackers[0].id }] : [];
       return [uid, { type: "declareBlockers", blocks }];
     }
-    if (game.turn.phase === "attackers" && game.turn.active === uid && random() < 0.6) {
+    const forced = mine.battlefield.filter(c => c.kind === "creature" && !c.tapped && !c.sick && c.keywords?.includes("must-attack") && !c.keywords?.includes("defender") && !c.keywords?.includes("cant-attack"));
+    if (game.turn.phase === "attackers" && game.turn.active === uid && !game.combat && (forced.length > 0 || random() < 0.6)) {
       const ready = mine.battlefield.filter(c => c.kind === "creature" && !c.tapped && !c.sick && !c.keywords?.includes("defender"));
-      if (ready.length) return [uid, { type: "declareAttackers", attackers: [{ id: ready[0].id, target: v.players.find(p => p.userId !== uid).userId }] }];
+      const foes = v.players.filter(p => p.userId !== uid && !p.eliminated).map(p => p.userId);
+      const list = [...new Set([...forced, ...ready.slice(0, 1)])];
+      const pick = c => foes.find(foe => !(c.goadedBy ?? []).includes(foe)) ?? foes[0];
+      if (list.length) return [uid, { type: "declareAttackers", attackers: list.map(c => ({ id: c.id, target: pick(c) })) }];
     }
     for (const card of [...mine.hand, ...mine.command, ...mine.graveyard]) {
       if (card.play?.ok) {
+        if (card.play.modes?.length) {
+          // modale Zauber: die ersten wählbaren Modi (bei „choose two“ entsprechend viele)
+          const need = card.play.modeCount?.min ?? 1;
+          const usable = card.play.modes.map((mode, index) => ({ mode, index })).filter(({ mode }) => !mode.manual && mode.targets.every(t => t.options.length > 0)).slice(0, need);
+          if (usable.length < need) continue;
+          const targets = usable.flatMap(({ mode }) => mode.targets.map(t => t.options[0]));
+          options.push({ type: "cast", id: card.id, ...(card.play.modeCount ? { modes: usable.map(u => u.index) } : { mode: usable[0].index }), ...(targets.length ? { targets } : {}) });
+          continue;
+        }
         const targets = (card.play.targets ?? []).map(t => t.options[0]);
         if (card.play.targets?.some(t => t.options.length === 0)) continue;
         options.push({ type: card.play.kind === "land" ? "playLand" : "cast", id: card.id, ...(targets.length ? { targets } : {}) });
@@ -1333,6 +1348,58 @@ describe("Bedingungen, Modi, X und Cycling", () => {
     expect(game.cards[fresh].counters["+1/+1"]).toBe(1);
     expect(game.cards[old].counters["+1/+1"] ?? 0).toBe(0);
     expect(game.cards[overseer].counters["+1/+1"] ?? 0).toBe(0);
+  });
+
+  it("Goad: aufgestachelte Kreatur muss angreifen, nicht den Aufstachler; endet mit dessen nächstem Zug", () => {
+    const { game, random } = started("standard", 3);
+    forest(game, "u0", 2);
+    const bear = put(game, "u1", "Bär", "battlefield");
+    castAndResolve(game, "u0", "Hetzruf", random, [bear]);
+    for (let i = 0; i < 6 && game.stack.length > 0; i += 1) act(game, game.priority, { type: "pass" }, random);
+    expect(game.cards[bear].goadedBy).toEqual(["u0"]);
+    expect(view(game, "u1").players.flatMap(p => p.battlefield).find(c => c.id === bear).goaded).toBe(true);
+    // u1 ist am Zug und greift an
+    game.turn.active = "u1";
+    game.turn.phase = "attackers";
+    game.priority = "u1";
+    game.stack = [];
+    game.cards[bear].sinceSeq = -1;
+    expect(act(game, "u1", { type: "declareAttackers", attackers: [] }, random).error).toMatch(/muss angreifen/);
+    expect(act(game, "u1", { type: "declareAttackers", attackers: [{ id: bear, target: "u0" }] }, random).error).toMatch(/aufgestachelt/);
+    expect(act(game, "u1", { type: "declareAttackers", attackers: [{ id: bear, target: "u2" }] }, random).ok).toBe(true);
+  });
+
+  it("Goad: „all creatures you don't control“ trifft nur gegnerische Kreaturen; Zugbeginn des Aufstachlers beendet es", () => {
+    const { game, random } = started();
+    forest(game, "u0", 2);
+    const mine = put(game, "u0", "Bär", "battlefield");
+    const theirs = put(game, "u1", "Bär", "battlefield");
+    castAndResolve(game, "u0", "Aufruhr", random);
+    for (let i = 0; i < 6 && game.stack.length > 0; i += 1) act(game, game.priority, { type: "pass" }, random);
+    expect(game.cards[theirs].goadedBy).toEqual(["u0"]);
+    expect(game.cards[mine].goadedBy ?? []).toEqual([]);
+    // Zwei Spieler: nur der Aufstachler ist angreifbar, also greift u1 ihn an; mit dem nächsten Zug von u0 endet Goad
+    game.cards[theirs].sinceSeq = -1;
+    let attacked = false;
+    for (let i = 0; i < 80 && !(attacked && game.turn.active === "u0"); i += 1) {
+      if (game.turn.active === "u1" && game.turn.phase === "attackers" && !game.combat) {
+        const forced = act(game, "u1", { type: "declareAttackers", attackers: [] }, random);
+        expect(forced.error).toMatch(/muss angreifen/);
+        expect(act(game, "u1", { type: "declareAttackers", attackers: [{ id: theirs, target: "u0" }] }, random).ok).toBe(true);
+        attacked = true;
+        continue;
+      }
+      if (game.turn.phase === "blockers" && game.combat && !game.priority) {
+        act(game, "u0", { type: "declareBlockers", blocks: [] }, random);
+        continue;
+      }
+      if (game.choice) act(game, game.choice.userId, { type: "choose", ids: game.choice.options.slice(0, game.choice.min ?? 0) }, random);
+      else if (game.pendingDiscard) act(game, "u1", { type: "discard", ids: game.players.u1.hand.slice(0, game.players.u1.hand.length - 7) }, random);
+      else act(game, game.priority ?? game.turn.active, { type: "pass" }, random);
+    }
+    expect(attacked).toBe(true);
+    expect(game.turn.active).toBe("u0");
+    expect(game.cards[theirs].goadedBy).toEqual([]);
   });
 
   it("X-Zauber: der gewählte Wert bestimmt die Menge", () => {

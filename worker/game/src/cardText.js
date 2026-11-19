@@ -416,6 +416,25 @@ function parseSentence(raw, specs) {
     if (n === null || n === "X") return null;
     return [{ type: "countersAll", n, kind: m[2], ...(m[3] === "creature" ? {} : { subtype: m[3] }), ...(m[4] === "your opponents control" ? { opp: true } : {}) }];
   }
+  // Goad: „goad target creature“, „goad up to N target creatures“, „goad all creatures you don't control“, „goad each creature target player controls“
+  if (/^goad (?:all|each) creatures? (?:you don't control|your opponents control)$/.test(lower)) return [{ type: "goad", all: true }];
+  if ((m = lower.match(/^goad each creature (target (?:player|opponent)) controls$/))) {
+    const t = addTarget(specs, m[1]);
+    return t === null ? null : [{ type: "goad", eachOfTarget: t }];
+  }
+  if (/^goad (?:it|that creature)$/.test(lower)) return [{ type: "goad", subjectCard: true }];
+  if ((m = lower.match(/^goad (?:up to (one|two|three|four|five|x) )?(target creatures?(?: an opponent controls| you don't control)?)$/))) {
+    const count = m[1] ? { one: 1, two: 2, three: 3, four: 4, five: 5, x: "X" }[m[1]] : 1;
+    if (count === "X") return null; // variable Zielanzahl wird (noch) nicht unterstützt
+    const effects = [];
+    for (let i = 0; i < count; i += 1) {
+      const t = addTarget(specs, m[2].replace(/creatures/, "creature"));
+      if (t === null) return null;
+      if (m[1]) specs[t] = { ...specs[t], optional: true };
+      effects.push({ type: "goad", t });
+    }
+    return effects;
+  }
   // Allgemein: „put a +1/+1 counter on each <Filter>“ (Filter wie eine Zielangabe, z. B. „artifact creature you control“, „creature you control that entered this turn“)
   if ((m = lower.match(new RegExp(`^put ${N} ([+-]1/[+-]1|[a-z]+) counters? on each (other )?(.+)$`))) && !/\b(target|of)\b/.test(m[4])) {
     const n = num(m[1]);
@@ -1181,6 +1200,7 @@ function describeBase(effect) {
     case "noCombat": return "Verhindert allen Kampfschaden an und von dieser Kreatur in diesem Zug.";
     case "counterTo": return "";
     case "ifCounterThisTurn": return `Wenn in diesem Zug ein Marker auf diese Karte kam: ${effect.effects.map(describeEffect).join(" ")}`;
+    case "goad": return effect.all ? "Stachelt alle gegnerischen Kreaturen auf." : "Stachelt die Kreatur auf (muss angreifen, nicht dich).";
     case "countersEach": return `${effect.n}× ${effect.kind}-Marker auf jedes passende Permanent.`;
     case "countersAll": return `${effect.n}× ${effect.kind}-Marker auf jede ${effect.other ? "andere " : ""}eigene Kreatur.`;
     case "digUntil": return "Deckt Karten auf, bis eine Kreatur erscheint; sie kommt auf die Hand, der Rest unter die Bibliothek.";

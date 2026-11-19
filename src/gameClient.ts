@@ -70,6 +70,8 @@ export type GameCard = {
   kind: "land" | "creature" | "other";
   attacking: boolean;
   chosenType?: string | null;
+  goaded?: boolean;
+  goadedBy?: string[];
   foretell?: { ok: boolean; cost: string } | null;
   evoke?: { ok: boolean; cost: string } | null;
   mutate?: { ok: boolean; cost: string; targets: { id: string; name: string }[] } | null;
