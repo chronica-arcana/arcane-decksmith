@@ -571,6 +571,12 @@ function parseSentence(raw, specs) {
   if (lower === "you draw a card for each card discarded this way" || lower === "draw a card for each card discarded this way") return [{ type: "draw", who: { k: "you" }, n: 0, nFrom: { discarded: true } }];
   if ((m = lower.match(/^reveal the top (two|three|four|five|six|seven|\d+) cards of your library$/))) return [{ type: "lookTop", n: num(m[1]) }];
   if ((m = lower.match(/^you may put an? ([a-z]+) card from among them into your hand$/))) return [{ type: "lookTake", what: m[1], count: 1, optional: true }];
+  if ((m = lower.match(/^return ~ from your graveyard to (your hand|the battlefield)( tapped)?$/))) return [{ type: "returnSelfFromGy", to: m[1] === "your hand" ? "hand" : "battlefield", tapped: Boolean(m[2]) }];
+  if ((m = lower.match(/^(you may )?sacrifice (a|an|another) (creature|artifact|enchantment|land|permanent|nonland permanent|token|[a-z]+)$/)) && !["it", "them"].includes(m[3])) {
+    const what = m[3] === "nonland permanent" ? "nonland" : m[3];
+    const effect = { type: "sacrificeOwn", what, other: m[2] === "another" };
+    return m[1] ? [{ type: "may", effects: [effect] }] : [effect];
+  }
   if (/^you may choose new targets for (the|that|target) (cop(y|ies)|spell or ability)$/.test(lower)) return [{ type: "noop" }];
   if ((m = lower.match(new RegExp(`^you may have (?:it|~) deal ${N} damage to each creature$`)))) {
     const n = num(m[1]);
@@ -582,8 +588,8 @@ function parseSentence(raw, specs) {
     const inner = parseSentence(s.slice(8), specs);
     return inner ? [{ type: "may", effects: inner }] : null;
   }
-  if ((m = lower.match(/^if you do, (.+)$/)) && !/^that creature gains/.test(m[1])) {
-    const inner = parseSentence(s.slice(11), specs);
+  if ((m = lower.match(/^(?:if|when) you do, (.+)$/)) && !/^that creature gains/.test(m[1])) {
+    const inner = parseSentence(s.slice(s.indexOf(",") + 2), specs);
     return inner ? [{ type: "ifDid", effects: inner }] : null;
   }
 
@@ -984,6 +990,8 @@ function describeBase(effect) {
     case "untapAllMine": return "Enttappt alle deine Kreaturen.";
     case "topLandMay": return "Ist die oberste Karte ein Land, darf es aufs Schlachtfeld.";
     case "attachToSelf": return "Hängt die Ziel-Ausrüstung an diese Kreatur.";
+    case "returnSelfFromGy": return effect.to === "hand" ? "Kommt aus dem Friedhof auf die Hand." : "Kommt aus dem Friedhof aufs Schlachtfeld.";
+    case "sacrificeOwn": return "Opfert ein eigenes Permanent.";
     case "wheel": return `Jeder mischt Hand und Friedhof in die Bibliothek und zieht ${effect.n}.`;
     case "commanderToHand": return "Nimmt deinen Kommandanten aus der Kommandozone auf die Hand.";
     case "untapLands": return `Enttappt bis zu ${effect.n} Länder.`;

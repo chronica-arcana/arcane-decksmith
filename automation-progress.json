@@ -1,9 +1,9 @@
 {
-  "measuredAt": "2026-11-19T10:33:58.615Z",
+  "measuredAt": "2026-11-19T10:35:27.864Z",
   "focus": {
     "cards": 545,
-    "automated": 286,
-    "rate": 52.5,
+    "automated": 287,
+    "rate": 52.7,
     "decks": [
       {
         "name": "FIC Counter Blitz (FINAL FANTASY X)",
@@ -15,7 +15,7 @@
       },
       {
         "name": "FIC Revival Trance (FINAL FANTASY VI)",
-        "rate": 58
+        "rate": 59
       },
       {
         "name": "FIC Scions & Spellcraft (FINAL FANTASY XIV)",
@@ -41,7 +41,7 @@
   },
   "all": {
     "cards": 2006,
-    "automated": 762,
-    "rate": 38
+    "automated": 770,
+    "rate": 38.4
   }
 }

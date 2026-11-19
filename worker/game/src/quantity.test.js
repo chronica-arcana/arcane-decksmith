@@ -39,4 +39,11 @@ describe("quantity: Mengenangaben", () => {
     expect(parse("Creature — X", "When ~ enters, put a +1/+1 counter on ~ for each Vampire you control.").triggers[0].effects[0]).toMatchObject({ type: "counters", perQ: { kind: "count", who: "you" } });
     expect(parse("Sorcery", "Draw a card for each opponent you attacked this turn.").spell.effects[0]).toMatchObject({ perQ: { kind: "oppAttacked" } });
   });
+
+  it("„When you do“ wie „If you do“, Opfern als Teil eines Effekts, Rückkehr aus dem Friedhof", () => {
+    const parse = (typeLine, oracleText) => parseCardText({ name: "Karte", typeLine, oracleText });
+    const parsed = parse("Creature — X", "At the beginning of your end step, you may sacrifice another creature. When you do, draw a card.");
+    expect(parsed.triggers[0].effects.map(effect => effect.type)).toEqual(["may", "ifDid"]);
+    expect(parse("Creature — X", "Whenever you sacrifice a creature, return this card from your graveyard to your hand.").notes.length + parse("Sorcery", "Return this card from your graveyard to your hand.").spell.unparsed.length).toBeLessThanOrEqual(1);
+  });
 });

@@ -3080,6 +3080,53 @@ function runEffect(game, rawEffect, ctx, rest) {
       addLog(game, `${nameOf(game, gear.id)} wird an ${nameOf(game, sourceCard.id)} angehängt (${name}).`);
       return false;
     }
+    case "returnSelfFromGy": {
+      const card = sourceCard;
+      const owner = card ? game.players[card.origOwner ?? card.owner] : null;
+      if (!card || !owner?.graveyard.includes(card.id)) return false;
+      owner.graveyard.splice(owner.graveyard.indexOf(card.id), 1);
+      if (effect.to === "hand") {
+        owner.hand.push(card.id);
+        addLog(game, `${nameOf(game, card.id)} kommt aus dem Friedhof auf die Hand (${name}).`);
+      } else {
+        owner.battlefield.push(card.id);
+        enterBattlefield(game, card);
+        if (effect.tapped) card.tapped = true;
+        addLog(game, `${nameOf(game, card.id)} kehrt aus dem Friedhof aufs Schlachtfeld zurück (${name}).`);
+      }
+      return false;
+    }
+    case "sacrificeOwn": {
+      const options = controller.battlefield.filter(id => {
+        if (effect.other && id === ctx.source) return false;
+        const def = defOf(game, game.cards[id]);
+        if (effect.what === "token") return game.cards[id].token;
+        return effect.what === "permanent" ? true : effect.what === "nonland" ? !def.types.land : typeMatches(def, effect.what) || hasSubtype(def, effect.what);
+      });
+      if (options.length === 0) {
+        ctx.didMay = false;
+        return false;
+      }
+      ctx.didMay = true;
+      if (options.length === 1) {
+        ctx.sacrificed = options[0];
+        ctx.snap = { ...(ctx.snap ?? {}), ...snapshotTargets(game, options) };
+        addLog(game, `${controller.name} opfert ${nameOf(game, options[0])} (${name}).`);
+        toGraveyard(game, game.cards[options[0]]);
+        return false;
+      }
+      return openChoice(game, {
+        userId: ctx.controller,
+        kind: "cards",
+        prompt: `Wähle, was du opferst (${name}).`,
+        options,
+        min: 1,
+        max: 1,
+        step: { type: "sacrificeOne" },
+        queue: rest,
+        ctx
+      });
+    }
     case "wheel": {
       for (const id of alive(game)) {
         const holder = game.players[id];

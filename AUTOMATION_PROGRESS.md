@@ -19,6 +19,7 @@ Startpunkt der autonomen Phase (PR #69): Star Trek/FF 278/545 (51,0 %), alle Dec
 |---|---|---|---|
 | 1 | Generischer Mengen-Baustein (`quantity.js`): „where X is …“, „… equal to …“, X bei Spielsteinen und +X/+X | 284 (52,1 %) | 755 (37,6 %) |
 | 2 | Generisches „for each <Filter>“ über den Mengen-Baustein | 286 (52,5 %) | 762 (38,0 %) |
+| 3 | „When you do“, „(you may) sacrifice a <Typ>“ als Effekt, „return ~ from your graveyard“ | 287 (52,7 %) | 770 (38,4 %) |
 
 ## Implementierte Bausteine (Auswahl)
 
