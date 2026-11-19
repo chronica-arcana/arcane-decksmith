@@ -204,7 +204,7 @@ export default function Battlefield({
   const withPays = (specs: TargetOption[], pays: PayRequirement[] | undefined, build: (targets: string[], pay: string[]) => GameAction) => {
     const picks: TargetOption[] = (pays ?? [])
       .filter(item => item.kind !== "life" && item.kind !== "removeCounter" && item.kind !== "energy")
-      .flatMap(item => Array.from({ length: item.n }, () => ({ kind: item.kind === "discard" ? "payDiscard" : item.kind === "tap" ? "payTap" : "paySacrifice", options: item.options })));
+      .flatMap(item => Array.from({ length: item.n }, () => ({ kind: item.kind === "discard" ? "payDiscard" : item.kind === "tap" ? "payTap" : item.kind === "removeAnyCounter" ? "payCounter" : "paySacrifice", options: item.options })));
     return { specs: [...specs, ...picks], run: (picked: string[]) => build(picked.slice(0, specs.length), picked.slice(specs.length)) };
   };
 
@@ -289,6 +289,11 @@ export default function Battlefield({
         { label: "→ Bibliothek oben", onClick: () => moveCard(card, "library", { position: "top" }) },
         { label: "→ Bibliothek unten", onClick: () => moveCard(card, "library", { position: "bottom" }) }
       ];
+      if (zone === "hand") {
+        for (const ability of card.abilities ?? []) {
+          items.push({ label: `Fähigkeit: ${ability.text}`, disabled: !ability.ok, onClick: () => startActivate(card, ability) });
+        }
+      }
       if (zone === "hand" && card.mutate) {
         for (const target of card.mutate.targets) {
           items.push({ label: `Mutate ${card.mutate.cost} → über ${target.name}`, disabled: !card.mutate.ok, onClick: () => payOrAct({ type: "cast", id: card.id, mutate: target.id, over: true }) });

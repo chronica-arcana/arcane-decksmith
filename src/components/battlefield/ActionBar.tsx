@@ -35,7 +35,7 @@ const TARGET_LABELS: Record<string, string> = {
   any: "ein beliebiges Ziel", player: "einen Spieler", opponent: "einen Gegner", creature: "eine Kreatur", planeswalker: "einen Planeswalker",
   artifact: "ein Artefakt", enchantment: "eine Verzauberung", land: "ein Land", permanent: "einen Permanent", nonland: "einen Nichtland-Permanent",
   creatureOrPlaneswalker: "eine Kreatur oder einen Planeswalker", artifactOrEnchantment: "ein Artefakt oder eine Verzauberung",
-  paySacrifice: "eine Karte, die du opferst", payDiscard: "eine Karte, die du abwirfst", payTap: "ein Permanent, das du tappst", spell: "einen Zauber", creatureSpell: "einen Kreaturenzauber", noncreatureSpell: "einen Nichtkreaturenzauber", instantOrSorcerySpell: "einen Spontan- oder Hexereizauber"
+  paySacrifice: "eine Karte, die du opferst", payDiscard: "eine Karte, die du abwirfst", payTap: "ein Permanent, das du tappst", payCounter: "ein Permanent, von dem ein Marker entfernt wird", spell: "einen Zauber", creatureSpell: "einen Kreaturenzauber", noncreatureSpell: "einen Nichtkreaturenzauber", instantOrSorcerySpell: "einen Spontan- oder Hexereizauber"
 };
 
 /**
