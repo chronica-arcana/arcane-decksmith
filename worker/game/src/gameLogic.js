@@ -146,6 +146,11 @@ function staticEffects(game, card) {
       if (attach) {
         result.p += attach.p;
         result.th += attach.th;
+        if (attach.perQ) {
+          const n = evalQuantity(game, { controller: source.owner, source: source.id, targets: [] }, attach.perQ.q);
+          result.p += attach.perQ.p * n;
+          result.th += attach.perQ.th * n;
+        }
         result.grants.push(...attach.grants);
         result.revokes.push(...(attach.revokes ?? []));
       }
@@ -186,7 +191,11 @@ const colorsOfCard = (game, card) => colorsOfDef(defOf(game, card));
 const srcOfDef = (def, id) => ({ colors: colorsOfDef(def), id });
 const srcOfCard = (game, card) => srcOfDef(defOf(game, card), card.id);
 const protectedFrom = (game, card, sourceColors) => {
-  const protection = defOf(game, card).rules?.protection ?? [];
+  const protection = [...(defOf(game, card).rules?.protection ?? [])];
+  for (const id of game.players[card.owner]?.battlefield ?? []) {
+    const other = game.cards[id];
+    if (other?.attachedTo === card.id) protection.push(...(defOf(game, other).rules?.attach?.protection ?? []));
+  }
   return sourceColors.some(color => protection.includes(color));
 };
 
@@ -1916,6 +1925,14 @@ function fireGlobal(game, event, subject) {
 
 function fireTriggers(game, card, event, subject) {
   const def = defOf(game, card);
+  // Von Ausrüstung/Aura verliehene Auslöser („Equipped creature has "Whenever ~ attacks, …"“)
+  for (const id of game.players[card.owner]?.battlefield ?? []) {
+    const gear = game.cards[id];
+    if (gear?.attachedTo !== card.id) continue;
+    for (const trigger of defOf(game, gear).rules?.attachTriggers ?? []) {
+      if (trigger.event === event) game.triggerQueue.push({ controller: card.owner, source: card.id, sourceName: def.name, trigger, subject });
+    }
+  }
   // „Artifact creatures you control have "Whenever ~ deals combat damage …"“
   for (const id of game.players[card.owner]?.battlefield ?? []) {
     for (const granted of defOf(game, game.cards[id]).rules?.grantedTriggers ?? []) {

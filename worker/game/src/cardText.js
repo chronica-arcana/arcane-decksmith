@@ -1847,8 +1847,47 @@ export function parseCardText({ name, typeLine, oracleText }) {
       }
     }
     // Dauerbonus durch Anhängen: „Equipped creature gets +2/+1, has trample and loses flying.“
-    const attach = line.match(/^(?:equipped|enchanted) creature (gets|has|loses) (.+?)\.?$/i);
+    const attach = line.match(/^(?:equipped|enchanted) creature (gets|has|loses|is) (.+?)\.?$/i);
     if (attach) {
+      // Bausteine herauslösen: Fähigkeiten in Anführungszeichen, Schutz vor Farben, „+N/+N for each …“, Typ-Zusätze
+      let rest = `${attach[1]} ${attach[2]}`;
+      let ok = true;
+      const grantedTriggers = [];
+      rest = rest.replace(/(?:,\s*)?(?:and )?has "([^"]+)"/gi, (whole, quoted) => {
+        const sub = parseCardText({ name: "~", typeLine: "Creature", oracleText: quoted.replace(/\bthis creature\b/gi, "~").replace(/,$/, "") });
+        if (sub.triggers.length === 0 || sub.notes.length > 0 || sub.activated.length > 0 || sub.triggers.some(trigger => trigger.unparsed.length > 0)) ok = false;
+        grantedTriggers.push(...sub.triggers);
+        return "";
+      });
+      const protection = [];
+      rest = rest.replace(/(?:,\s*)?(?:and )?(?:has )?protection from ((?:white|blue|black|red|green)(?:,? (?:and )?from (?:white|blue|black|red|green))*)/gi, (whole, colors) => {
+        protection.push(...colors.toLowerCase().split(/,? (?:and )?from /).map(color => COLOR_LETTERS[color.trim()]));
+        return "";
+      });
+      let perQ = null;
+      rest = rest.replace(/gets ([+-]\d+)\/([+-]\d+) for each (.+?)(?= and |,|$)/i, (whole, p, th, tail) => {
+        const quantity = parseForEach(tail.replace(/ on ~$/, " on ~"), phrase => parseTargetSpec(phrase));
+        if (!quantity) ok = false;
+        perQ = { p: Number(p), th: Number(th), q: quantity };
+        return "gets +0/+0";
+      });
+      rest = rest.replace(/(?:,\s*)?(?:and )?is an? [a-z ]+ in addition to its other (?:creature )?types/gi, "").replace(/,\s*(?=,|$)/g, "").replace(/\s+and\s*$/i, "").trim();
+      if (!rest || /^(gets|has|is)$/i.test(rest)) rest = "gets +0/+0";
+      if (ok && (grantedTriggers.length > 0 || protection.length > 0 || perQ)) {
+        const clauses = parseAttachClauses(rest.replace(/^is /i, "gets +0/+0 and "));
+        if (clauses) {
+          result.attach = {
+            p: (result.attach?.p ?? 0) + clauses.p,
+            th: (result.attach?.th ?? 0) + clauses.th,
+            grants: [...(result.attach?.grants ?? []), ...clauses.grants],
+            ...(clauses.revokes.length ? { revokes: clauses.revokes } : {}),
+            ...(protection.length ? { protection } : {}),
+            ...(perQ ? { perQ } : {})
+          };
+          if (grantedTriggers.length) result.attachTriggers = [...(result.attachTriggers ?? []), ...grantedTriggers];
+          continue;
+        }
+      }
       const clauses = parseAttachClauses(`${attach[1]} ${attach[2]}`);
       if (clauses) {
         result.attach = {

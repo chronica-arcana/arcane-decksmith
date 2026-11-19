@@ -184,6 +184,9 @@ const LIB = [
   ["swarmcaller", "Schwarmrufer", "Creature — Wizard", "{1}", 2, { power: "3", toughness: "3" }, "When ~ enters, create X 1/1 colorless Construct artifact creature tokens, where X is ~'s power."],
   ["lifecount", "Lebenszähler", "Sorcery", "{G}", 2, {}, "You gain life equal to the number of creatures you control."],
   ["lifewatch", "Lebenswächter", "Creature — Cleric", "{1}", 2, { power: "1", toughness: "1" }, "At the beginning of your end step, if you gained life this turn, draw a card."],
+  ["lightsword", "Lichtschwert", "Artifact — Equipment", "{1}", 2, {}, "Equipped creature gets +2/+2 and has protection from red.\nEquip {1}"],
+  ["chargemace", "Ladungskeule", "Artifact — Equipment", "{1}", 2, {}, "Equipped creature gets +1/+1 for each charge counter on this Equipment.\nWhenever equipped creature attacks, you gain 1 life.\nEquip {1}"],
+  ["battlecry", "Schlachtruf-Rüstung", "Artifact — Equipment", "{1}", 2, {}, "Equipped creature has \"Whenever this creature attacks, you gain 2 life.\"\nEquip {1}"],
   ["convoker", "Einberufer", "Sorcery", "{3}{G}", 2, {}, "Convoke\nDraw a card."],
   ["delver", "Schürfer", "Sorcery", "{4}{G}", 2, {}, "Delve\nDraw a card."],
   ["sculptor", "Bildhauer", "Creature — Vedalken", "{G}", 2, { power: "1", toughness: "1" }, "Artifact spells you cast cost {1} less to cast."],
@@ -2925,6 +2928,30 @@ describe("Neue Mechaniken aus den Commander-Decks", () => {
     for (let i = 0; i < 20 && game.turn.active === "u0" && game.turn.phase !== "end"; i += 1) act(game, game.priority ?? "u0", { type: "pass" }, random);
     go(game, random);
     expect(game.players.u0.hand.length).toBeGreaterThanOrEqual(hand + 1);
+  });
+
+  it("Ausrüstung: Schutz vor Farben, „+1/+1 for each charge counter“, verliehener Angriffs-Auslöser", () => {
+    const { game, random } = started();
+    const bear = put(game, "u0", "Bär", "battlefield");
+    const sword = put(game, "u0", "Lichtschwert", "battlefield");
+    game.cards[sword].attachedTo = bear;
+    put(game, "u1", "Mountain", "battlefield");
+    expect(view(game, "u0").players[0].battlefield.find(c => c.id === bear).power).toBe(4);
+    const bolt = put(game, "u1", "Blitz", "hand");
+    game.priority = "u1";
+    expect(act(game, "u1", { type: "cast", id: bolt, targets: [bear] }, random).ok).toBe(false); // Schutz vor Rot
+    const mace = put(game, "u0", "Ladungskeule", "battlefield");
+    game.cards[mace].attachedTo = bear;
+    game.cards[mace].counters.charge = 2;
+    expect(view(game, "u0").players[0].battlefield.find(c => c.id === bear).power).toBe(6);
+    const cry = put(game, "u0", "Schlachtruf-Rüstung", "battlefield");
+    game.cards[cry].attachedTo = bear;
+    const life = game.players.u0.life;
+    game.priority = "u0";
+    game.turn.phase = "attackers";
+    expect(act(game, "u0", { type: "declareAttackers", attackers: [{ id: bear, target: "u1" }] }, random).ok).toBe(true);
+    go(game, random);
+    expect(game.players.u0.life).toBe(life + 3); // 1 (Keule) + 2 (verliehen)
   });
 
   it("Convoke und Delve bezahlen fehlendes Mana mit Kreaturen bzw. Friedhofskarten", () => {

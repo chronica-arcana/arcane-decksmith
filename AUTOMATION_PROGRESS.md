@@ -21,6 +21,7 @@ Startpunkt der autonomen Phase (PR #69): Star Trek/FF 278/545 (51,0 %), alle Dec
 | 2 | Generisches „for each <Filter>“ über den Mengen-Baustein | 286 (52,5 %) | 762 (38,0 %) |
 | 3 | „When you do“, „(you may) sacrifice a <Typ>“ als Effekt, „return ~ from your graveyard“ | 287 (52,7 %) | 770 (38,4 %) |
 | 4 | Generische Bedingungen (`parseCondition`): Kontrolle von N <Filter>, Leben erhalten, Monarch, Angriff, Handkarten, Friedhof, eigener Zug … | 287 (52,7 %) | 779 (38,8 %) |
+| 5 | Ausrüstung/Aura: Schutz vor Farben, „+N/+N for each …“ (Mengen-Baustein), verliehene Auslöser in Anführungszeichen | 289 (53,0 %) | 782 (39,0 %) |
 
 ## Implementierte Bausteine (Auswahl)
 
