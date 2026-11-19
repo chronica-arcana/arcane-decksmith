@@ -123,6 +123,7 @@ function staticEffects(game, card) {
           : effect.scope === "opp" ? source.owner !== card.owner
           : true;
         if (!applies) continue;
+        if (effect.tokenOnly && !card.token) continue;
         if (effect.anyOf && !effect.anyOf.some(word => (word in defOf(game, card).types ? defOf(game, card).types[word] : hasSubtype(defOf(game, card), word)))) continue;
         if (effect.counter && !(effect.counter === "any" ? Object.values(card.counters).some(value => value > 0) : card.counters[effect.counter] > 0)) continue;
         if (effect.colors && !colorsOfCard(game, card).some(color => effect.colors.includes(color))) continue;
@@ -817,7 +818,7 @@ const canPayExtras = (game, userId, extras, selfId) =>
   payRequirements(game, userId, extras, selfId).every(item => {
     if (item.kind === "life") return game.players[userId].life > item.n;
     if (item.kind === "energy") return game.players[userId].energy >= item.n;
-    if (item.kind === "removeCounter") return (game.cards[selfId]?.counters[item.counter] ?? 0) >= item.n;
+    if (item.kind === "removeCounter") return item.counter === "any" ? Object.values(game.cards[selfId]?.counters ?? {}).reduce((a, b) => a + b, 0) >= item.n : (game.cards[selfId]?.counters[item.counter] ?? 0) >= item.n;
     return item.options.length >= item.n;
   });
 
@@ -838,7 +839,8 @@ function resolvePay(game, userId, extras, pay, selfId) {
       continue;
     }
     if (item.kind === "removeCounter") {
-      if ((game.cards[selfId]?.counters[item.counter] ?? 0) < item.n) return { error: `Es ist kein ${item.counter}-Marker mehr auf der Karte.` };
+      const have = item.counter === "any" ? Object.values(game.cards[selfId]?.counters ?? {}).reduce((a, b) => a + b, 0) : game.cards[selfId]?.counters[item.counter] ?? 0;
+      if (have < item.n) return { error: `Es ist kein ${item.counter}-Marker mehr auf der Karte.` };
       picks.push({ item, ids: [] });
       continue;
     }
@@ -874,7 +876,13 @@ function applyPay(game, userId, picks, name, selfId) {
       addLog(game, `${player.name} zahlt ${item.n} Energie (${name}).`);
     } else if (item.kind === "removeCounter") {
       const card = game.cards[selfId];
-      if (card) {
+      if (card && item.counter === "any") {
+        const kind = Object.keys(card.counters).find(k => card.counters[k] > 0);
+        if (kind) {
+          card.counters[kind] -= item.n;
+          if (card.counters[kind] <= 0) delete card.counters[kind];
+        }
+      } else if (card) {
         card.counters[item.counter] -= item.n;
         if (card.counters[item.counter] <= 0) delete card.counters[item.counter];
       }
@@ -1884,6 +1892,7 @@ function fireGlobal(game, event, subject) {
         if (scope.nontoken && typeof subject !== "string" && subject.token) continue;
         if (scope.permType && (typeof subject === "string" || !(scope.permType in defOf(game, subject).types ? defOf(game, subject).types[scope.permType] : hasSubtype(defOf(game, subject), scope.permType)))) continue;
         if (scope.anyOf && (typeof subject === "string" || !scope.anyOf.some(word => hasSubtype(defOf(game, subject), word)))) continue;
+        if (scope.commander && (typeof subject === "string" || !subject.cmd)) continue;
         if (scope.legendary && (typeof subject === "string" || !defOf(game, subject).types.legendary)) continue;
         if (trigger.kinds && (typeof subject === "string" || !trigger.kinds.some(kind => defOf(game, subject).types[kind]))) continue;
         if (scope.minPower !== undefined && (typeof subject === "string" || powerOf(game, subject) < scope.minPower)) continue;
@@ -2156,6 +2165,7 @@ function perCount(game, ctx, per) {
     case "land your opponents control": return game.seats.filter(id => id !== ctx.controller).reduce((sum, id) => sum + ofType(game.players[id].battlefield, "land"), 0);
     case "other creature you control": return ofType(mine.battlefield, "creature") - (ctx.source && mine.battlefield.includes(ctx.source) && defOf(game, game.cards[ctx.source]).types.creature ? 1 : 0);
     case "opponent": return alive(game).filter(id => id !== ctx.controller).length;
+    case "attacking creature": return game.combat?.attackers?.length ?? 0;
     case "creature you control with a +1/+1 counter": return mine.battlefield.filter(id => defOf(game, game.cards[id]).types.creature && (game.cards[id].counters["+1/+1"] ?? 0) > 0).length;
     default: return 0;
   }
@@ -2217,6 +2227,7 @@ function runEffect(game, rawEffect, ctx, rest) {
           const gone = player.hand.splice(0, player.hand.length);
           player.graveyard.push(...gone);
           addLog(game, `${player.name} wirft ab: ${gone.map(id => nameOf(game, id)).join(", ")} (${name}).`);
+          ctx.discarded = (ctx.discarded ?? 0) + gone.length;
           fireDiscards(game, gone);
           continue;
         }
@@ -2423,6 +2434,8 @@ function runEffect(game, rawEffect, ctx, rest) {
           if (effect.nonTypes?.some(type => def.types[type])) continue;
           if (effect.exceptMade && (ctx.madeTokens ?? []).includes(id)) continue;
           if (effect.onlyTapped && !c.tapped) continue;
+          if (effect.subtype && !hasSubtype(def, effect.subtype)) continue;
+          if (effect.nonSubtype && hasSubtype(def, effect.nonSubtype)) continue;
           if (effect.noCounters && Object.values(c.counters).some(value => value > 0)) continue;
           if (effect.oppOnly && c.owner === ctx.controller) continue;
           if (effect.filter) {
@@ -3680,6 +3693,7 @@ function chooseAction(game, userId, action, random, now) {
         player.graveyard.push(id);
       }
       addLog(game, `${player.name} wirft ab: ${ids.map(id => nameOf(game, id)).join(", ")}.`);
+      if (ctx) ctx.discarded = (ctx.discarded ?? 0) + ids.length;
       fireDiscards(game, ids);
       break;
     case "shock": {
@@ -4859,6 +4873,7 @@ function declareAttackersAction(game, userId, action, random, now) {
     const card = game.cards[attacker.id];
     if (!hasKeyword(game, card, "vigilance")) card.tapped = true;
     fireTriggers(game, card, "attacks");
+    fireGlobal(game, "creatureAttacks", card);
     for (const other of Object.values(game.cards)) {
       if (other.attachedTo !== card.id || !onBattlefield(game, other.id)) continue;
       for (const trigger of defOf(game, other).rules?.triggers ?? []) {

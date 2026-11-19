@@ -179,6 +179,8 @@ const LIB = [
   ["phoenixdown", "Phönixfeder", "Artifact", "{1}", 2, {}, "{1}, {T}, Exile ~: Choose one —\n• Return target creature card with mana value 4 or less from your graveyard to the battlefield tapped.\n• You gain 1 life."],
   ["handbolt", "Handblitz", "Creature — Borg", "{3}", 2, { power: "2", toughness: "2" }, "{G}, Discard this card: It deals 2 damage to target creature."],
   ["oaka", "Händler", "Creature — Merchant", "{1}", 2, { power: "1", toughness: "1" }, "{T}, Remove a counter from a nonland permanent you control: Draw a card."],
+  ["tome", "Sagenbuch", "Artifact", "{1}", 2, {}, "~ enters with a page counter on it.\nWhenever a creature you control attacks, put a page counter on ~."],
+  ["tokenlord", "Spielsteinherr", "Creature — Advisor", "{1}", 2, { power: "1", toughness: "1" }, "Creature tokens you control get +1/+1."],
   ["convoker", "Einberufer", "Sorcery", "{3}{G}", 2, {}, "Convoke\nDraw a card."],
   ["delver", "Schürfer", "Sorcery", "{4}{G}", 2, {}, "Delve\nDraw a card."],
   ["sculptor", "Bildhauer", "Creature — Vedalken", "{G}", 2, { power: "1", toughness: "1" }, "Artifact spells you cast cost {1} less to cast."],
@@ -2875,6 +2877,27 @@ describe("Neue Mechaniken aus den Commander-Decks", () => {
     go(game, random);
     expect(game.cards[holder].counters["+1/+1"]).toBeUndefined();
     expect(game.players.u0.hand.length).toBe(hand + 1);
+  });
+
+  it("Runde 3: Eintritts-Marker, „a creature you control attacks“, Token-Anthem", () => {
+    const { game, random } = started();
+    const tome = put(game, "u0", "Sagenbuch", "hand");
+    forest(game, "u0", 1);
+    expect(act(game, "u0", { type: "cast", id: tome }, random).ok).toBe(true);
+    go(game, random);
+    expect(game.cards[tome].counters.page).toBe(1);
+    const a = put(game, "u0", "Bär", "battlefield");
+    const b = put(game, "u0", "Falke", "battlefield");
+    game.turn.phase = "attackers";
+    expect(act(game, "u0", { type: "declareAttackers", attackers: [{ id: a, target: "u1" }, { id: b, target: "u1" }] }, random).ok).toBe(true);
+    go(game, random);
+    expect(game.cards[tome].counters.page).toBe(3); // je Angreifer ein Marker
+    const { game: g2, random: r2 } = started();
+    put(g2, "u0", "Spielsteinherr", "battlefield");
+    forest(g2, "u0", 1);
+    castAndResolve(g2, "u0", "Koboldsturm", r2);
+    const goblin = g2.players.u0.battlefield.find(id => g2.cards[id].token);
+    expect(view(g2, "u0").players[0].battlefield.find(c => c.id === goblin).power).toBe(2);
   });
 
   it("Convoke und Delve bezahlen fehlendes Mana mit Kreaturen bzw. Friedhofskarten", () => {

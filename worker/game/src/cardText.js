@@ -365,7 +365,7 @@ function parseSentence(raw, specs) {
     return n === null || n === "X" ? null : [{ type: "counters", n, kind: m[2], self: true }];
   }
   // „… for each …“: der Effekt wird mit der Anzahl multipliziert.
-  if ((m = lower.match(/^(.+?) for each (creature you control|land you control|artifact you control|creature your opponents control|creature|land|artifact|card in your hand|opponent)$/))) {
+  if ((m = lower.match(/^(.+?) for each (creature you control|land you control|artifact you control|creature your opponents control|attacking creature|creature|land|artifact|card in your hand|opponent)$/))) {
     const head = parseSentence(s.slice(0, m[1].length), specs);
     if (head && head.length === 1 && typeof head[0].n === "number" && head[0].n === 1) return [{ ...head[0], per: m[2] }];
     return null;
@@ -536,6 +536,11 @@ function parseSentence(raw, specs) {
     const t = n === null ? null : addTarget(specs, m[2]);
     return t === null ? null : [{ type: "damage", n, to: { k: "target", t } }];
   }
+  if ((m = lower.match(/^destroy all (non-)?([a-z]+) creatures$/)) && !["tapped", "attacking", "other"].includes(m[2])) return [{ type: "destroyAll", what: "creature", mode: "destroy", ...(m[1] ? { nonSubtype: m[2] } : { subtype: m[2] }) }];
+  if (lower === "each other player discards a card" || lower === "each opponent discards a card") return [{ type: "discard", who: { k: "eachOpp" }, n: 1 }];
+  if (lower === "you draw a card for each card discarded this way" || lower === "draw a card for each card discarded this way") return [{ type: "draw", who: { k: "you" }, n: 0, nFrom: { discarded: true } }];
+  if ((m = lower.match(/^reveal the top (two|three|four|five|six|seven|\d+) cards of your library$/))) return [{ type: "lookTop", n: num(m[1]) }];
+  if ((m = lower.match(/^you may put an? ([a-z]+) card from among them into your hand$/))) return [{ type: "lookTake", what: m[1], count: 1, optional: true }];
   if (/^you may choose new targets for (the|that|target) (cop(y|ies)|spell or ability)$/.test(lower)) return [{ type: "noop" }];
   if ((m = lower.match(new RegExp(`^you may have (?:it|~) deal ${N} damage to each creature$`)))) {
     const n = num(m[1]);
@@ -895,7 +900,9 @@ function parseAbilityCost(text) {
     else if (part === "Discard ~") cost.discardSelf = true;
     else if ((m = part.match(/^Remove a counter from an? (nonland )?permanent you control$/i))) cost.extra = [...(cost.extra ?? []), { kind: "removeAnyCounter", n: 1, nonland: Boolean(m[1]) }];
     else if ((m = part.match(/^Sacrifice (a|an|another) (artifact creature|nontoken creature|nonland permanent)$/i))) cost.extra = [...(cost.extra ?? []), { kind: "sacrifice", what: m[2].toLowerCase() === "nonland permanent" ? "nonland" : m[2].toLowerCase().replace("nontoken ", ""), n: 1, other: m[1].toLowerCase() === "another", ...(/artifact creature/i.test(m[2]) ? { artifactCreature: true } : {}), ...(/nontoken/i.test(m[2]) ? { nontoken: true } : {}) }];
-    else if ((m = part.match(/^Remove an? ([a-z0-9+/-]+) counter from ~$/i))) {
+    else if (/^Remove a counter from ~$/i.test(part)) {
+      cost.extra = [...(cost.extra ?? []), { kind: "removeCounter", counter: "any", n: 1 }];
+    } else if ((m = part.match(/^Remove an? ([a-z0-9+/-]+) counter from ~$/i))) {
       cost.extra = [...(cost.extra ?? []), { kind: "removeCounter", counter: m[1].toLowerCase(), n: 1 }];
     } else if ((m = part.match(/^Tap (an|one|two|three) untapped (creature|artifact|land|permanent)s? you control$/i))) {
       cost.extra = [...(cost.extra ?? []), { kind: "tap", what: m[2].toLowerCase(), n: COUNT_WORD[m[1].toLowerCase()] ?? 1 }];
@@ -1207,6 +1214,9 @@ function triggerEvent(word, condition) {
     return { event: "creatureEnters", scope: { owner: "you", another: false, anyOf: [m[1], m[2]] } };
   }
   if (word === "At" && condition === "the beginning of each end step") return { event: "endStep", scope: { owner: "any", another: false } };
+  if (/^a creature you control attacks$/.test(condition)) return { event: "creatureAttacks", scope: { owner: "you", another: false } };
+  if (/^(?:another )?creature you control attacks$/.test(condition)) return { event: "creatureAttacks", scope: { owner: "you", another: true } };
+  if (/^your commander attacks$/.test(condition)) return { event: "creatureAttacks", scope: { owner: "you", another: false, commander: true } };
   if (/^one or more other creatures die$/.test(condition)) return { event: "creatureDies", scope: { owner: "any", another: true } };
   if (/^an opponent casts a creature spell$/.test(condition)) return { event: "castCreature", scope: { owner: "opp", another: false } };
   if (/^~ deals combat damage to a player or planeswalker$/.test(condition)) return { event: "dealsCombatDamage" };
@@ -1502,9 +1512,9 @@ export function parseCardText({ name, typeLine, oracleText }) {
       result.manaCond = manaCond[1].startsWith("an artifact") ? { type: "artifact" } : { type: "bigCreature" };
       continue;
     }
-    const entersCounters = line.match(/^~ enters with (one|two|three|four|five|\d+) ([a-z]+|[+-]1\/[+-]1) counters? on it\.?$/i);
+    const entersCounters = line.match(/^~ enters with (a|an|one|two|three|four|five|\d+) ([a-z]+|[+-]1\/[+-]1) counters? on it\.?$/i);
     if (entersCounters) {
-      result.entersWithCounters = { n: /^\d+$/.test(entersCounters[1]) ? Number(entersCounters[1]) : COUNT_WORD[entersCounters[1].toLowerCase()] ?? { four: 4, five: 5 }[entersCounters[1].toLowerCase()], kind: entersCounters[2].toLowerCase() };
+      result.entersWithCounters = { n: /^\d+$/.test(entersCounters[1]) ? Number(entersCounters[1]) : (COUNT_WORD[entersCounters[1].toLowerCase()] ?? { four: 4, five: 5 }[entersCounters[1].toLowerCase()]), kind: entersCounters[2].toLowerCase() };
       continue;
     }
     const chargeEnters = line.match(/^~ enters tapped with (one|two|three|\d+) charge counters? on it\.?$/i);
@@ -1654,6 +1664,11 @@ export function parseCardText({ name, typeLine, oracleText }) {
     const attachPer = line.match(/^(?:equipped|enchanted) creature gets ([+-]\d+)\/([+-]\d+) for each (artifact|creature|land|enchantment) you control\.?$/i);
     if (attachPer) {
       result.attachPer = { p: Number(attachPer[1]), th: Number(attachPer[2]), per: `${attachPer[3].toLowerCase()} you control` };
+      continue;
+    }
+    const ownPower = line.match(/^~'s power is equal to the number of (artifacts|creatures|lands) you control\.?$/i);
+    if (ownPower) {
+      result.dynamicPT = { per: `${ownPower[1].toLowerCase().replace(/s$/, "")} you control`, mult: 1, powerOnly: true };
       continue;
     }
     const oppPower = line.match(/^~'s power is equal to the number of (artifacts|creatures|lands) your opponents control\.?$/i);
@@ -1854,6 +1869,11 @@ export function parseCardText({ name, typeLine, oracleText }) {
     }
 
     // Dauereffekte: Boni für Kreaturen
+    const tokenAnthem = line.match(/^creature tokens you control get ([+-]\d+)\/([+-]\d+)\.?$/i);
+    if (tokenAnthem) {
+      result.statics.push({ scope: "you", tokenOnly: true, p: Number(tokenAnthem[1]), th: Number(tokenAnthem[2]), grants: [] });
+      continue;
+    }
     const anthem = line.match(/^(other )?creatures you control get ([+-]\d+)\/([+-]\d+)(?: and have ([a-z, ]+))?\.?$/i);
     const tribal = line.match(/^(other )?(?!creatures\b|other\b)([a-z]+)(?: creatures)? you control get ([+-]\d+)\/([+-]\d+)(?: and have ([a-z, ]+))?\.?$/i);
     const chosen = line.match(/^(other )?creatures you control of the chosen type get ([+-]\d+)\/([+-]\d+)(?: and have ([a-z, ]+))?\.?$/i);
@@ -1889,7 +1909,9 @@ export function parseCardText({ name, typeLine, oracleText }) {
       const condition = trigger[2].toLowerCase();
       const events = /^~ enters( the battlefield)? or attacks$/.test(condition)
         ? [triggerEvent(trigger[1], "~ enters"), triggerEvent(trigger[1], "~ attacks")]
-        : /^~ enters( the battlefield)? or dies$/.test(condition)
+        : /^your commander enters or attacks$/.test(condition)
+          ? [{ event: "creatureEnters", scope: { owner: "you", another: false, commander: true } }, { event: "creatureAttacks", scope: { owner: "you", another: false, commander: true } }]
+          : /^~ enters( the battlefield)? or dies$/.test(condition)
           ? [triggerEvent(trigger[1], "~ enters"), triggerEvent(trigger[1], "~ dies")]
           : /^~ attacks or blocks$/.test(condition)
           ? [triggerEvent(trigger[1], "~ attacks"), triggerEvent(trigger[1], "~ blocks")]

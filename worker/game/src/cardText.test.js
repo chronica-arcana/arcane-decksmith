@@ -371,3 +371,23 @@ describe("cardText: Star Trek/FF Runde 2", () => {
     expect(parse("Creature — X", "When ~ enters, you may discard your hand. If you do, draw a card for each card discarded this way.").triggers[0].unparsed).toEqual([]);
   });
 });
+
+describe("cardText: Star Trek/FF Runde 3", () => {
+  const parse = (typeLine, oracleText) => parseCardText({ name: "Karte", typeLine, oracleText });
+
+  it("Kommandant/Angriff-Auslöser, Marker-Kosten, Eintritts-Marker, Token-Anthem", () => {
+    expect(parse("Artifact", "Whenever your commander enters or attacks, put a page counter on ~.").triggers.map(t => [t.event, t.scope.commander])).toEqual([["creatureEnters", true], ["creatureAttacks", true]]);
+    expect(parse("Creature — X", "Whenever a creature you control attacks, you gain 1 life.").triggers[0].event).toBe("creatureAttacks");
+    expect(parse("Artifact", "{T}, Remove a counter from ~: Draw a card.").activated[0].cost.extra[0]).toMatchObject({ kind: "removeCounter", counter: "any" });
+    expect(parse("Artifact", "~ enters with a page counter on it.").entersWithCounters).toEqual({ n: 1, kind: "page" });
+    expect(parse("Creature — X", "Creature tokens you control get +1/+1.").statics[0]).toMatchObject({ tokenOnly: true, p: 1, th: 1 });
+    expect(parse("Artifact Creature — Golem", "~'s power is equal to the number of artifacts you control.").dynamicPT).toMatchObject({ per: "artifact you control", powerOnly: true });
+  });
+
+  it("Spruchtexte: Drachen zerstören, Syphon Mind, Satyr Wayfinder, „for each attacking creature“", () => {
+    expect(parse("Sorcery", "Destroy all non-Dragon creatures.").spell.effects[0]).toMatchObject({ type: "destroyAll", nonSubtype: "dragon" });
+    expect(parse("Sorcery", "Each other player discards a card. You draw a card for each card discarded this way.").spell.unparsed).toEqual([]);
+    expect(parse("Creature — X", "When ~ enters, reveal the top four cards of your library. You may put a land card from among them into your hand. Put the rest into your graveyard.").triggers[0].unparsed).toEqual([]);
+    expect(parse("Instant", "Draw a card for each attacking creature.").spell.effects[0]).toMatchObject({ per: "attacking creature" });
+  });
+});
